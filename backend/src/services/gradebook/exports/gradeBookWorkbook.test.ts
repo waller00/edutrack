@@ -5,6 +5,7 @@ import {
   buildConsolidatedSheet,
   buildGradesSheet,
   buildPlanillaSheet,
+  conductLabel,
   displayValue,
   planillaColumns,
 } from './gradeBookWorkbook.js'
@@ -71,20 +72,20 @@ describe('buildGradesSheet', () => {
 })
 
 describe('buildClosureSheet', () => {
-  it('lleva C, R, descriptor y el texto del período con su nombre', () => {
+  it('lleva C (conducta), R (rendimiento), descriptor y el texto del período con su nombre', () => {
     const workbook = new ExcelJS.Workbook()
     const sheet = buildClosureSheet(workbook, META, '1.ª Entrega', [
       {
         studentId: 's1', lastName: 'Benítez', firstName: 'Ana', documentId: null,
-        valueHundredths: 750, meetingValueHundredths: 800, descriptorLabel: 'Muy bueno',
+        conductLabel: 'Muy buena', meetingValueHundredths: 800, descriptorLabel: 'Muy bueno',
         conceptualJudgement: 'Progresa bien.',
       },
     ], 1, 'Informe de actuación')
 
     expect(sheet.getRow(5).values).toEqual([
-      undefined, 'Estudiante', 'Documento', 'C (calificación)', 'R (reunión)', 'Descriptor', 'Informe de actuación',
+      undefined, 'Estudiante', 'Documento', 'C (conducta)', 'R (rendimiento)', 'Descriptor', 'Informe de actuación',
     ])
-    expect(cellAt(sheet, 6, 3)).toBe(7.5)
+    expect(cellAt(sheet, 6, 3)).toBe('Muy buena')
     expect(cellAt(sheet, 6, 4)).toBe(8)
     expect(cellAt(sheet, 6, 5)).toBe('Muy bueno')
     expect(cellAt(sheet, 6, 6)).toBe('Progresa bien.')
@@ -155,18 +156,19 @@ describe('hoja Planilla', () => {
 
     const workbook = new ExcelJS.Workbook()
     const sheet = buildPlanillaSheet(workbook, META, STUDENTS.slice(0, 1), [semestre], [], [
-      { periodId: 's1', studentId: 's1', valueHundredths: 900, meetingValueHundredths: 900, conceptualJudgement: 'Muy buen semestre.' },
-    ], 0)
+      { periodId: 's1', studentId: 's1', conductValueHundredths: 900, meetingValueHundredths: 900, conceptualJudgement: 'Muy buen semestre.' },
+    ], 0, CONDUCT)
     // Nº · Estudiante · Documento · Or · Otras · Ev · C · R · Juicio
-    expect(cellAt(sheet, 7, 7)).toBe(9)
+    expect(cellAt(sheet, 7, 7)).toBe('Muy buena')
+    expect(cellAt(sheet, 7, 8)).toBe(9)
     expect(cellAt(sheet, 7, 9)).toBe('Muy buen semestre.')
   })
 
-  it('las notas sueltas van juntas y sin promediar; C y R como número', () => {
+  it('las notas sueltas van juntas y sin promediar; C con el texto de la conducta y R como número', () => {
     const workbook = new ExcelJS.Workbook()
     const sheet = buildPlanillaSheet(workbook, META, STUDENTS.slice(0, 1), PERIODS, GRADES, [
-      { periodId: 'e2', studentId: 's1', valueHundredths: 700, meetingValueHundredths: 800, conceptualJudgement: 'Avanza.' },
-    ], 0)
+      { periodId: 'e2', studentId: 's1', conductValueHundredths: 700, meetingValueHundredths: 800, conceptualJudgement: 'Avanza.' },
+    ], 0, CONDUCT)
 
     expect(cellAt(sheet, 5, 5)).toBe('Julio')
     expect(cellAt(sheet, 6, 1)).toBe('Nº')
@@ -174,7 +176,17 @@ describe('hoja Planilla', () => {
     expect(cellAt(sheet, 7, 5)).toBe('7 · 9')
     expect(cellAt(sheet, 7, 8)).toBe('Aus')
     expect(cellAt(sheet, 7, 11)).toBe('Avanza.')
-    expect(cellAt(sheet, 7, 12)).toBe(7)
+    expect(cellAt(sheet, 7, 12)).toBe('Buena')
     expect(cellAt(sheet, 7, 13)).toBe(8)
   })
+
+  it('una conducta sin cargar queda vacía', () => {
+    expect(conductLabel(null, CONDUCT)).toBe('')
+    expect(conductLabel(900, CONDUCT)).toBe('Muy buena')
+  })
 })
+
+const CONDUCT = [
+  { minValueHundredths: 600, maxValueHundredths: 799, label: 'Buena' },
+  { minValueHundredths: 800, maxValueHundredths: 1000, label: 'Muy buena' },
+]

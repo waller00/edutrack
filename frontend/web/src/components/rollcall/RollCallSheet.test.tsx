@@ -106,6 +106,47 @@ describe('<RollCallSheet />', () => {
     expect(pushMock).toHaveBeenCalledWith('/me/roll-call?date=2026-10-08')
   })
 
+  it('una lista sin pasar abre con todos presentes y se guarda sin tocar nada', async () => {
+    apiMock.mockImplementation(async (_path: string, init?: { method?: string }) =>
+      init?.method === 'PUT' ? sheet({ rollCall: { status: 'TAKEN' } }) : sheet(),
+    )
+    render(<RollCallSheet eventId="ev-1" ymd="2026-10-08" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Guardar lista/ }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/student-attendance/sessions/ev-1/2026-10-08', expect.objectContaining({ method: 'PUT' })))
+    const put = apiMock.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(JSON.parse(put![1].body).entries).toEqual([{ studentId: 's1', status: 'PRESENT', note: null }])
+  })
+
+  it('copia la hora anterior del mismo grupo y lo guarda como copiada', async () => {
+    const previous = {
+      available: true,
+      reason: null,
+      sourceSession: { id: 'ses-prev', subject: 'Historia', startAt: '2026-10-08T12:00:00.000Z', endAt: '2026-10-08T12:45:00.000Z', takenBy: 'Ana Pérez' },
+      suggestions: [{ studentId: 's1', status: 'ABSENT' }],
+      newStudentIds: [],
+    }
+    apiMock.mockImplementation(async (path: string, init?: { method?: string }) => {
+      if (init?.method === 'PUT') return sheet({ rollCall: { status: 'TAKEN', copyPreviousEnabled: true } })
+      if (path.endsWith('/previous')) return previous
+      return sheet({ rollCall: { copyPreviousEnabled: true } })
+    })
+    render(<RollCallSheet eventId="ev-1" ymd="2026-10-08" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Copiar hora anterior/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }))
+    fireEvent.click(screen.getByRole('button', { name: /Guardar lista/ }))
+
+    await waitFor(() => expect(apiMock.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(true))
+    const put = apiMock.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(JSON.parse(put![1].body)).toMatchObject({
+      source: 'COPIED_FROM_PREVIOUS',
+      copiedFromSessionId: 'ses-prev',
+      entries: [{ studentId: 's1', status: 'ABSENT', note: null }],
+    })
+  })
+
   it('al guardar avisa a la franja de arriba', async () => {
     const saved = sheet({ rollCall: { status: 'TAKEN', takenAt: '2026-10-08T13:11:00.000Z', takenBy: 'Juan Gómez' } })
     apiMock.mockImplementation(async (_path: string, init?: { method?: string }) => (init?.method === 'PUT' ? saved : sheet()))

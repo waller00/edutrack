@@ -30,6 +30,7 @@ import {
   orientationLabelOf,
 } from '../services/student-attendance/my-classes.js'
 import { PERSON_SELECT, personRef } from '../services/student-attendance/person.js'
+import { notifyLateRollCall, shouldNotifyLateRollCall } from '../services/student-attendance/late-roll-call.js'
 
 const r = Router()
 r.use(authGuard)
@@ -335,6 +336,28 @@ r.put('/sessions/:eventId/:ymd', requirePermission('student-attendance.take'), a
       outsideWindow: ctx.scope === 'all' && new Date() > permissions.editableUntil,
       req,
     })
+
+    const now = new Date()
+    if (
+      shouldNotifyLateRollCall({
+        isAssignedTeacher: ctx.isAssigned,
+        wasTakenBefore: session?.status === 'TAKEN',
+        occurrenceEndAt: ctx.endAt,
+        now,
+      })
+    ) {
+      const teacher = ctx.substitute?.id === req.user.sub ? ctx.substitute : personRef(ctx.event.assignedUser)
+      const orientation = orientationLabelOf(ctx.event)
+      const course = courseLabelOf(ctx.event)
+      void notifyLateRollCall({
+        subjectName: ctx.event.subject?.name ?? ctx.event.title ?? null,
+        groupLabel: course ? [course, orientation].filter(Boolean).join(' · ') : null,
+        occurrenceYmd: ctx.ymd,
+        occurrenceStartAt: ctx.startAt,
+        takenAt: now,
+        teacherName: teacher?.name ?? null,
+      })
+    }
 
     return res.json(await buildSheetResponse(ctx))
   } catch (error) {

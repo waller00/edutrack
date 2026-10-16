@@ -251,7 +251,7 @@ export default function EndorsementRowDetail({
                 onChange={(e) => setReason(e.target.value)}
               />
               <p className="text-xs text-gray-500">
-                El docente vuelve a poder corregir C, R y juicios, y recibe un aviso. Si es una entrega, se reabren
+                El docente vuelve a poder corregir conducta, rendimiento, juicios e informe del grupo, y recibe un aviso. Si es una entrega, se reabren
                 también sus tramos. Las notas de evaluaciones fuera del plazo de edición las corrige administración.
               </p>
               <div className="flex gap-2">

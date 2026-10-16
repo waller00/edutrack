@@ -6,16 +6,18 @@ import { hasAnyPermission, hasPermission, type WithPermissions } from '@/lib/aut
  * muestran lo mismo, así que comparten esto.
  */
 
-export type EndorsementSection = 'GRADES' | 'CLOSURE' | 'JUDGEMENTS' | 'ALL'
+export type EndorsementSection = 'GRADES' | 'CLOSURE' | 'JUDGEMENTS' | 'PLANNING' | 'GROUP_REPORT' | 'ALL'
 export type EndorsementStatus = 'PENDING' | 'OBSERVED' | 'CORRECTED' | 'ENDORSED'
 
 /** Secciones que se revisan por separado; `ALL` es el visado del período. */
-export const REVIEW_SECTIONS: readonly EndorsementSection[] = ['GRADES', 'CLOSURE', 'JUDGEMENTS']
+export const REVIEW_SECTIONS: readonly EndorsementSection[] = ['GRADES', 'CLOSURE', 'JUDGEMENTS', 'PLANNING', 'GROUP_REPORT']
 
 export const ENDORSEMENT_SECTION_LABELS: Record<EndorsementSection, string> = {
   GRADES: 'Calificaciones',
   CLOSURE: 'Cierre',
   JUDGEMENTS: 'Juicios',
+  PLANNING: 'Seguimiento',
+  GROUP_REPORT: 'Informe del grupo',
   ALL: 'Período',
 }
 

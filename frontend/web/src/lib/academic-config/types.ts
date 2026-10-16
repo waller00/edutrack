@@ -53,7 +53,7 @@ export type AcademicPeriod = {
   endsOn: string | null
   closesOn: string | null
   requiresConceptualJudgement: boolean
-  /** Exige C (la calificación del docente) para cerrar. */
+  /** Exige R (el rendimiento) para cerrar; si el período es reunión, también C (la conducta). */
   requiresGeneralGrade: boolean
   kind: PeriodKind
   /** Lleva reunión: tiene R y aparece en reunión, boletín, visado y control. */

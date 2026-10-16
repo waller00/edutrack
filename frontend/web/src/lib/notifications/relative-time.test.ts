@@ -49,6 +49,7 @@ describe('notificationKind', () => {
     expect(notificationKind('GRADEBOOK_MESSAGE').label).toBe('Libreta')
     expect(notificationKind('STUDENT_ALERT').label).toBe('Alertas')
     expect(notificationKind('ATTENDANCE_INCIDENT').label).toBe('Asistencia')
+    expect(notificationKind('ROLL_CALL_LATE').label).toBe('Pase de lista')
     expect(notificationKind('ALGO_NUEVO').label).toBe('Aviso')
   })
 })

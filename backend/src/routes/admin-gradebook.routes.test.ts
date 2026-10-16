@@ -1045,6 +1045,7 @@ describe('control de libretas antes de la reunión', () => {
     sortOrder: 4,
     requiresConceptualJudgement: true,
     requiresGeneralGrade: true,
+    isMeeting: true,
   }
   const TRAMOS = [
     { id: 'marzo', kind: 'TRAMO', sortOrder: 2 },
@@ -1058,10 +1059,11 @@ describe('control de libretas antes de la reunión', () => {
     periods: [
       {
         status: 'OPEN',
+        groupReport: null,
         grades: [
-          { studentId: 's1', valueHundredths: 800, meetingValueHundredths: null, conceptualJudgement: 'Bien' },
+          { studentId: 's1', meetingValueHundredths: 800, conductValueHundredths: null, conceptualJudgement: 'Bien' },
           // Un alumno dado de baja con nota no tapa al que falta.
-          { studentId: 'baja', valueHundredths: 700, meetingValueHundredths: null, conceptualJudgement: 'Bien' },
+          { studentId: 'baja', meetingValueHundredths: 700, conductValueHundredths: 700, conceptualJudgement: 'Bien' },
         ],
       },
     ],
@@ -1080,7 +1082,7 @@ describe('control de libretas antes de la reunión', () => {
     prismaMock.gradeBook.findMany.mockResolvedValue([gradedBook()])
   })
 
-  it('dice cuántos alumnos faltan en evaluaciones, C y juicio, no sólo que falta algo', async () => {
+  it('dice cuántos alumnos faltan en evaluaciones, R, C, juicio e informe, no sólo que falta algo', async () => {
     const res = await request(app())
       .get(`/admin/gradebook/completeness?periodId=${P_ID}`)
       .set('Authorization', `Bearer ${tok()}`)
@@ -1088,7 +1090,9 @@ describe('control de libretas antes de la reunión', () => {
     expect(res.status).toBe(200)
     expect(res.body.data[0]).toMatchObject({
       missingGrades: 1,
+      missingConduct: 2,
       missingJudgements: 1,
+      missingGroupReport: true,
       missingAssessmentGrades: 1,
       assessmentCount: 1,
       complete: false,
@@ -1104,13 +1108,14 @@ describe('control de libretas antes de la reunión', () => {
     expect(args.include.assessments.where).toEqual({ periodId: { in: ['marzo', 'mayo'] }, deletedAt: null })
   })
 
-  it('la R no se exige: con todo cargado y sin R está lista', async () => {
+  it('con R, C, juicio e informe del grupo cargados está lista', async () => {
     prismaMock.gradeBook.findMany.mockResolvedValue([
       gradedBook({
         periods: [
           {
             status: 'OPEN',
-            grades: everyone({ valueHundredths: 800, meetingValueHundredths: null, conceptualJudgement: 'Bien' }),
+            groupReport: 'El grupo avanzó.',
+            grades: everyone({ meetingValueHundredths: 800, conductValueHundredths: 800, conceptualJudgement: 'Bien' }),
           },
         ],
         assessments: [{ grades: everyone({ valueHundredths: 700, scaleLevelId: null, isAbsent: false }) }],
@@ -1135,7 +1140,7 @@ describe('control de libretas antes de la reunión', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.detail).toBe(
-      '1.ª Entrega: 1 nota de evaluación sin cargar, 1 sin calificación del período y 1 sin juicio conceptual.',
+      '1.ª Entrega: 1 nota de evaluación sin cargar, 1 sin rendimiento (R), 2 sin conducta (C), 1 sin juicio conceptual y falta el informe del grupo.',
     )
   })
 
@@ -1204,7 +1209,7 @@ describe('control de libretas antes de la reunión', () => {
     })
   })
 
-  it('después de la reunión avisa lo que falta para cerrar: la R y el cierre', async () => {
+  it('después de la reunión avisa que falta cerrar', async () => {
     prismaMock.gradeBook.findUnique.mockResolvedValue({ id: 'gb-1', teacherUserId: 'u-1', subject: { name: 'Matemática' } })
     prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 1 })
 
@@ -1214,7 +1219,7 @@ describe('control de libretas antes de la reunión', () => {
       .send({ periodId: P_ID, stage: 'after' })
 
     expect(res.status).toBe(200)
-    expect(res.body.detail).toBe('1.ª Entrega: 2 sin nota de reunión (R) y falta cerrar el período.')
+    expect(res.body.detail).toBe('1.ª Entrega: falta cerrar el período.')
     expect(prismaMock.inAppNotification.createMany.mock.calls[0][0].data[0].title).toBe('Falta cerrar Matemática')
   })
 

@@ -52,12 +52,14 @@ describe('reclosedAfterObservation', () => {
 })
 
 describe('serializeEndorsementRow', () => {
-  it('arma las cuatro secciones con su estado vigente y la orientación del grupo', () => {
+  it('arma todas las secciones con su estado vigente y la orientación del grupo', () => {
     const view = serializeEndorsementRow(row([observed('JUDGEMENTS', '2026-06-02T12:00:00Z')]), at('2026-06-04T12:00:00Z'))
     expect(view.sections.map((s) => [s.section, s.status])).toEqual([
       ['GRADES', 'PENDING'],
       ['CLOSURE', 'PENDING'],
       ['JUDGEMENTS', 'OBSERVED'],
+      ['PLANNING', 'PENDING'],
+      ['GROUP_REPORT', 'PENDING'],
       ['ALL', 'PENDING'],
     ])
     expect(view.sections[2].observations).toBe('Revisar.')

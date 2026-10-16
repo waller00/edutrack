@@ -5,8 +5,8 @@
  * La columna la define el tipo de actividad (`ActivityType.category`, editable en la
  * configuración). Si la API no la trae, se deduce del código del catálogo.
  *
- * Acá no se promedia nada: en la planilla cada celda tiene las notas sueltas, y la calificación
- * del período (C) la decide el docente.
+ * Acá no se promedia nada: en la planilla cada celda tiene las notas sueltas, y el rendimiento
+ * del período (R) lo decide el docente.
  */
 
 export type ActivityCategory = 'oral' | 'other' | 'written' | 'test'

@@ -29,7 +29,7 @@ export async function getOrCreateSystemSettings() {
       moodleReconcileIntervalMs: 900000,
       moodleSyncStudents: false,
       institutionTimezone: 'America/Montevideo',
-      studentRollCallEditWindowHours: 48,
+      studentRollCallEditWindowHours: 168,
       studentRollCallCopyPreviousEnabled: true,
       studentDailyAbsenceThresholdPercent: 50,
     } as any,
@@ -76,7 +76,7 @@ export async function getAttendanceOperationalSettings() {
 export async function getStudentRollCallSettings() {
   const row = (await getOrCreateSystemSettings()) as Record<string, unknown>
   return {
-    editWindowHours: Math.min(Math.max(Number(row.studentRollCallEditWindowHours ?? 48), 1), 720),
+    editWindowHours: Math.min(Math.max(Number(row.studentRollCallEditWindowHours ?? 168), 1), 168),
     copyPreviousEnabled: row.studentRollCallCopyPreviousEnabled !== false,
     dailyAbsenceThresholdPercent: Math.min(
       Math.max(Number(row.studentDailyAbsenceThresholdPercent ?? 50), 1),

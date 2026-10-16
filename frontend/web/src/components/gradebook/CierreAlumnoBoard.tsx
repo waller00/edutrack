@@ -55,7 +55,7 @@ type ClosurePeriod = {
   requiresGeneralGrade: boolean
   requiresConceptualJudgement: boolean
   assessmentCount: number
-  /** C: la calificación del docente. */
+  /** Calificación vieja del docente (antes de C = conducta): ya no se carga. */
   valueHundredths: number | null
   /** R: la nota que queda después de la reunión. */
   meetingValueHundredths?: number | null
@@ -103,8 +103,8 @@ type BoardGrade = {
 }
 type BoardResponse = { assessments: BoardAssessment[]; grades: BoardGrade[] }
 
-/** Borrador por período: C, R, el texto y la conducta (centésimos en texto, `''` sin dato). */
-type Draft = Record<string, { grade: string; meeting: string; judgement: string; conduct: string }>
+/** Borrador por período: R (rendimiento), el texto y C (conducta), en centésimos como texto (`''` sin dato). */
+type Draft = Record<string, { meeting: string; judgement: string; conduct: string }>
 
 type InfoModal = { title: string; body: string } | null
 type MeetingModal = { periodName: string; text: string; meta: string | null } | null
@@ -116,7 +116,6 @@ function buildDraft(periods: ClosurePeriod[]): Draft {
   const draft: Draft = {}
   for (const period of periods) {
     draft[period.periodId] = {
-      grade: gradeSelectFromHundredths(period.valueHundredths),
       meeting: gradeSelectFromHundredths(period.meetingValueHundredths),
       judgement: period.conceptualJudgement ?? '',
       conduct: period.conductValueHundredths == null ? '' : String(period.conductValueHundredths),
@@ -175,16 +174,13 @@ function periodBlockGrades(grades: BoardGrade[], assessments: BoardAssessment[],
 function draftPatch(period: ClosurePeriod, d: Draft[string] | undefined) {
   if (!d) return null
   const patch: {
-    valueHundredths?: number | null
     meetingValueHundredths?: number | null
     conceptualJudgement?: string | null
     conductValueHundredths?: number | null
   } = {}
-  const grade = gradeSelectToHundredths(d.grade)
   const meeting = gradeSelectToHundredths(d.meeting)
   const judgement = d.judgement.trim() || null
   const conduct = d.conduct === '' ? null : Number(d.conduct)
-  if (grade !== (period.valueHundredths ?? null)) patch.valueHundredths = grade
   if (meeting !== (period.meetingValueHundredths ?? null)) patch.meetingValueHundredths = meeting
   if (judgement !== (period.conceptualJudgement ?? null)) patch.conceptualJudgement = judgement
   if (conduct !== (period.conductValueHundredths ?? null)) patch.conductValueHundredths = conduct
@@ -192,8 +188,8 @@ function draftPatch(period: ClosurePeriod, d: Draft[string] | undefined) {
 }
 
 /**
- * Conducta en la asignatura: sólo en los períodos con reunión, que es donde se lleva al boletín.
- * Fuera de la reunión no aplica; con el período cerrado se lee.
+ * C: la conducta en la asignatura, con las etiquetas de la escala. Va en todo período con notas
+ * (tramos y entregas), igual que en la carta; con el período cerrado se lee.
  */
 function ConductCell({
   period,
@@ -208,25 +204,31 @@ function ConductCell({
   disabled: boolean
   onChange: (value: string) => void
 }) {
-  if (!period.isMeeting) return <span className="text-slate-300">—</span>
-  if (!period.canEdit) return <span className="text-sm text-slate-700">{conductText(value === '' ? null : Number(value), options)}</span>
+  if (periodKind(period) === 'DIAGNOSTICO') return <span className="text-slate-300">—</span>
+  if (!period.canEdit) {
+    return (
+      <span className="text-sm text-slate-700" aria-label={`C (conducta) de ${period.name}`}>
+        {conductText(value === '' ? null : Number(value), options)}
+      </span>
+    )
+  }
   return (
     <ConductSelect
       value={value}
       options={options}
       onChange={onChange}
       disabled={disabled}
-      aria-label={`Conducta de ${period.name}`}
+      aria-label={`C (conducta) de ${period.name}`}
     />
   )
 }
 
-/** Qué le falta al período para cerrar, según su configuración: C, R (si lleva reunión) y el texto. */
+/** Qué le falta al período para cerrar, según su configuración: R, C (si lleva reunión) y el texto. */
 function periodCompleteness(period: ClosurePeriod, d: Draft[string]) {
-  const needsMeeting = Boolean(period.isMeeting && period.requiresGeneralGrade)
+  const needsConduct = Boolean(period.isMeeting && period.requiresGeneralGrade)
   const missing =
-    (period.requiresGeneralGrade && gradeSelectToHundredths(d.grade) == null) ||
-    (needsMeeting && gradeSelectToHundredths(d.meeting) == null) ||
+    (period.requiresGeneralGrade && gradeSelectToHundredths(d.meeting) == null) ||
+    (needsConduct && d.conduct === '') ||
     (period.requiresConceptualJudgement && d.judgement.trim().length === 0)
   return { missing, complete: !missing }
 }
@@ -439,7 +441,10 @@ export default function CierreAlumnoBoard({
           return {
             name: period.name,
             status: period.status,
-            valueHundredths: gradeSelectToHundredths(draft[period.periodId]?.grade ?? '') ?? period.valueHundredths,
+            conductLabel: conductText(
+              draft[period.periodId]?.conduct ? Number(draft[period.periodId].conduct) : period.conductValueHundredths ?? null,
+              sheet.conduct ?? [],
+            ),
             meetingValueHundredths:
               gradeSelectToHundredths(draft[period.periodId]?.meeting ?? '') ?? period.meetingValueHundredths ?? null,
             judgementLabel: judgementLabelOf(period),
@@ -472,7 +477,7 @@ export default function CierreAlumnoBoard({
         </h2>
         <p className="text-sm text-slate-600">{courseLabel}</p>
         <p className="text-xs text-slate-500">
-          C es la calificación que ponés vos; R, la que queda después de la reunión. La libreta no promedia.
+          C es la conducta y R el rendimiento, la nota que va al boletín. La libreta no promedia.
         </p>
       </header>
 
@@ -615,10 +620,11 @@ export default function CierreAlumnoBoard({
                           period={{ ...period, id: period.periodId }}
                           grades={periodBlockGrades(grades, assessments, period.periodId)}
                           saved={{
-                            valueHundredths: period.valueHundredths,
                             meetingValueHundredths: period.meetingValueHundredths ?? null,
+                            conductValueHundredths: period.conductValueHundredths ?? null,
                             conceptualJudgement: period.conceptualJudgement,
                           }}
+                          conduct={sheet?.conduct ?? []}
                           levels={sheet?.scale?.levels ?? []}
                           decimals={sheet?.scale?.decimals ?? 0}
                           status={period.status}
@@ -658,23 +664,20 @@ export default function CierreAlumnoBoard({
                         <thead className="border-b border-amber-100 text-xs uppercase tracking-wide text-slate-500">
                           <tr>
                             <th scope="col" className="px-3 py-2 text-left font-medium">Período</th>
-                            <th scope="col" className="px-3 py-2 text-left font-medium" title="Calificación del docente">
-                              C
+                            <th scope="col" className="px-3 py-2 text-left font-medium" title="Conducta en la asignatura">
+                              C · Conducta
                             </th>
-                            <th scope="col" className="px-3 py-2 text-left font-medium" title="Nota de reunión">
-                              R
+                            <th scope="col" className="px-3 py-2 text-left font-medium" title="Rendimiento: la nota del boletín">
+                              R · Rendimiento
                             </th>
                             <th scope="col" className="px-3 py-2 text-left font-medium">Informe / juicio</th>
-                            <th scope="col" className="px-3 py-2 text-left font-medium" title="Conducta en la asignatura, en los períodos con reunión">
-                              Conducta
-                            </th>
                             <th scope="col" className="px-3 py-2 text-center font-medium">Juicio Reu.</th>
                             <th scope="col" className="px-3 py-2 text-center font-medium">Info.</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {periods.map((period) => {
-                            const d = draft[period.periodId] ?? { grade: '', meeting: '', judgement: '' }
+                            const d = draft[period.periodId] ?? { meeting: '', judgement: '', conduct: '' }
                             const { complete, missing } = periodCompleteness(period, d)
                             const judgementLabel = judgementLabelOf(period)
                             const hasGrades = periodKind(period) !== 'DIAGNOSTICO'
@@ -690,8 +693,22 @@ export default function CierreAlumnoBoard({
                                     </span>
                                   )}
                                 </td>
-                                {(['grade', 'meeting'] as const).map((field) => {
-                                  const label = field === 'grade' ? `C de ${period.name}` : `R de ${period.name}`
+                                <td className="px-3 py-2">
+                                  <ConductCell
+                                    period={period}
+                                    value={d.conduct}
+                                    options={sheet.conduct ?? []}
+                                    disabled={saving}
+                                    onChange={(value) =>
+                                      setDraft((prev) => ({
+                                        ...prev,
+                                        [period.periodId]: { ...d, ...prev[period.periodId], conduct: value },
+                                      }))
+                                    }
+                                  />
+                                </td>
+                                {(['meeting'] as const).map((field) => {
+                                  const label = `R (rendimiento) de ${period.name}`
                                   return (
                                     <td key={field} className="px-3 py-2">
                                       {hasGrades && period.canEdit ? (
@@ -743,20 +760,6 @@ export default function CierreAlumnoBoard({
                                       {d.judgement || ''}
                                     </p>
                                   )}
-                                </td>
-                                <td className="px-3 py-2">
-                                  <ConductCell
-                                    period={period}
-                                    value={d.conduct}
-                                    options={sheet.conduct ?? []}
-                                    disabled={saving}
-                                    onChange={(value) =>
-                                      setDraft((prev) => ({
-                                        ...prev,
-                                        [period.periodId]: { ...d, ...prev[period.periodId], conduct: value },
-                                      }))
-                                    }
-                                  />
                                 </td>
                                 <td className="px-3 py-2 text-center">
                                   {hasMeeting ? (
@@ -827,9 +830,9 @@ export default function CierreAlumnoBoard({
                       </table>
                     </ScrollRegion>
                     <p className="border-t border-amber-100 bg-amber-50/50 px-3 py-1.5 text-[11px] text-slate-600">
-                      <strong>C</strong> es tu calificación y <strong>R</strong> la que quedó en la reunión: el
-                      boletín y la reunión usan R. El <strong>juicio de reunión</strong> lo carga administración en
-                      la matriz de reunión; acá se consulta.
+                      <strong>C</strong> es la conducta y <strong>R</strong> el rendimiento: el boletín y la reunión
+                      usan R. El <strong>juicio de reunión</strong> lo carga administración en la matriz de reunión;
+                      acá se consulta.
                     </p>
                   </div>
                 )}

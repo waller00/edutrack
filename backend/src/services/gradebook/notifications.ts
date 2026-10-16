@@ -74,7 +74,8 @@ export function observationNotification(params: {
     type: 'GRADEBOOK_OBSERVATION',
     title: `Observación en ${scope}`,
     body: `${params.sectionLabel}: ${excerpt(params.observations)}`,
-    actionUrl: `/libreta/${params.gradeBookId}/visados`,
+    // El docente ve lo que le observaron en "Mensajes del director".
+    actionUrl: `/libreta/${params.gradeBookId}/mensajes`,
   }
 }
 
@@ -92,7 +93,7 @@ export function reopenedNotification(params: {
     type: 'GRADEBOOK_PERIOD_REOPENED',
     title: `Se reabrió ${params.subjectName} · ${params.periodName}`,
     body: `Podés corregir y volver a cerrar. Motivo: ${excerpt(params.reason)}`,
-    actionUrl: `/libreta/${params.gradeBookId}/visados`,
+    actionUrl: `/libreta/${params.gradeBookId}/mensajes`,
   }
 }
 
@@ -105,22 +106,40 @@ export function endorsedNotification(params: {
     type: 'GRADEBOOK_ENDORSED',
     title: `Libreta visada: ${params.subjectName}`,
     body: `Dirección visó el período ${params.periodName}.`,
-    actionUrl: `/libreta/${params.gradeBookId}/visados`,
+    actionUrl: `/libreta/${params.gradeBookId}/mensajes`,
   }
 }
 
+/**
+ * Aviso de un mensaje de la libreta. Al docente lo lleva a "Mensajes del director"; a quien
+ * supervisa (la respuesta del docente a un mensaje suyo), a "Visado y seguimiento", que es donde
+ * escribe.
+ */
 export function messageNotification(params: {
   subjectName: string
   authorName: string | null
   body: string
   gradeBookId: string
+  recipient?: 'teacher' | 'supervisor'
 }): GradeBookNotification {
+  const section = params.recipient === 'supervisor' ? 'visado' : 'mensajes'
   return {
     type: 'GRADEBOOK_MESSAGE',
-    title: `Mensaje en ${params.subjectName}`,
+    title: params.recipient === 'supervisor' ? `Respuesta en ${params.subjectName}` : `Mensaje en ${params.subjectName}`,
     body: `${params.authorName ?? 'Alguien'}: ${excerpt(params.body)}`,
-    actionUrl: `/libreta/${params.gradeBookId}/mensajes`,
+    actionUrl: `/libreta/${params.gradeBookId}/${section}`,
   }
+}
+
+type ThreadMessage = { id: string; parentId: string | null; authorRoleCode: string }
+
+/**
+ * Los hilos que abrió un rol, con todas sus respuestas. Es "Mensajes del director": el docente ve
+ * lo que le escribió Dirección y lo que él mismo contestó ahí, no el resto del intercambio.
+ */
+export function threadsStartedBy<T extends ThreadMessage>(messages: readonly T[], roleCode: string): T[] {
+  const roots = new Set(messages.filter((m) => !m.parentId && m.authorRoleCode === roleCode).map((m) => m.id))
+  return messages.filter((m) => (m.parentId ? roots.has(m.parentId) : roots.has(m.id)))
 }
 
 /**

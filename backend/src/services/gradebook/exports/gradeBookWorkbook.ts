@@ -94,9 +94,9 @@ export type ExportClosureRow = {
   lastName: string
   firstName: string
   documentId: string | null
-  /** C: la calificación del docente. */
-  valueHundredths: number | null
-  /** R: la nota de reunión, la oficial. */
+  /** C: la conducta, con el texto de su escala. */
+  conductLabel: string | null
+  /** R: el rendimiento, la nota oficial. */
   meetingValueHundredths: number | null
   /** Descriptor de R, que es la que se informa. */
   descriptorLabel: string | null
@@ -107,7 +107,15 @@ function hundredthsCell(value: number | null): number | null {
   return value == null ? null : value / 100
 }
 
-/** Excel de cierre: C, R, descriptor de R y el texto del período (RF-120). */
+export type ConductLevelLabel = { minValueHundredths: number; maxValueHundredths: number; label: string }
+
+/** C es la conducta: se exporta con su texto de la escala ("Muy buena"), no como número. */
+export function conductLabel(value: number | null | undefined, levels: readonly ConductLevelLabel[]): string {
+  if (value == null) return ''
+  return levels.find((l) => value >= l.minValueHundredths && value <= l.maxValueHundredths)?.label ?? ''
+}
+
+/** Excel de cierre: C (conducta), R (rendimiento), descriptor de R y el texto del período (RF-120). */
 export function buildClosureSheet(
   workbook: ExcelJS.Workbook,
   meta: GradeBookMeta,
@@ -120,7 +128,7 @@ export function buildClosureSheet(
   writeMetaHeader(sheet, meta, `Cierre de período — ${periodName}`)
 
   const headerRowNumber = 5
-  sheet.addRow(['Estudiante', 'Documento', 'C (calificación)', 'R (reunión)', 'Descriptor', judgementLabel])
+  sheet.addRow(['Estudiante', 'Documento', 'C (conducta)', 'R (rendimiento)', 'Descriptor', judgementLabel])
 
   if (rows.length === 0) {
     addNoDataRow(sheet, 6, 'No hay estudiantes con cierre cargado.')
@@ -130,12 +138,11 @@ export function buildClosureSheet(
     const added = sheet.addRow([
       `${row.lastName}, ${row.firstName}`,
       row.documentId ?? '',
-      hundredthsCell(row.valueHundredths),
+      row.conductLabel ?? '',
       hundredthsCell(row.meetingValueHundredths),
       row.descriptorLabel ?? '',
       row.conceptualJudgement ?? '',
     ])
-    added.getCell(3).numFmt = numberFormatFor(decimals)
     added.getCell(4).numFmt = numberFormatFor(decimals)
   }
 
@@ -270,8 +277,8 @@ export type PlanillaAssessmentGrade = {
 export type PlanillaPeriodGrade = {
   periodId: string
   studentId: string
-  valueHundredths: number | null
   meetingValueHundredths: number | null
+  conductValueHundredths?: number | null
   conceptualJudgement: string | null
 }
 
@@ -324,8 +331,9 @@ function planillaCell(
   column: PlanillaColumn,
   grades: readonly PlanillaAssessmentGrade[],
   saved: PlanillaPeriodGrade | undefined,
+  conductLevels: readonly ConductLevelLabel[],
 ): string | number | null {
-  if (column.field === 'C') return hundredthsCell(saved?.valueHundredths ?? null)
+  if (column.field === 'C') return conductLabel(saved?.conductValueHundredths, conductLevels)
   if (column.field === 'R') return hundredthsCell(saved?.meetingValueHundredths ?? null)
   if (column.field === 'TEXT') return saved?.conceptualJudgement ?? ''
   return joinGrades(grades.filter((g) => g.periodId === column.periodId && g.category === column.field))
@@ -333,7 +341,7 @@ function planillaCell(
 
 /**
  * Hoja con la disposición de la planilla que el liceo ya usa (`Cal7mo`): una fila por estudiante
- * y el año en horizontal. C y R van como número; Or/Otras/Ev juntan las notas sueltas del tramo
+ * y el año en horizontal. C (conducta) va con su texto y R (rendimiento) como número; Or/Otras/Ev juntan las notas sueltas del tramo
  * en texto, porque son varias por celda —igual que en la planilla— y nunca se promedian.
  */
 export function buildPlanillaSheet(
@@ -344,6 +352,7 @@ export function buildPlanillaSheet(
   grades: readonly PlanillaAssessmentGrade[],
   periodGrades: readonly PlanillaPeriodGrade[],
   decimals: number,
+  conductLevels: readonly ConductLevelLabel[] = [],
 ) {
   const sheet = workbook.addWorksheet('Planilla')
   writeMetaHeader(sheet, meta, 'Planilla anual')
@@ -371,10 +380,12 @@ export function buildPlanillaSheet(
       index + 1,
       `${student.lastName}, ${student.firstName}`,
       student.documentId ?? '',
-      ...columns.map((column) => planillaCell(column, own, savedByKey.get(`${column.periodId}::${student.studentId}`))),
+      ...columns.map((column) =>
+        planillaCell(column, own, savedByKey.get(`${column.periodId}::${student.studentId}`), conductLevels),
+      ),
     ])
     columns.forEach((column, i) => {
-      if (column.field === 'C' || column.field === 'R') row.getCell(fixed + 1 + i).numFmt = numberFormatFor(decimals)
+      if (column.field === 'R') row.getCell(fixed + 1 + i).numFmt = numberFormatFor(decimals)
     })
   })
 

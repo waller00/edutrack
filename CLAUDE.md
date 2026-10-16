@@ -170,7 +170,8 @@ Módulo: `backend/src/services/student-attendance/`
 
 - `roster.ts` — cohorte del evento; misma precedencia que `moodle/scope.ts` (`courseOrientationId` > `orientationId` > tronco común)
 - `occurrence.ts` — valida que el día sea clase real; distingue *suspendida* de *inexistente*
-- `edit-window.ts` — la lista abre 10 min antes de la clase (`opensAt`, si no `NOT_STARTED`, para todos los alcances) y la ventana de edición del docente (`SystemSettings.studentRollCallEditWindowHours`, default 48 h)
+- `edit-window.ts` — la lista abre 10 min antes de la clase (`opensAt`, si no `NOT_STARTED`, para todos los alcances) y la ventana del docente: hasta una semana después del **fin de la clase** (`SystemSettings.studentRollCallEditWindowHours`, default y tope 168 h; pasarla tarde no abre otra semana)
+- `late-roll-call.ts` — la primera vez que el docente pasa una lista de una clase ya terminada, avisa a Dirección (`ROLL_CALL_LATE`)
 - `my-classes.ts` — clases de un día con titular, suplente y estado de la lista; `loadRollCallReminders` alimenta la franja "pasá la lista" (`GET /student-attendance/reminder`, siempre lo propio)
 - `day-roll-calls.ts` — estado de las listas de un día para "Clases del día" del Inicio (timeline de analytics)
 - `copy-previous.ts` — sugerencia de copiar la hora anterior del mismo grupo
@@ -217,18 +218,26 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 
 > **`gradebook.grade` y `gradebook.plan` son permisos distintos a propósito.** El primero cubre
 > evaluaciones, notas y juicios conceptuales; el segundo, planificación y desarrollo del curso.
-> Dirección tiene `plan` con alcance `all` y **no** tiene `grade`: así puede corregir la libreta de
-> un docente sin poder tocar una calificación. Con una sola llave esa mitad no se puede expresar.
+> **Dirección no tiene ninguno:** ve la libreta, la visa y le escribe al docente ("Mensajes del
+> director"), pero no la edita. Para sacarle un permiso a un rol que ya lo tiene en producción no
+> alcanza con los defaults: la autorización lee la base, así que va en `REVOKED_PROFILE_PERMISSION_IDS`.
+
+> **El menú de la libreta depende de quién mira** (`sectionsFor`, `lib/libreta/menu.ts`). El
+> docente tiene "Mensajes del director"; quien supervisa tiene "Visado y seguimiento". Visar no es
+> del docente.
 
 > **Exportar libretas y boletines es `gradebook.export`, no `exports.create`.** `exports.create`
 > con alcance `all` abre también `/exports`: asistencia del personal y novedades de sueldos. Sólo
 > administración lo tiene; Dirección y Adscripción exportan libretas con `gradebook.export` (`all`)
 > y cada docente las suyas (`own`, acotado por `loadContext`).
 
-> **La nota oficial del período es R, no C.** C es la calificación del docente; R, la que queda
-> después de la reunión (`PeriodGrade.meetingValueHundredths`). Boletín, matriz, promedio, ficha e
+> **C = conducta, R = rendimiento. La nota oficial es R.** C es la conducta en la asignatura
+> (`PeriodGrade.conductValueHundredths`, escala `CONDUCTA`); R, el rendimiento que pone el docente
+> (`PeriodGrade.meetingValueHundredths`, escala del nivel). Boletín, matriz, promedio, ficha e
 > indicadores leen R vía `officialPeriodValue` (`services/gradebook/period-closure.ts`); sin R, la
-> materia está pendiente. Los períodos siguen la planilla del liceo: `kind` DIAGNOSTICO / TRAMO /
+> materia está pendiente. `PeriodGrade.valueHundredths` es la "C" vieja (calificación del docente):
+> ya no se carga ni se exige. Las reuniones de boletín piden además el informe general del grupo
+> (`GradeBookPeriod.groupReport`) para cerrar. Los períodos siguen la planilla del liceo: `kind` DIAGNOSTICO / TRAMO /
 > ENTREGA, y sólo los TRAMO admiten evaluaciones. Las columnas Or/Otras/Ev muestran notas sueltas.
 
 > **Se califica con la escala del nivel, nunca con un rango fijo.** EBI es 1–10 y EMS 1–12: el

@@ -279,10 +279,10 @@ export default function AdminOperationalSettingsPanel({
             <div className="grid gap-4 sm:grid-cols-2">
               {numberField(
                 'studentRollCallEditWindowHours',
-                'Plazo para corregir el pase de lista (horas)',
+                'Plazo para pasar o corregir el pase de lista (horas)',
                 1,
-                720,
-                'Desde el fin de clase. Después, sólo administración puede corregirlo. El cambio también se aplica a listas anteriores.',
+                168,
+                'Desde el fin de clase, hasta una semana (168 h). Si el docente la pasa después de la clase, se avisa a Dirección. Vencido el plazo, sólo administración puede corregirla.',
               )}
               {numberField(
                 'studentDailyAbsenceThresholdPercent',

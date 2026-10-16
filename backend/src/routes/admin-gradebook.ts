@@ -464,7 +464,7 @@ r.post('/meeting-records', requirePermission('gradebook.review', 'all'), async (
 
 const endorsementSchema = z.object({
   gradeBookPeriodId: z.string().uuid(),
-  section: z.enum(['GRADES', 'CLOSURE', 'JUDGEMENTS', 'ALL']),
+  section: z.enum(['GRADES', 'CLOSURE', 'JUDGEMENTS', 'PLANNING', 'GROUP_REPORT', 'ALL']),
   status: z.enum(['OBSERVED', 'CORRECTED', 'ENDORSED']),
   observations: z.string().trim().max(2000).nullish(),
 })

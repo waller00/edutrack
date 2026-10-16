@@ -15,7 +15,7 @@ export default function GradeFollowUp() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end gap-3">
         <ReportCardPeriodSelect periods={periods} value={periodId} onChange={setPeriodId} />
-        <p className="pb-2 text-xs text-gray-500">Se mira la nota de reunión (R) de cada boletín.</p>
+        <p className="pb-2 text-xs text-gray-500">Se mira el rendimiento (R) de cada boletín.</p>
       </div>
       {error ? (
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">

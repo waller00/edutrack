@@ -99,6 +99,21 @@ describe('<EvaluationsBoard />', () => {
     })
   })
 
+  it('el "+" abre una ventana emergente, con el foco adentro, que Escape cierra', async () => {
+    respond()
+    const user = userEvent.setup()
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={detail()} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Agregar calificación a Benítez, Ana' }))
+    const dialog = screen.getByRole('dialog', { name: 'Nueva calificación' })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(within(dialog).getByText('Benítez, Ana')).toBeInTheDocument()
+    expect(dialog.contains(document.activeElement)).toBe(true)
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Nueva calificación' })).not.toBeInTheDocument()
+  })
+
   it('"No rindió" se guarda como tal, sin nota', async () => {
     respond()
     const user = userEvent.setup()

@@ -67,9 +67,9 @@ describe('matriz de permisos vs. rutas', () => {
 })
 
 describe('invariantes de la matriz (CLAUDE.md)', () => {
-  it('dirección planifica todas las libretas pero no califica', () => {
+  it('dirección no edita la libreta: ni planifica ni califica', () => {
     const direccion = grantsOf('DIRECCION')
-    expect(direccion.get('gradebook.plan')).toBe('all')
+    expect(direccion.has('gradebook.plan')).toBe(false)
     expect(direccion.has('gradebook.grade')).toBe(false)
   })
 

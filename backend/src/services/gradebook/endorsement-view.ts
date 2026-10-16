@@ -22,7 +22,7 @@ export const ENDORSEMENT_ROW_INCLUDE = {
   },
 }
 
-const SECTIONS: readonly Section[] = ['GRADES', 'CLOSURE', 'JUDGEMENTS', 'ALL']
+const SECTIONS: readonly Section[] = ['GRADES', 'CLOSURE', 'JUDGEMENTS', 'PLANNING', 'GROUP_REPORT', 'ALL']
 
 type EndorsementDetail = {
   section: Section

@@ -44,7 +44,7 @@ function PeriodCard({
   onDeactivate: () => void
 }) {
   const required = [
-    ...(period.requiresGeneralGrade ? ['Calificación (C)'] : []),
+    ...(period.requiresGeneralGrade ? ['Rendimiento (R)'] : []),
     ...(period.isMeeting && period.requiresGeneralGrade ? ['Reunión (R)'] : []),
     ...(period.requiresConceptualJudgement
       ? [period.judgementLabel || 'Juicio conceptual']

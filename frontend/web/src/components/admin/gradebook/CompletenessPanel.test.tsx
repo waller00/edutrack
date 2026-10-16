@@ -31,7 +31,10 @@ function row(over: Record<string, unknown> = {}) {
     missingGrades: 6,
     requiresJudgement: true,
     missingJudgements: 0,
-    meetingGradedCount: 0,
+    requiresConduct: true,
+    missingConduct: 0,
+    requiresGroupReport: true,
+    missingGroupReport: false,
     complete: false,
     ...over,
   }
@@ -75,13 +78,18 @@ describe('<CompletenessPanel />', () => {
     )
   })
 
-  it('muestra por columna qué falta: evaluaciones, C y juicio', async () => {
-    respond([row({ missingAssessmentGrades: 4 })])
+  it('muestra por columna qué falta: evaluaciones, R, C, juicio e informe del grupo', async () => {
+    respond([row({ missingAssessmentGrades: 4, missingConduct: 2, missingGroupReport: true })])
     render(<CompletenessPanel />)
     await pickPeriod()
 
     expect(await screen.findByText('3 cargadas · faltan 4 notas')).toBeInTheDocument()
     expect(screen.getByText('Faltan 6')).toBeInTheDocument()
+    expect(screen.getByText('Faltan 2')).toBeInTheDocument()
+    expect(screen.getByText('▲ Falta')).toBeInTheDocument()
+    for (const header of ['Rendimiento (R)', 'Conducta (C)', 'Informe del grupo']) {
+      expect(screen.getByRole('columnheader', { name: header })).toBeInTheDocument()
+    }
     expect(screen.getByText('Ana Benítez')).toBeInTheDocument()
   })
 
@@ -170,16 +178,15 @@ describe('<CompletenessPanel />', () => {
     expect(await screen.findByText('5.º — Científico · Matemática')).toBeInTheDocument()
   })
 
-  it('después de la reunión mira la R y el cierre, y avisa con esa etapa', async () => {
-    respond([row({ complete: true, missingMeetingGrades: 3, periodStatus: 'OPEN' })])
+  it('después de la reunión mira el cierre, y avisa con esa etapa', async () => {
+    respond([row({ complete: true, periodStatus: 'OPEN' })])
     render(<CompletenessPanel />)
     await pickPeriod()
     await screen.findByText(/Todas las libretas están al día/)
 
     fireEvent.click(screen.getByRole('radio', { name: 'Después de la reunión' }))
 
-    expect(await screen.findByText('Faltan 3')).toBeInTheDocument()
-    expect(screen.getByText('Abierto')).toBeInTheDocument()
+    expect(await screen.findByText('Abierto')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Avisar al docente/ }))
     await waitFor(() => {
       const post = mockedApi.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')

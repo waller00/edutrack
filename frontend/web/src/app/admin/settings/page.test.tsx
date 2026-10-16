@@ -29,7 +29,7 @@ const settings = {
   institutionTimezoneOptions: [
     { value: 'America/Montevideo', label: 'Uruguay — Montevideo' },
   ],
-  studentRollCallEditWindowHours: 48,
+  studentRollCallEditWindowHours: 168,
   studentRollCallCopyPreviousEnabled: true,
   studentDailyAbsenceThresholdPercent: 50,
 }
@@ -97,7 +97,7 @@ describe('AdminSystemSettingsPage', () => {
     await openAttendance()
     fireEvent.click(screen.getByText('Pase de lista estudiantil'))
     fireEvent.change(
-      screen.getByLabelText('Plazo para corregir el pase de lista (horas)'),
+      screen.getByLabelText('Plazo para pasar o corregir el pase de lista (horas)'),
       { target: { value: '72' } },
     )
     fireEvent.change(screen.getByLabelText('Umbral de falta diaria (%)'), {

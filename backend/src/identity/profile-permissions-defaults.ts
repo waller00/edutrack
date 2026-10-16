@@ -141,9 +141,8 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
   // `if` en una ruta, es lo que cumple la nota funcional del pliego ("el visado formal corresponde
   // al rol Director").
   //
-  // Lleva `gradebook.plan` y NO `gradebook.grade`: el liceo pide que el director pueda corregir la
-  // libreta de un docente salvo las calificaciones y los juicios. Por eso el permiso de calificar
-  // está partido en dos — con una sola llave no habría forma de expresar esa mitad.
+  // Sin `gradebook.grade`, `gradebook.close` ni `gradebook.plan`: el director ve la libreta del
+  // docente, la visa y le deja mensajes, pero no la edita. Si algo está mal cargado se lo avisa.
   DIRECCION: [
     perm('attendance.read', 'Asistencia del personal', 'read', 'Ver mis asistencias', true, 'own'),
     perm('events.read', 'Agenda y clases', 'read', 'Ver mis eventos', true, 'own'),
@@ -151,7 +150,6 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver libretas del centro', true, 'all'),
-    perm('gradebook.plan', 'Libreta', 'plan', 'Editar planificación y desarrollo del curso', true, 'all'),
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
     perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
     perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all'),
@@ -193,8 +191,20 @@ export const REMOVED_PROFILE_PERMISSION_IDS: Record<BuiltinProfileRole, Set<stri
   TEACHER: new Set(['attendance.create', 'events.create', 'events.update', 'licenses.create']),
   STAFF: new Set(['attendance.create', 'licenses.create']),
   ADSCRIPTO: new Set(),
-  DIRECCION: new Set(),
+  DIRECCION: new Set(['gradebook.plan']),
   INSPECCION: new Set(),
+}
+
+/**
+ * Permisos que además de dejar de sembrarse hay que **apagar** en bases que ya los tienen.
+ *
+ * `REMOVED_PROFILE_PERMISSION_IDS` sólo deja de sembrar y oculta el permiso en la pantalla de
+ * perfiles; la autorización lee la base, así que una fila vieja seguiría habilitada. Va aparte y
+ * explícito porque apagar un permiso en producción cambia lo que alguien puede hacer hoy.
+ */
+export const REVOKED_PROFILE_PERMISSION_IDS: Partial<Record<BuiltinProfileRole, readonly string[]>> = {
+  // El director ve la libreta y avisa al docente, pero no la edita (ni planificación ni desarrollo).
+  DIRECCION: ['gradebook.plan'],
 }
 
 export function normalizePermissionId(module: string, action: string) {

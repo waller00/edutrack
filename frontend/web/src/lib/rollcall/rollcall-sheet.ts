@@ -22,6 +22,23 @@ export function buildDraft(students: SheetStudent[]): SheetDraft {
   return draft
 }
 
+/**
+ * Borrador con el que abre la planilla.
+ *
+ * Una lista que nunca se pasó arranca con todos presentes: es el caso de casi todos, y el docente
+ * sólo toca a quien faltó o llegó tarde. Una lista ya pasada muestra exactamente lo guardado; un
+ * alumno sin marca ahí es un alta posterior y se deja sin estado para que el docente lo decida.
+ */
+export function initialDraft(students: SheetStudent[], sessionStatus: 'PENDING' | 'TAKEN'): SheetDraft {
+  const draft = buildDraft(students)
+  if (sessionStatus === 'TAKEN') return draft
+  for (const student of students) {
+    const cell = draft[student.studentId]
+    if (!cell.status) draft[student.studentId] = { status: 'PRESENT', note: cell.note }
+  }
+  return draft
+}
+
 export function setStatus(draft: SheetDraft, studentId: string, status: TeacherStatus): SheetDraft {
   return { ...draft, [studentId]: { status, note: draft[studentId]?.note ?? null } }
 }
@@ -52,7 +69,8 @@ export type CopySuggestion = { studentId: string; status: RollCallStatus }
  *
  * Solo toca alumnos presentes en ambas listas. Los que no venían en la hora anterior
  * (`newStudentIds`) quedan deliberadamente sin marcar: son altas nuevas o cambios de grupo,
- * y el docente tiene que decidir explícitamente, no heredar un estado que nadie afirmó.
+ * y el docente tiene que decidir explícitamente, no heredar un estado que nadie afirmó. Por eso
+ * se les borra también el "presente" con el que abre una lista nueva (`initialDraft`).
  */
 export function applyCopySuggestion(
   draft: SheetDraft,
@@ -68,6 +86,11 @@ export function applyCopySuggestion(
     const suggested = byStudent.get(student.studentId)
     if (!suggested) {
       unmatchedIds.push(student.studentId)
+      const current = draft[student.studentId]
+      // Una falta ya justificada por secretaría no la decide el docente: se conserva.
+      if (current?.status !== 'ABSENT_JUSTIFIED') {
+        next[student.studentId] = { status: null, note: current?.note ?? null }
+      }
       continue
     }
     next[student.studentId] = { status: suggested, note: draft[student.studentId]?.note ?? null }

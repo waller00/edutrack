@@ -5,9 +5,9 @@ import type { GradeBookDetail, RosterStudent } from '@/lib/gradebook/types'
 export type ClosurePrintPeriod = {
   name: string
   status: string
-  /** C: la calificación del docente. */
-  valueHundredths: number | null
-  /** R: la nota de reunión. */
+  /** C: la conducta, con el texto de su escala ("Muy buena"); `'—'` sin dato. */
+  conductLabel: string
+  /** R: el rendimiento, la nota del boletín. */
   meetingValueHundredths: number | null
   judgementLabel: string
   conceptualJudgement: string | null
@@ -50,7 +50,7 @@ export function printStudentClosure(input: {
         </tr></thead>
         <tbody><tr>
           ${categories.map((cat) => `<td>${escapeHtml(period.notes[cat] ?? '—')}</td>`).join('')}
-          <td>${cell(period.valueHundredths)}</td>
+          <td>${escapeHtml(period.conductLabel)}</td>
           <td><strong>${cell(period.meetingValueHundredths)}</strong></td>
         </tr></tbody></table>
       </div>`
@@ -62,7 +62,7 @@ export function printStudentClosure(input: {
       const text = period.conceptualJudgement?.trim()
       return `<tr>
         <td>${escapeHtml(period.name)}${period.status === 'CLOSED' ? ' <em>(cerrado)</em>' : ''}</td>
-        <td>${cell(period.valueHundredths)}</td>
+        <td>${escapeHtml(period.conductLabel)}</td>
         <td><strong>${cell(period.meetingValueHundredths)}</strong></td>
         <td>${text ? `<em>${escapeHtml(period.judgementLabel)}:</em> ${escapeHtml(text)}` : '—'}</td>
         <td>${escapeHtml(period.meetingJudgement?.trim() || '—')}</td>
@@ -113,7 +113,7 @@ export function printStudentClosure(input: {
   <h2 style="font-size:14px;margin:0 0 8px">Calificaciones y juicios</h2>
   <table class="judgements">
     <thead><tr>
-      <th>Período</th><th>C</th><th>R</th><th>Informe / juicio</th><th>Juicio reunión</th>
+      <th>Período</th><th>C (conducta)</th><th>R (rendimiento)</th><th>Informe / juicio</th><th>Juicio reunión</th>
     </tr></thead>
     <tbody>${rows || '<tr><td colspan="5">Sin períodos</td></tr>'}</tbody>
   </table>

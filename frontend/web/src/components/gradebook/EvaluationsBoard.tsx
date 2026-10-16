@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ChevronDown,
   ChevronLeft,
@@ -49,6 +50,7 @@ import MoodleImportPanel from './MoodleImportPanel'
 import AssessmentsPanel from './AssessmentsPanel'
 import PeriodBlock, { type BlockLevel, type PeriodGradePatch } from './PeriodBlock'
 import GradeSelect from './GradeSelect'
+import type { ConductOption } from './ConductSelect'
 import StudentHistory from './StudentHistory'
 import ScrollRegion from '@/components/common/ScrollRegion'
 
@@ -59,8 +61,10 @@ type Options = {
   periods: Period[]
   scales: Scale[]
   activityTypes: ActivityType[]
-  /** Escala del nivel (1–10 o 1–12): con ella se ponen las notas nuevas, C y R. */
+  /** Escala del nivel (1–10 o 1–12): con ella se ponen las notas nuevas y R. */
   periodScale?: Scale | null
+  /** Escala de conducta: las opciones de C. */
+  conduct?: ConductOption[]
 }
 
 /** Desde qué celda se abrió la carga: la planilla se llena clickeando en la columna. */
@@ -195,6 +199,19 @@ function AddGradeForm({
 
   const activity = options.activityTypes.find((t) => t.id === activityTypeId)
   const canSubmit = Boolean(activityTypeId && periodId && gradingScaleId && date) && !saving
+  const firstFieldRef = useRef<HTMLSelectElement>(null)
+
+  useEffect(() => {
+    firstFieldRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented && !saving) onCancel()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onCancel, saving])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -236,105 +253,124 @@ function AddGradeForm({
     }
   }
 
-  return (
-    <form
-      className="mt-3 space-y-3 rounded-lg border border-teal-200 bg-teal-50/40 p-4"
-      onSubmit={(e) => void handleSubmit(e)}
+  return createPortal(
+    <div
+      className="responsive-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="add-grade-title"
+      onMouseDown={(e) => {
+        // Clic en el fondo cierra, salvo mientras guarda: no se pierde una nota a medio mandar.
+        if (e.target === e.currentTarget && !saving) onCancel()
+      }}
     >
-      <header className="flex items-start justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-teal-800">
-            Agregar nueva calificación
-          </h3>
-          <p className="text-xs text-teal-700/80">{courseLabel}</p>
+      <form className="responsive-modal-panel max-w-lg space-y-4" onSubmit={(e) => void handleSubmit(e)}>
+        <header className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 id="add-grade-title" className="text-lg font-semibold text-gray-900">
+              Nueva calificación
+            </h2>
+            <p className="mt-0.5 truncate text-sm text-gray-600">
+              <span className="font-medium text-gray-900">{studentFullName(student)}</span>
+              {courseLabel ? ` · ${courseLabel}` : ''}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-full p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" aria-hidden />
+          </button>
+        </header>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1 text-sm sm:col-span-2">
+            <span className="font-medium text-gray-700">
+              Calificar <span className="text-red-600" aria-hidden>*</span>
+            </span>
+            <select
+              ref={firstFieldRef}
+              required
+              value={activityTypeId}
+              onChange={(e) => setActivityTypeId(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+            >
+              <ActivityTypeOptions activityTypes={options.activityTypes} />
+            </select>
+          </label>
+
+          <label className="grid gap-1 text-sm">
+            <span className="font-medium text-gray-700">
+              Período <span className="text-red-600" aria-hidden>*</span>
+            </span>
+            <select
+              required
+              value={periodId}
+              onChange={(e) => setPeriodId(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+            >
+              {tramos.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="grid gap-1 text-sm">
+            <span className="font-medium text-gray-700">
+              Fecha <span className="text-red-600" aria-hidden>*</span>
+            </span>
+            <input
+              type="date"
+              required
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
         </div>
-        <button type="button" onClick={onCancel} className="rounded p-1 text-gray-500 hover:bg-white" aria-label="Cerrar">
-          <X className="h-4 w-4" />
-        </button>
-      </header>
 
-      <dl className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr]">
-        <dt className="text-gray-600">Alumno</dt>
-        <dd className="font-medium text-gray-900">{studentFullName(student)}</dd>
-      </dl>
+        <div className="rounded-xl bg-amber-50/60 p-3">
+          <span className="mb-2 block text-sm font-medium text-gray-700" aria-hidden>Calificación</span>
+          <span className="flex flex-wrap items-center gap-4">
+            <GradeSelect
+              value={gradeSelect}
+              scale={scale}
+              onChange={setGradeSelect}
+              disabled={saving || absent}
+              className="w-28 rounded-lg border border-gray-300 bg-white px-3 py-2 text-base font-semibold disabled:opacity-50"
+            />
+            <AbsentCheck checked={absent} onChange={setAbsent} disabled={saving} />
+          </span>
+        </div>
 
-      <label className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr] sm:items-center">
-        <span className="text-gray-600"><span className="text-red-600">*</span> Calificar</span>
-        <select
-          required
-          value={activityTypeId}
-          onChange={(e) => setActivityTypeId(e.target.value)}
-          className="rounded border border-gray-300 px-2 py-1.5"
-        >
-          <ActivityTypeOptions activityTypes={options.activityTypes} />
-        </select>
-      </label>
-
-      <label className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr] sm:items-center">
-        <span className="text-gray-600"><span className="text-red-600">*</span> Período</span>
-        <select
-          required
-          value={periodId}
-          onChange={(e) => setPeriodId(e.target.value)}
-          className="rounded border border-gray-300 px-2 py-1.5"
-        >
-          {tramos.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
-      </label>
-
-      <label className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr] sm:items-center">
-        <span className="text-gray-600"><span className="text-red-600">*</span> Fecha</span>
-        <input
-          type="date"
-          required
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="rounded border border-gray-300 px-2 py-1.5"
-        />
-      </label>
-
-      <div className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr] sm:items-center">
-        <span className="text-gray-600" aria-hidden>Calificación</span>
-        <span className="flex flex-wrap items-center gap-3">
-          <GradeSelect
-            value={gradeSelect}
-            scale={scale}
-            onChange={setGradeSelect}
-            disabled={saving || absent}
-            className="max-w-[8rem] rounded border border-gray-300 bg-amber-50 px-2 py-1.5 disabled:opacity-50"
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium text-gray-700">Comentario</span>
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            rows={3}
+            className="rounded-lg border border-gray-300 px-3 py-2"
+            placeholder="Opcional. Si lo completás, se usa como título de la evaluación."
           />
-          <AbsentCheck checked={absent} onChange={setAbsent} disabled={saving} />
-        </span>
-      </div>
+        </label>
 
-      <label className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr]">
-        <span className="text-gray-600">Comentario</span>
-        <textarea
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          rows={3}
-          className="rounded border border-gray-300 px-2 py-1.5"
-          placeholder="Opcional. Si lo completás, se usa como título de la evaluación."
-        />
-      </label>
+        {error && (
+          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
+        )}
 
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-
-      <div className="flex justify-end gap-3">
-        <button type="button" onClick={onCancel} className="text-sm font-medium text-red-600 hover:underline">
-          Cancelar
-        </button>
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          className="rounded bg-teal-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
-        >
-          {saving ? 'Guardando…' : 'Guardar'}
-        </button>
-      </div>
-    </form>
+        <footer className="flex justify-end gap-2 border-t border-gray-100 pt-3">
+          <button type="button" onClick={onCancel} className="btn-secondary text-sm">
+            Cancelar
+          </button>
+          <button type="submit" disabled={!canSubmit} className="btn-primary text-sm">
+            {saving ? 'Guardando…' : 'Guardar'}
+          </button>
+        </footer>
+      </form>
+    </div>,
+    document.body,
   )
 }
 
@@ -906,6 +942,7 @@ function StudentCard({
                   levels={levels}
                   decimals={decimals}
                   scale={scale}
+                  conduct={options?.conduct ?? []}
                   status={state?.status}
                   editable={canGrade && (state?.canEdit ?? false)}
                   onSave={(patch) => onSavePeriodGrade(period.id, patch)}
@@ -1125,7 +1162,7 @@ export default function EvaluationsBoard({
             Calificaciones · Or · Otras · Ev · C · R
           </h2>
           <p className="text-xs text-slate-500">
-            C es la calificación del docente; R, la que queda después de la reunión.
+            C es la conducta; R, el rendimiento, la nota que va al boletín.
           </p>
           <p className="text-sm text-slate-600">{title}</p>
         </div>

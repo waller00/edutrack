@@ -31,10 +31,10 @@ export type ScaleLevelRow = {
 }
 
 export type PeriodRules = {
-  /** Exige C, la calificación del docente. */
+  /** Exige R, el rendimiento del período. */
   requiresGeneralGrade: boolean
   requiresConceptualJudgement: boolean
-  /** Lleva reunión. Si además exige C, exige también R. */
+  /** Lleva reunión. Si además exige R, exige también C (la conducta). */
   isMeeting?: boolean
 }
 
@@ -44,17 +44,22 @@ export type StudentPeriodRow = {
   firstName: string
   /** Notas del período que cuentan para el promedio (las ausencias no entran). */
   assessmentValues: number[]
-  /** C: la calificación del docente. */
-  valueHundredths: number | null
-  /** R: la nota que queda después de la reunión. */
+  /**
+   * Calificación vieja del docente (la "C" anterior a C = conducta). Ya no se carga ni se exige;
+   * queda por los datos históricos.
+   */
+  valueHundredths?: number | null
+  /** R: el rendimiento del período. Es la nota oficial. */
   meetingValueHundredths?: number | null
+  /** C: la conducta del estudiante en la asignatura, sobre la escala de conducta. */
+  conductValueHundredths?: number | null
   conceptualJudgement: string | null
 }
 
 /**
- * **La nota oficial del período es R**, la que queda después de la reunión: la usan el boletín,
- * el promedio de la reunión, la matriz y los indicadores. C es la que propone el docente y nunca
- * la reemplaza. Mientras no haya R, el período está pendiente para todo lo institucional.
+ * **La nota oficial del período es R, el rendimiento**: la usan el boletín, el promedio de la
+ * reunión, la matriz y los indicadores. C es la conducta y nunca la reemplaza. Mientras no haya R,
+ * el período está pendiente para todo lo institucional.
  *
  * Es el único lugar donde vive la regla: cualquier lectura institucional pasa por acá.
  */
@@ -181,7 +186,7 @@ export function describeValue(valueHundredths: number | null, levels: readonly S
 }
 
 export type ClosureBlocker = {
-  code: 'MISSING_GRADES' | 'MISSING_MEETING_GRADES' | 'MISSING_JUDGEMENT'
+  code: 'MISSING_GRADES' | 'MISSING_CONDUCT' | 'MISSING_JUDGEMENT' | 'MISSING_GROUP_REPORT'
   studentIds: string[]
 }
 
@@ -195,17 +200,22 @@ export type ClosureBlocker = {
 export function closureBlockers(
   students: readonly StudentPeriodRow[],
   rules: PeriodRules,
+  /**
+   * Informe general del grupo del período. `undefined` = no se cargó y no se evalúa (cálculos que
+   * sólo miran a los alumnos); `null` o vacío en una reunión de boletín bloquea el cierre.
+   */
+  groupReport?: string | null,
 ): ClosureBlocker[] {
   const blockers: ClosureBlocker[] = []
 
   if (rules.requiresGeneralGrade) {
-    const missing = students.filter((s) => s.valueHundredths == null).map((s) => s.studentId)
+    const missing = students.filter((s) => s.meetingValueHundredths == null).map((s) => s.studentId)
     if (missing.length > 0) blockers.push({ code: 'MISSING_GRADES', studentIds: missing })
   }
 
   if (rules.requiresGeneralGrade && rules.isMeeting) {
-    const missing = students.filter((s) => s.meetingValueHundredths == null).map((s) => s.studentId)
-    if (missing.length > 0) blockers.push({ code: 'MISSING_MEETING_GRADES', studentIds: missing })
+    const missing = students.filter((s) => s.conductValueHundredths == null).map((s) => s.studentId)
+    if (missing.length > 0) blockers.push({ code: 'MISSING_CONDUCT', studentIds: missing })
   }
 
   if (rules.requiresConceptualJudgement) {
@@ -215,13 +225,24 @@ export function closureBlockers(
     if (missing.length > 0) blockers.push({ code: 'MISSING_JUDGEMENT', studentIds: missing })
   }
 
+  const reportCard = isReportCardPeriod({
+    isMeeting: rules.isMeeting ?? false,
+    requiresGeneralGrade: rules.requiresGeneralGrade,
+    requiresConceptualJudgement: rules.requiresConceptualJudgement,
+  })
+  if (reportCard && groupReport !== undefined && (groupReport ?? '').trim() === '') {
+    // Es del grupo, no de un alumno: no marca filas.
+    blockers.push({ code: 'MISSING_GROUP_REPORT', studentIds: [] })
+  }
+
   return blockers
 }
 
 export const CLOSURE_BLOCKER_MESSAGES: Record<ClosureBlocker['code'], string> = {
-  MISSING_GRADES: 'Hay estudiantes sin calificación (C) del período.',
-  MISSING_MEETING_GRADES: 'Hay estudiantes sin la nota de reunión (R).',
+  MISSING_GRADES: 'Hay estudiantes sin rendimiento (R) del período.',
+  MISSING_CONDUCT: 'Hay estudiantes sin conducta (C).',
   MISSING_JUDGEMENT: 'Este período exige juicio conceptual y hay estudiantes sin él.',
+  MISSING_GROUP_REPORT: 'Falta el informe general del grupo para la reunión.',
 }
 
 /** ¿El cierre ocurre después de la fecha límite del período? (§5.9, cierres fuera de plazo) */

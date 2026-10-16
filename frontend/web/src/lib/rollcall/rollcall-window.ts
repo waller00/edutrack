@@ -28,7 +28,7 @@ export function editWindowNotice(params: {
       case 'LOCKED':
         return 'Administración cerró esta planilla. Pedile el cambio a secretaría.'
       case 'WINDOW_EXPIRED':
-        return 'Venció el plazo para editar esta lista. Pedile el cambio a secretaría.'
+        return 'Venció el plazo: la lista se puede pasar hasta una semana después de la clase. Pedile el cambio a secretaría.'
       case 'NOT_ASSIGNED':
         return 'No sos el docente de esta clase.'
       case 'NOT_STARTED':

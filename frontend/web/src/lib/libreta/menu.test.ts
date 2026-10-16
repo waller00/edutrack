@@ -1,25 +1,43 @@
 import { describe, expect, it } from 'vitest'
-import { LIBRETA_SECTIONS, sectionById, sectionHref, type LibretaSectionId } from './menu'
+import { LIBRETA_SECTIONS, sectionById, sectionHref, sectionsFor, type LibretaSectionId } from './menu'
 
 describe('menú del Libro del Profesor', () => {
-  it('ordena las secciones como la libreta de papel', () => {
-    expect(LIBRETA_SECTIONS.map((s) => s.id)).toEqual([
+  it('el docente trabaja su libreta y lee los mensajes del director', () => {
+    expect(sectionsFor({ supervises: false }).map((s) => s.id)).toEqual([
       'planificacion',
       'desarrollo',
       'evaluaciones',
-      'inasistencias',
       'cierre',
-      'visados',
       'mensajes',
     ])
+    expect(sectionById('mensajes')?.label).toBe('Mensajes del director')
+  })
+
+  it('el visado es de quien supervisa, no del docente', () => {
+    expect(sectionsFor({ supervises: true }).map((s) => s.id)).toEqual([
+      'planificacion',
+      'desarrollo',
+      'evaluaciones',
+      'cierre',
+      'visado',
+    ])
+    expect(sectionsFor({ supervises: false }).some((s) => s.id === 'visado')).toBe(false)
+  })
+
+  it('las inasistencias ya no son una sección de la libreta', () => {
+    expect(sectionById('inasistencias')).toBeUndefined()
   })
 
   it('cada sección explica para qué sirve', () => {
-    // El hint no es decorativo: "Precierre" o "Visados" no se entienden solos.
+    // El hint no es decorativo: "Precierre" o "Visado" no se entienden solos.
     for (const section of LIBRETA_SECTIONS) {
       expect(section.label.length).toBeGreaterThan(0)
       expect(section.hint.length).toBeGreaterThan(20)
     }
+  })
+
+  it('las calificaciones dicen qué es C y qué es R', () => {
+    expect(sectionById('evaluaciones')?.hint).toMatch(/C \(conducta\) y R \(rendimiento\)/)
   })
 
   it('no repite ids', () => {

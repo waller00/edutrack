@@ -320,14 +320,20 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
   (`StudentAttendanceJustification`) con motivo obligatorio, igual que en el personal.
 - **Unidad:** una lista por **ocurrencia de clase**, identificada por `(eventId, día civil)`.
   Dos horas seguidas del mismo grupo son dos listas distintas.
+- **Presente por defecto:** una lista que nunca se pasó abre con todos presentes; el docente sólo
+  toca a quien faltó o llegó tarde. Una lista ya pasada muestra lo guardado.
 - **Copiar la hora anterior:** si el mismo grupo ya tiene una lista tomada ese día, se ofrece
   precargarla. Es siempre una sugerencia que el docente confirma, y los alumnos que no estaban
-  en la hora anterior quedan explícitamente sin marcar.
+  en la hora anterior quedan explícitamente sin marcar (se les saca el "presente" por defecto).
 - **Cohorte:** se resuelve desde el evento con la misma precedencia que la integración Moodle
   (`courseOrientationId` > `orientationId` > tronco común) sobre las matrículas activas del ciclo.
-- **Ventana de edición:** se abre 10 minutos antes de la clase. El docente edita durante N horas
-  tras el fin de la clase (`studentRollCallEditWindowHours`, por defecto 48); después solo
-  administración, con auditoría.
+- **Ventana de edición:** se abre 10 minutos antes de la clase. El docente puede pasarla o
+  corregirla **hasta una semana** después del fin de la clase (`studentRollCallEditWindowHours`,
+  por defecto y como máximo 168 h). El plazo se cuenta siempre desde el fin de la clase: pasarla
+  tarde no abre otra semana. Después solo administración, con auditoría.
+- **Lista pasada fuera de hora:** si el docente (titular o suplente) pasa por primera vez la lista
+  de una clase que ya terminó, Dirección recibe un aviso (`ROLL_CALL_LATE`, campana y push) con la
+  clase, el día y cuándo se pasó. Las correcciones posteriores no vuelven a avisar.
 - **Listas sin pasar:** una clase terminada sin lista queda **pendiente**; no se generan faltas
   automáticas. Administración las ve en un panel por curso y fecha.
 - **Faltas:** se guardan por clase. La consolidación diaria (presente / media falta / falta) se
@@ -367,17 +373,27 @@ Profesor de papel — una libreta es un libro con capítulos siempre visibles a 
 pantalla con paneles apilados.
 
 **Pantallas del docente:** `/libreta` (mis libretas, con filtros Libreta / Asignatura / Docente) y
-`/libreta/[id]`, que abre el Libro del Profesor con sus siete secciones:
-`planificacion`, `desarrollo`, `evaluaciones`, `inasistencias`, `cierre`, `visados` y `mensajes`.
-Cada sección lleva en el menú una línea que explica para qué sirve: "Precierre" o "Visados" no se
+`/libreta/[id]`, que abre el Libro del Profesor. El menú depende de quién mira
+(`sectionsFor` en `lib/libreta/menu.ts`):
+- **Docente** (titular o suplente): `planificacion`, `desarrollo`, `evaluaciones`, `cierre` y
+  **Mensajes del director** (`mensajes`): lo que Dirección le observó en el visado y los hilos que le
+  abrió, a los que responde.
+- **Supervisión** (Dirección, adscripción, inspección): las mismas cuatro, de sólo lectura, y
+  **Visado y seguimiento** (`visado`): visar cada reunión cerrada, seguir si el docente dio lo que
+  planificó (planificación al lado del desarrollo clase a clase), leer el informe del grupo y
+  escribirle al docente.
+
+Una sección que no es de quien mira vuelve a la portada de la libreta. Las inasistencias ya no son
+una sección: salen del pase de lista y se ven en la carta de cada alumno.
+Cada sección lleva en el menú una línea que explica para qué sirve: "Precierre" o "Visado" no se
 entienden solos. Contraído, el menú muestra la abreviatura de cada sección; en el celular las
 secciones se eligen de un selector, para no empujar el contenido una pantalla hacia abajo.
 
 **Pantallas de supervisión:** `/libreta/reunion` (matriz del grupo), `/libreta/control`, `/libreta/visado`,
 `/libreta/indicadores`, `/libreta/estudiante/[id]` (ficha) y `/libreta/configuracion`
-(parametrización académica). Entradas globales de trabajo: `/libreta/inasistencias`,
-`/libreta/evaluaciones` y `/libreta/cierre-alumno` (*Cierre de períodos*: C, R e informe alumno por
-alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
+(parametrización académica). Entradas globales de trabajo: `/libreta/evaluaciones` y
+`/libreta/cierre-alumno` (*Cierre de períodos*: C, R e informe alumno por alumno y el cierre de cada
+entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
 
 - **Unidad:** una libreta es `(ciclo, oferta de curso, orientación opcional, asignatura)`. En
   EduTrack el "grupo" es el curso más su orientación —no hay grupos paralelos—, así que esa clave
@@ -395,17 +411,16 @@ alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma panta
   distintos (`gradebook.read` vs `gradebook.grade`).
 - **Calificar y planificar también son permisos distintos.** `gradebook.grade` cubre evaluaciones,
   notas y juicios conceptuales; `gradebook.plan`, la planificación y el desarrollo del curso.
-  Dirección tiene `plan` con alcance ALL y no tiene `grade`, así que corrige la libreta de un
-  docente sin poder tocar una calificación ni un juicio — que es exactamente lo que pide el liceo.
-  Las pantallas lo respetan (`access.canPlan` en `GET /gradebook/:id`): antes mostraban la
-  planificación y el desarrollo bloqueados a Dirección porque miraban `canGrade`. La corrección de
-  Dirección queda en la auditoría (`GRADEBOOK_PLANNING_UPDATED`) y la planificación muestra quién la
-  modificó por última vez. Un registro del desarrollo se corrige en la misma fila
+  **Dirección no tiene ninguno de los dos:** ve la libreta, la visa y le avisa al docente lo que
+  está mal cargado, pero no la edita. Como la autorización lee los permisos de la base, el permiso
+  `plan` que Dirección tenía se apaga solo al arrancar (`REVOKED_PROFILE_PERMISSION_IDS`). Las
+  pantallas lo respetan (`access.canPlan` en `GET /gradebook/:id`). Si administración corrige la
+  planificación de otro, queda en la auditoría (`GRADEBOOK_PLANNING_UPDATED`) y la planificación
+  muestra quién la modificó por última vez. Un registro del desarrollo se corrige en la misma fila
   (`PATCH /gradebook/:id/development/:entryId`); corregirlo y borrarlo quedan auditados.
-- **Pasar lista desde la libreta** (Inasistencias, `PUT /gradebook/:id/absences/day`) sigue las
-  mismas reglas que `/me/roll-call`: ventana de edición del docente, planilla cerrada por
-  administración y administración fuera de plazo auditada. El docente no gradúa la falta (eso es de
-  adscripción al justificar) y un re-marcado no pisa la graduación que haya hecho.
+- **Pasar lista desde la libreta** ya no tiene pantalla propia: se pasa en `/me/roll-call`. El
+  endpoint `PUT /gradebook/:id/absences/day` sigue las mismas reglas (ventana del docente, planilla
+  cerrada por administración, administración fuera de plazo auditada).
 - **Estructura de la planilla del liceo.** La carta del alumno reproduce los bloques de la planilla
   que el liceo usaba en Excel (`docs/Prototipo Libreta.xlsx`), para no cambiarle la operativa al
   docente. Cada período tiene un **tipo** (`AcademicPeriod.kind`):
@@ -416,13 +431,22 @@ alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma panta
     (`ActivityType.category`), editable en la configuración.
   - *Entrega* (1.ª a 4.ª, cada una con su reunión): **informe de actuación · C · R**. No admite
     notas sueltas: ni el docente ni la importación de Moodle pueden cargar evaluaciones ahí.
-- **C y R.** **C** es la calificación que pone el docente; **R**, la que queda después de la reunión
-  de profesores, y también la pasa el docente en su libreta (`PeriodGrade.meetingValueHundredths`).
-  **La nota oficial es siempre R** (`officialPeriodValue`): la usan el boletín, el promedio de la
-  reunión, la ficha académica y los indicadores. Mientras no haya R, la materia figura pendiente; la
-  matriz muestra la C como *propuesta*, rotulada y sin color de tramo, y no la promedia.
+- **C = conducta, R = rendimiento.** **C** es la conducta del estudiante en la asignatura, sobre la
+  escala de conducta (`PeriodGrade.conductValueHundredths`); **R** es el rendimiento, con la escala
+  del nivel, y lo pone el docente en su libreta (`PeriodGrade.meetingValueHundredths`). **La nota
+  oficial es siempre R** (`officialPeriodValue`): la usan el boletín, el promedio de la reunión, la
+  ficha académica y los indicadores. Mientras no haya R, la materia figura pendiente.
+  `PeriodGrade.valueHundredths` es la "C" anterior (la calificación del docente antes del cambio):
+  ya no se carga ni se exige; la matriz la muestra como *propuesta* si no hay R.
+  `npm run backfill:period-rendimiento` (dry-run; `-- --apply`) copia esa nota vieja a R donde R
+  está vacía, sólo en libretas del ciclo en curso.
 - **Períodos con reunión** (`AcademicPeriod.isMeeting`): las entregas, Diciembre y APE Febrero. Son
-  los que listan la reunión, el boletín, el visado y el control. Si además exigen C, cerrar exige R.
+  los que listan la reunión, el boletín, el visado y el control. Si exigen rendimiento, cerrar exige
+  R de cada alumno y, si además son reunión, también C (`MISSING_GRADES`, `MISSING_CONDUCT`).
+- **Informe general del grupo** (`GradeBookPeriod.groupReport`): el docente lo escribe por período
+  en la sección Cierre (vista del grupo, `PUT /gradebook/:id/periods/:periodId/group-report`). En las
+  reuniones de boletín es obligatorio para cerrar (`MISSING_GROUP_REPORT`) y el control de libretas
+  lo cuenta como pendiente. Dirección lo lee y lo visa (sección `GROUP_REPORT`).
 - **Cerrar una entrega cierra sus tramos** (los que están entre la entrega anterior y ella): una
   entrega cuyas notas de tramo siguieran editables dejaría de significar algo. Se cierra desde la
   sección Cierre de la libreta; si falta algo, se listan todos los faltantes juntos.
@@ -493,9 +517,9 @@ alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma panta
   no del docente, que sólo marca presente/tarde/ausente. **En ciclo básico** la regla sí es
   automática y por día (§11 bis): libreta, planilla de reunión y boletín suman los días, y el
   detalle del alumno muestra cuánto aportó cada uno. Ahí también justifica dirección.
-- **Conducta, dos veces.** Cada docente pone la de su asignatura junto a la nota del período
-  (`PeriodGrade.conductValueHundredths`), en la sección Cierre de los períodos con reunión —por
-  alumno o en la tabla del grupo—; el servidor sólo acepta valores de la escala
+- **Conducta, dos veces.** Cada docente pone la de su asignatura (la **C** de la carta,
+  `PeriodGrade.conductValueHundredths`) en cada tramo y entrega —en la carta, por alumno o en la
+  tabla del grupo—; el servidor sólo acepta valores de la escala
   (`CONDUCT_OUT_OF_SCALE`). Adscripción pone una institucional por estudiante y
   período (`StudentConductRecord`). La reunión las ve juntas. Usa su propia escala (`CONDUCTA`),
   porque no se mide como el rendimiento, y las etiquetas salen de esa escala (no de una tabla en el
@@ -616,9 +640,12 @@ adscripción, dirección, inspección y administración.
 - **Visado en lote:** con una reunión elegida, Dirección visa de una vez lo que está cerrado y sin
   observaciones (`POST /admin/gradebook/endorsements/bulk`). Cada libreta pasa por las mismas
   reglas, auditoría y aviso que de a una; lo que no está listo queda afuera con su motivo.
-- **El docente ve su visado** en la sección Visados de la libreta (`GET /gradebook/:id/endorsements`),
-  incluidas las observaciones de un período reabierto para corregir. Antes leía la grilla de
-  supervisión, que exige alcance total, y veía todo "Pendiente".
+- **Secciones del visado:** Calificaciones, Cierre, Juicios, **Seguimiento** (`PLANNING`: si dio lo
+  que planificó) e **Informe del grupo** (`GROUP_REPORT`), más el visado del período (`ALL`).
+- **Visar es de Dirección, no del docente.** Dirección visa desde la grilla `/libreta/visado` o desde
+  *Visado y seguimiento* dentro de cada libreta. **El docente ve lo que le observaron** arriba de sus
+  *Mensajes del director* (`GET /gradebook/:id/endorsements`), incluidas las observaciones de un
+  período reabierto para corregir; los avisos de observación, visado y reapertura lo llevan ahí.
 - **Antigüedad del pendiente** en la grilla, para priorizar (§5.9), junto con la marca de cierre
   fuera de plazo. La grilla filtra por reunión y por grupo (orientación más tronco común), sin tope
   de filas.
@@ -627,9 +654,11 @@ adscripción, dirección, inspección y administración.
 
 ### Observaciones, mensajería y accesos (RF-090, RF-091, RF-100)
 
-- **Espacio de intercambio** por libreta, con hilos: docente ↔ adscripción ↔ dirección ↔
-  inspección. Cualquiera que pueda leer la libreta lee el intercambio; separarlo por rol lo
-  volvería inútil. Un hilo no puede cruzar libretas.
+- **Espacio de intercambio** por libreta, con hilos. Un hilo no puede cruzar libretas.
+  - El docente lo ve como **Mensajes del director**: sólo los hilos que abrió Dirección
+    (`GET /gradebook/:id/messages?from=DIRECCION`), y responde dentro de ellos; no abre hilos.
+  - Dirección escribe desde *Visado y seguimiento* ("Mensajes al docente") y ve todo el intercambio.
+  - Cuando el docente responde, le llega el aviso a quien abrió el hilo.
 - Va **separado de la cadena de visado** a propósito: acá viven las consultas y aclaraciones; en
   `Endorsement` sólo lo que cambia un estado formal.
 - **Avisos (RF-091):** observación, visado y mensaje nuevo llegan por la campana que ya existe

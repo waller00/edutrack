@@ -15,19 +15,27 @@ export function computeOpensAt(occurrenceStartAt: Date): Date {
 }
 
 /**
- * Instante hasta el que el docente puede editar la planilla.
+ * Tope de la ventana del docente: la lista de una clase se puede pasar o corregir hasta una semana
+ * después de que terminó. Más allá ya no es "pasar la lista tarde", es reconstruirla de memoria, y
+ * eso lo hace administración (que no tiene ventana y queda auditada).
+ */
+export const ROLL_CALL_MAX_WINDOW_HOURS = 168
+
+/**
+ * Instante hasta el que el docente puede pasar o editar la planilla.
  *
- * El ancla es `max(endAt, takenAt)`: un docente que pasa lista tres días tarde igual
- * dispone de su ventana completa. El valor se CALCULA en cada lectura (no se congela al
- * guardar), así que bajar la ventana de 48 h a 24 h aplica retroactivamente.
+ * El ancla es el **fin de la clase**, no el momento en que se pasó: anclada en `takenAt`, pasar la
+ * lista el sexto día abría otra ventana entera y el tope de una semana dejaba de ser tope. El valor
+ * se CALCULA en cada lectura (no se congela al guardar), así que cambiar la ventana aplica
+ * retroactivamente. `takenAt` se acepta por compatibilidad y no mueve el ancla.
  */
 export function computeEditableUntil(params: {
   occurrenceEndAt: Date
-  takenAt: Date | null
+  takenAt?: Date | null
   windowHours: number
 }): Date {
-  const anchor = Math.max(params.occurrenceEndAt.getTime(), params.takenAt?.getTime() ?? 0)
-  return new Date(anchor + params.windowHours * 3_600_000)
+  const hours = Math.min(Math.max(params.windowHours, 0), ROLL_CALL_MAX_WINDOW_HOURS)
+  return new Date(params.occurrenceEndAt.getTime() + hours * 3_600_000)
 }
 
 /** `editableUntil` es inclusivo: justo en el borde todavía se puede editar. */
@@ -96,7 +104,7 @@ export function rollCallBlockedMessage(permissions: Pick<RollCallPermissions, 'b
     case 'NOT_ASSIGNED':
       return 'No sos el docente de esta clase.'
     default:
-      return 'Se venció el plazo para editar esta lista. Pedile el cambio a administración.'
+      return 'Se venció el plazo: la lista se puede pasar hasta una semana después de la clase. Pedile el cambio a administración.'
   }
 }
 

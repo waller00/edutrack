@@ -752,7 +752,8 @@ function readyForClosure(over: { state?: any; saved?: any[] } = {}) {
   vi.setSystemTime(new Date('2026-05-20T12:00:00.000Z'))
 }
 
-const COMPLETE = [{ studentId: STUDENT_A, valueHundredths: 800, conceptualJudgement: 'Progresa bien.' }]
+// R (rendimiento) y C (conducta) cargados, con juicio.
+const COMPLETE = [{ studentId: STUDENT_A, meetingValueHundredths: 800, conductValueHundredths: 800, conceptualJudgement: 'Progresa bien.' }]
 
 describe('GET /:id/periods/:periodId', () => {
   it('devuelve los bloqueos que impiden cerrar', async () => {
@@ -868,7 +869,7 @@ describe('POST /:id/periods/:periodId/close', () => {
   })
 
   it('un período que no exige juicio cierra sin él', async () => {
-    readyForClosure({ saved: [{ studentId: STUDENT_A, valueHundredths: 800, conceptualJudgement: null }] })
+    readyForClosure({ saved: [{ studentId: STUDENT_A, meetingValueHundredths: 800, conceptualJudgement: null }] })
     prismaMock.academicPeriod.findFirst.mockResolvedValue({ ...PERIOD, requiresConceptualJudgement: false })
     prismaMock.gradeBookPeriod.update.mockResolvedValue({})
 
@@ -885,7 +886,7 @@ describe('PUT /:id/periods/:periodId/grades', () => {
     await request(app())
       .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/grades`)
       .set('Authorization', `Bearer ${tok()}`)
-      .send({ entries: COMPLETE })
+      .send({ entries: [{ studentId: STUDENT_A, meetingValueHundredths: 800, conceptualJudgement: 'Progresa bien.' }] })
 
     const create = prismaMock.periodGrade.upsert.mock.calls[0][0].create
     expect(create).toMatchObject({ studentLastName: 'Benítez', studentFirstName: 'Ana' })
@@ -896,7 +897,7 @@ describe('PUT /:id/periods/:periodId/grades', () => {
     const res = await request(app())
       .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/grades`)
       .set('Authorization', `Bearer ${tok()}`)
-      .send({ entries: COMPLETE })
+      .send({ entries: [{ studentId: STUDENT_A, meetingValueHundredths: 800, conceptualJudgement: 'Progresa bien.' }] })
 
     expect(res.status).toBe(409)
     expect(res.body.code).toBe('PERIOD_CLOSED')
@@ -907,7 +908,7 @@ describe('PUT /:id/periods/:periodId/grades', () => {
     const res = await request(app())
       .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/grades`)
       .set('Authorization', `Bearer ${tok()}`)
-      .send({ entries: COMPLETE })
+      .send({ entries: [{ studentId: STUDENT_A, meetingValueHundredths: 800, conceptualJudgement: 'Progresa bien.' }] })
     expect(res.status).toBe(200)
   })
 
@@ -1319,6 +1320,33 @@ describe('mensajería (RF-090)', () => {
       .send({ body: 'Anoto algo.' })
     expect(prismaMock.inAppNotification.createMany).not.toHaveBeenCalled()
   })
+
+  it('"Mensajes del director": sólo los hilos que abrió Dirección', async () => {
+    prismaMock.gradeBookMessage.findMany.mockResolvedValue([
+      { id: 'd1', parentId: null, authorRoleCode: 'DIRECCION', body: 'Te falta el informe' },
+      { id: 'a1', parentId: null, authorRoleCode: 'ADSCRIPTO', body: 'Otra cosa' },
+      { id: 'r1', parentId: 'd1', authorRoleCode: 'TEACHER', body: 'Ya lo cargo' },
+    ])
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}/messages?from=DIRECCION`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body.data.map((m: { id: string }) => m.id)).toEqual(['d1', 'r1'])
+  })
+
+  it('la respuesta del docente le avisa al director que abrió el hilo', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    prismaMock.gradeBookMessage.findFirst.mockResolvedValue({ id: 'd1', authorUserId: 'd-1' })
+
+    await request(app())
+      .post(`/gradebook/${GB_ID}/messages`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ body: 'Ya lo cargué.', parentId: '99999999-9999-4999-8999-999999999999' })
+
+    const rows = prismaMock.inAppNotification.createMany.mock.calls.flatMap(([arg]) => arg.data)
+    expect(rows).toEqual([
+      expect.objectContaining({ userId: 'd-1', type: 'GRADEBOOK_MESSAGE', actionUrl: `/libreta/${GB_ID}/visado` }),
+    ])
+  })
 })
 
 // ─── Exportaciones (RF-120) ─────────────────────────────────────────────────
@@ -1418,7 +1446,10 @@ describe('exportaciones de la libreta', () => {
       // ROW es de bachillerato: 1–12, aunque haya una escala activa de 1–10 antes.
       expect(prismaMock.gradingScale.findUnique.mock.calls[0][0].where).toEqual({ code: 'NUMERICA_1_12' })
     }
-    expect(prismaMock.gradingScale.findFirst).not.toHaveBeenCalled()
+    // La única escala que se busca "la primera que haya" es la de conducta, para la columna C.
+    for (const [args] of prismaMock.gradingScale.findFirst.mock.calls) {
+      expect(args.where).toEqual({ code: 'CONDUCTA' })
+    }
   })
 
   it('quien no accede a la libreta tampoco la exporta', async () => {
@@ -1480,13 +1511,13 @@ describe('ciclo archivado (RF-110, RF-111)', () => {
   })
 })
 
-describe('dirección: edita la libreta salvo calificaciones y juicios', () => {
+describe('dirección: ve la libreta pero no la edita', () => {
   const STUDENT_ID = '99999999-9999-4999-8999-999999999999'
+  const DIR = () => tok('DIRECCION', 'd-1')
 
   /**
-   * Acceso de dirección sobre una libreta ajena: lee y planifica, no califica.
-   * Lo que se prueba acá es el **cableado de cada ruta** —cuál mira `canPlan` y cuál `canGrade`—;
-   * que dirección resuelva así está probado aparte en `access.test.ts`.
+   * Acceso de dirección sobre una libreta ajena: lee, no planifica ni califica. El director avisa
+   * al docente (mensajes, observaciones de visado); no corrige por él.
    */
   function asDireccion() {
     // Libreta viva de otro docente: el director nunca es el titular.
@@ -1496,55 +1527,55 @@ describe('dirección: edita la libreta salvo calificaciones y juicios', () => {
       level: 'SUPERVISION',
       canRead: true,
       canGrade: false,
-      canPlan: true,
+      canPlan: false,
     })
   }
 
-  it('puede editar la planificación de una libreta ajena', async () => {
+  it('NO puede editar la planificación de una libreta ajena', async () => {
     asDireccion()
-    prismaMock.gradeBookPlanning.upsert.mockResolvedValue({
-      gradeBookId: GB_ID,
-      formative: 'Ajuste de dirección',
-      replanning: null,
-      attachments: null,
-    })
 
     const res = await request(app())
       .put(`/gradebook/${GB_ID}/planning`)
-      .set('Authorization', `Bearer ${tok()}`)
+      .set('Authorization', `Bearer ${DIR()}`)
       .send({ formative: 'Ajuste de dirección' })
 
-    expect(res.status).toBe(200)
-    expect(prismaMock.gradeBookPlanning.upsert).toHaveBeenCalled()
+    expect(res.status).toBe(403)
+    expect(prismaMock.gradeBookPlanning.upsert).not.toHaveBeenCalled()
   })
 
-  it('puede registrar el desarrollo del curso', async () => {
+  it('NO puede registrar ni borrar el desarrollo del curso', async () => {
     asDireccion()
-    prismaMock.courseDevelopmentEntry.create.mockResolvedValue({
-      id: 'dev-1',
-      date: new Date('2026-05-12T12:00:00Z'),
-      hoursTaught: 2,
-      hoursNotTaught: 0,
-      description: 'Revisión',
-      attachments: null,
-    })
 
-    const res = await request(app())
+    const created = await request(app())
       .post(`/gradebook/${GB_ID}/development`)
-      .set('Authorization', `Bearer ${tok()}`)
+      .set('Authorization', `Bearer ${DIR()}`)
       .send({ date: '2026-05-12', hoursTaught: 2, hoursNotTaught: 0, description: 'Revisión' })
+    const removed = await request(app()).delete(`/gradebook/${GB_ID}/development/dev-1`).set('Authorization', `Bearer ${DIR()}`)
 
-    expect(res.status).toBe(201)
+    expect(created.status).toBe(403)
+    expect(removed.status).toBe(403)
+    expect(prismaMock.courseDevelopmentEntry.create).not.toHaveBeenCalled()
   })
 
   it('NO puede cargar la calificación ni el juicio de un período', async () => {
-    // Es la mitad que el liceo quiere protegida: la nota y el juicio son del docente.
     asDireccion()
 
     const res = await request(app())
       .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/grades`)
-      .set('Authorization', `Bearer ${tok()}`)
+      .set('Authorization', `Bearer ${DIR()}`)
       .send({ entries: [{ studentId: STUDENT_ID, valueHundredths: 800, conceptualJudgement: 'Muy bien' }] })
+
+    expect(res.status).toBe(403)
+    expect(prismaMock.periodGrade.upsert).not.toHaveBeenCalled()
+  })
+
+  it('NO puede tocar la carta del alumno (C, R, juicio)', async () => {
+    asDireccion()
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/students/${STUDENT_ID}/closure`)
+      .set('Authorization', `Bearer ${DIR()}`)
+      .send({ entries: [{ periodId: PERIOD_ID, meetingValueHundredths: 800 }] })
 
     expect(res.status).toBe(403)
     expect(prismaMock.periodGrade.upsert).not.toHaveBeenCalled()
@@ -1555,14 +1586,14 @@ describe('dirección: edita la libreta salvo calificaciones y juicios', () => {
 
     const res = await request(app())
       .post(`/gradebook/${GB_ID}/assessments`)
-      .set('Authorization', `Bearer ${tok()}`)
+      .set('Authorization', `Bearer ${DIR()}`)
       .send({ periodId: PERIOD_ID, date: '2026-05-10', title: 'Escrito', gradingScaleId: SCALE_ID })
 
     expect(res.status).toBe(403)
     expect(prismaMock.assessment.create).not.toHaveBeenCalled()
   })
 
-  it('la pantalla le muestra la planificación y el desarrollo editables (antes miraba canGrade)', async () => {
+  it('la pantalla le muestra la planificación y el desarrollo de sólo lectura', async () => {
     asDireccion()
     prismaMock.gradeBookPlanning.findUnique.mockResolvedValue({
       gradeBookId: GB_ID,
@@ -1575,19 +1606,21 @@ describe('dirección: edita la libreta salvo calificaciones y juicios', () => {
     prismaMock.courseDevelopmentEntry.findMany.mockResolvedValue([])
     prismaMock.courseDevelopmentEntry.aggregate.mockResolvedValue({ _sum: { hoursTaught: 0, hoursNotTaught: 0 } })
 
-    const planning = await request(app()).get(`/gradebook/${GB_ID}/planning`).set('Authorization', `Bearer ${tok()}`)
-    const development = await request(app()).get(`/gradebook/${GB_ID}/development`).set('Authorization', `Bearer ${tok()}`)
+    const planning = await request(app()).get(`/gradebook/${GB_ID}/planning`).set('Authorization', `Bearer ${DIR()}`)
+    const development = await request(app()).get(`/gradebook/${GB_ID}/development`).set('Authorization', `Bearer ${DIR()}`)
 
-    expect(planning.body.canEdit).toBe(true)
+    expect(planning.status).toBe(200)
+    expect(planning.body.canEdit).toBe(false)
     expect(planning.body.data).toMatchObject({ updatedByName: 'Ana G', updatedAt: '2026-05-02T15:00:00.000Z' })
-    expect(development.body.canEdit).toBe(true)
+    expect(development.body.canEdit).toBe(false)
   })
 
-  it('su corrección de la planificación queda auditada', async () => {
-    asDireccion()
+  it('si administración corrige la planificación de otro, queda auditado', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue({ ...ROW, teacherUserId: 'otro-docente' })
+    accessMock.mockResolvedValue({ level: 'SUPERVISION', canRead: true, canGrade: true, canPlan: true })
     prismaMock.gradeBookPlanning.upsert.mockResolvedValue({ gradeBookId: GB_ID })
 
-    await request(app()).put(`/gradebook/${GB_ID}/planning`).set('Authorization', `Bearer ${tok()}`).send({ formative: 'Ajuste' })
+    await request(app()).put(`/gradebook/${GB_ID}/planning`).set('Authorization', `Bearer ${tok('ADMIN', 'admin-1')}`).send({ formative: 'Ajuste' })
 
     await vi.waitFor(() =>
       expect(prismaMock.auditLog.create.mock.calls.some(([arg]) => arg.data.action === 'GRADEBOOK_PLANNING_UPDATED')).toBe(true),
@@ -2363,7 +2396,15 @@ describe('planilla del liceo: tramos y entregas', () => {
     isMeeting: true,
     judgementLabel: 'Informe de actuación',
   }
-  const OPEN_STATE = { id: 'gbp-e1', status: 'OPEN', closedAt: null, closedLate: false, reopenedAt: null, reopenReason: null }
+  const OPEN_STATE = {
+    id: 'gbp-e1',
+    status: 'OPEN',
+    closedAt: null,
+    closedLate: false,
+    reopenedAt: null,
+    reopenReason: null,
+    groupReport: 'El grupo trabajó bien.',
+  }
 
   it('no deja cargar evaluaciones en una entrega', async () => {
     readyForAssessments()
@@ -2392,8 +2433,8 @@ describe('planilla del liceo: tramos y entregas', () => {
     expect(res.body.code).toBe('PERIOD_NOT_GRADABLE')
   })
 
-  it('una entrega no cierra sin la nota de reunión (R)', async () => {
-    readyForClosure({ saved: COMPLETE })
+  it('una entrega no cierra sin la conducta (C)', async () => {
+    readyForClosure({ saved: [{ ...COMPLETE[0], conductValueHundredths: null }], state: OPEN_STATE })
     prismaMock.academicPeriod.findFirst.mockResolvedValue(ENTREGA)
 
     const res = await request(app())
@@ -2401,12 +2442,68 @@ describe('planilla del liceo: tramos y entregas', () => {
       .set('Authorization', `Bearer ${tok()}`)
 
     expect(res.status).toBe(409)
-    expect(res.body.code).toBe('MISSING_MEETING_GRADES')
+    expect(res.body.code).toBe('MISSING_CONDUCT')
+    expect(prismaMock.gradeBookPeriod.update).not.toHaveBeenCalled()
+  })
+
+  it('una reunión de boletín no cierra sin el informe del grupo', async () => {
+    readyForClosure({ saved: COMPLETE, state: { ...OPEN_STATE, groupReport: null } })
+    prismaMock.academicPeriod.findFirst.mockResolvedValue(ENTREGA)
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/close`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('MISSING_GROUP_REPORT')
+  })
+
+  it('el docente guarda el informe del grupo', async () => {
+    readyForClosure({ state: OPEN_STATE })
+    prismaMock.academicPeriod.findFirst.mockResolvedValue({ ...ENTREGA, startsOn: new Date('2026-03-01T12:00:00.000Z') })
+    prismaMock.gradeBookPeriod.update.mockResolvedValue({ groupReport: 'Buen grupo.', groupReportUpdatedAt: new Date('2026-05-20T12:00:00.000Z') })
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/group-report`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ body: '  Buen grupo.  ' })
+
+    expect(res.status).toBe(200)
+    expect(prismaMock.gradeBookPeriod.update.mock.calls[0][0]).toMatchObject({
+      where: { id: 'gbp-e1' },
+      data: { groupReport: 'Buen grupo.', groupReportUpdatedByUserId: 'teacher-1' },
+    })
+    expect(res.body.data.body).toBe('Buen grupo.')
+  })
+
+  it('Dirección no escribe el informe del grupo', async () => {
+    readyForClosure({ state: OPEN_STATE })
+    prismaMock.academicPeriod.findFirst.mockResolvedValue(ENTREGA)
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/group-report`)
+      .set('Authorization', `Bearer ${tok('DIRECCION', 'd-1')}`)
+      .send({ body: 'Lo escribo yo' })
+
+    expect(res.status).toBe(403)
+    expect(prismaMock.gradeBookPeriod.update).not.toHaveBeenCalled()
+  })
+
+  it('un período cerrado no deja cambiar el informe', async () => {
+    readyForClosure({ state: { ...OPEN_STATE, status: 'CLOSED' } })
+    prismaMock.academicPeriod.findFirst.mockResolvedValue({ ...ENTREGA, startsOn: new Date('2026-03-01T12:00:00.000Z') })
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/group-report`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ body: 'Tarde' })
+
+    expect(res.status).toBe(409)
     expect(prismaMock.gradeBookPeriod.update).not.toHaveBeenCalled()
   })
 
   it('cerrar la entrega cierra también los tramos que informa', async () => {
-    readyForClosure({ saved: [{ ...COMPLETE[0], meetingValueHundredths: 800 }] })
+    readyForClosure({ saved: COMPLETE })
     prismaMock.academicPeriod.findFirst.mockResolvedValue(ENTREGA)
     prismaMock.gradeBookPeriod.findUnique
       .mockResolvedValueOnce(OPEN_STATE)

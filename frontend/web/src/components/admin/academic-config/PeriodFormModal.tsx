@@ -201,8 +201,8 @@ export default function PeriodFormModal({
         </legend>
         <Check
           id="period-requires-grade"
-          label="Calificación (C)"
-          hint="Sin la C de cada estudiante, la libreta no cierra."
+          label="Rendimiento (R)"
+          hint="Sin la R de cada estudiante, la libreta no cierra. Si el período es reunión, pide también la conducta (C)."
           checked={draft.requiresGeneralGrade}
           onChange={(v) => patch('requiresGeneralGrade', v)}
         />

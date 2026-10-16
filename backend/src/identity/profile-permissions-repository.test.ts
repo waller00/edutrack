@@ -4,7 +4,7 @@ const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     orgRole: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), upsert: vi.fn() },
     permission: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
-    rolePermission: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn(), upsert: vi.fn(), create: vi.fn(), count: vi.fn() },
+    rolePermission: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), upsert: vi.fn(), create: vi.fn(), count: vi.fn() },
     $transaction: vi.fn(),
   },
 }))
@@ -110,6 +110,7 @@ describe('replaceRolePermissionGrants', () => {
     prismaMock.orgRole.findFirst.mockResolvedValueOnce({ id: 'r1' })
     prismaMock.permission.findMany.mockResolvedValueOnce([{ code: 'a.b', id: 'p1' }])
     prismaMock.rolePermission.upsert.mockResolvedValue({})
+    prismaMock.rolePermission.updateMany.mockResolvedValue({ count: 0 })
     const res = await replaceRolePermissionGrants('ADMIN', [{ id: 'a.b', enabled: true, scope: 'all', label: 'AB' }])
     expect(res).toEqual({ ok: true })
     expect(prismaMock.rolePermission.upsert).toHaveBeenCalled()
@@ -182,6 +183,7 @@ describe('seed de matriz canónica', () => {
     prismaMock.orgRole.findUnique.mockResolvedValue({ id: 'r1' })
     prismaMock.permission.upsert.mockResolvedValue({ id: 'p1' })
     prismaMock.rolePermission.upsert.mockResolvedValue({})
+    prismaMock.rolePermission.updateMany.mockResolvedValue({ count: 0 })
   }
 
   it('upsertCanonicalProfilePermissions siembra permisos de built-ins', async () => {
@@ -220,6 +222,16 @@ describe('seed de matriz canónica', () => {
     )
     const attendanceRead = prismaMock.permission.upsert.mock.calls.find(([args]: any) => args.where.code === 'attendance.read')
     expect(attendanceRead?.[0].update.module).toBe('Asistencia del personal')
+  })
+
+  it('al arrancar apaga `gradebook.plan` de Dirección en una base que ya lo tenía', async () => {
+    seedMocks()
+    prismaMock.rolePermission.count.mockResolvedValue(10)
+    await ensureDefaultProfilePermissionsIfNeeded()
+    expect(prismaMock.rolePermission.updateMany).toHaveBeenCalledWith({
+      where: { enabled: true, orgRole: { code: 'DIRECCION' }, permission: { code: { in: ['gradebook.plan'] } } },
+      data: { enabled: false },
+    })
   })
 
   it('ensureDefaultProfilePermissionsIfNeeded sin filas hace el seed canónico', async () => {

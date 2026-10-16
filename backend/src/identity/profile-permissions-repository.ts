@@ -9,6 +9,7 @@ import {
   DEFAULT_PROFILE_PERMISSIONS,
   normalizePermissionId,
   REMOVED_PROFILE_PERMISSION_IDS,
+  REVOKED_PROFILE_PERMISSION_IDS,
   RENAMED_PERMISSION_MODULES,
   permissionSourceResolved,
 } from './profile-permissions-defaults.js'
@@ -141,11 +142,33 @@ async function ensureCanonicalProfilePermissionsPresent(client: PrismaClient = p
   }
 }
 
+/**
+ * Apaga en la base los permisos de `REVOKED_PROFILE_PERMISSION_IDS`. La autorización lee las filas
+ * de `RolePermission`, así que dejar de sembrar un permiso no se lo saca a quien ya lo tenía.
+ */
+export async function revokeRetiredProfilePermissions(client: PrismaClient = prisma): Promise<number> {
+  let revoked = 0
+  for (const [roleCode, permissionCodes] of Object.entries(REVOKED_PROFILE_PERMISSION_IDS)) {
+    if (!permissionCodes?.length) continue
+    const result = await client.rolePermission.updateMany({
+      where: {
+        enabled: true,
+        orgRole: { code: roleCode },
+        permission: { code: { in: [...permissionCodes] } },
+      },
+      data: { enabled: false },
+    })
+    revoked += result.count
+  }
+  return revoked
+}
+
 export async function ensureDefaultProfilePermissionsIfNeeded(): Promise<void> {
   await ensureBuiltinOrgRoles()
   const count = await prisma.rolePermission.count()
   if (count > 0) {
     await ensureCanonicalProfilePermissionsPresent()
+    await revokeRetiredProfilePermissions()
     return
   }
   await upsertCanonicalProfilePermissions()

@@ -29,7 +29,7 @@ describe('auth middleware — permisos y sesión', () => {
     // Antes cualquier permiso daba `own` a cualquier rol: un docente "podía" editar eventos.
     expect(await userPermissionScope('u1', 'events.update', 'TEACHER')).toBeNull()
     expect(await userPermissionScope('u1', 'gradebook.grade', 'DIRECCION')).toBeNull()
-    expect(await userPermissionScope('u1', 'gradebook.plan', 'DIRECCION')).toBe('all')
+    expect(await userPermissionScope('u1', 'gradebook.plan', 'DIRECCION')).toBeNull()
     expect(await userPermissionScope('u1', 'x', 'ROL_INEXISTENTE')).toBeNull()
   })
 

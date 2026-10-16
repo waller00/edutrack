@@ -22,12 +22,15 @@ const ENTREGA = {
 }
 
 const ROWS = [
-  { studentId: 's1', lastName: 'Benítez', firstName: 'Ana', assessmentCount: 3, valueHundredths: 800, meetingValueHundredths: null, conceptualJudgement: 'Bien.', conductValueHundredths: null },
+  { studentId: 's1', lastName: 'Benítez', firstName: 'Ana', assessmentCount: 3, valueHundredths: null, meetingValueHundredths: 800, conceptualJudgement: 'Bien.', conductValueHundredths: null },
   { studentId: 's2', lastName: 'Cabrera', firstName: 'Luis', assessmentCount: 1, valueHundredths: null, meetingValueHundredths: null, conceptualJudgement: null, conductValueHundredths: null },
 ]
 
-function respond(canEdit = true) {
+function respond(canEdit = true, groupReport: { body: string | null; updatedAt: string | null; required: boolean } = { body: null, updatedAt: null, required: true }) {
   apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (init?.method === 'PUT' && String(path).endsWith('/group-report')) {
+      return { data: { body: JSON.parse(String(init.body)).body, updatedAt: '2026-05-10T15:00:00.000Z' } }
+    }
     if (init?.method === 'PUT') return { ok: true }
     if (String(path).endsWith('/options')) {
       return {
@@ -39,7 +42,7 @@ function respond(canEdit = true) {
         ],
       }
     }
-    return { period: ENTREGA, state: { status: 'OPEN' }, canEdit, students: ROWS }
+    return { period: ENTREGA, state: { status: 'OPEN' }, canEdit, students: ROWS, groupReport }
   })
 }
 
@@ -50,25 +53,42 @@ describe('<CierreGrupoTable />', () => {
     vi.setSystemTime(new Date('2026-05-10T15:00:00.000Z'))
   })
 
-  it('carga C, R, informe y conducta de todo el grupo y guarda sólo lo que cambió', async () => {
+  it('carga C (conducta), R (rendimiento) e informe de todo el grupo y guarda sólo lo que cambió', async () => {
     respond()
     const user = userEvent.setup()
     render(<CierreGrupoTable gradeBookId="gb-1" />)
 
-    await waitFor(() => expect(screen.getByLabelText('C de Cabrera, Luis')).toBeInTheDocument())
-    expect(screen.getByLabelText('C de Benítez, Ana')).toHaveValue('8')
+    await waitFor(() => expect(screen.getByLabelText('R (rendimiento) de Cabrera, Luis')).toBeInTheDocument())
+    expect(screen.getByLabelText('R (rendimiento) de Benítez, Ana')).toHaveValue('8')
 
-    await user.selectOptions(screen.getByLabelText('C de Cabrera, Luis'), '11')
-    await user.selectOptions(screen.getByLabelText('Conducta de Cabrera, Luis'), 'Muy buena')
+    await user.selectOptions(screen.getByLabelText('R (rendimiento) de Cabrera, Luis'), '11')
+    await user.selectOptions(screen.getByLabelText('C (conducta) de Cabrera, Luis'), 'Muy buena')
     await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() => {
       const put = apiMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PUT')
       expect(put?.[0]).toBe('/gradebook/gb-1/periods/p-e1/grades')
       expect(JSON.parse(String((put?.[1] as RequestInit).body))).toEqual({
-        entries: [{ studentId: 's2', valueHundredths: 1100, conductValueHundredths: 400 }],
+        entries: [{ studentId: 's2', meetingValueHundredths: 1100, conductValueHundredths: 400 }],
       })
     })
+  })
+
+  it('el docente escribe el informe general del grupo, que la reunión pide para cerrar', async () => {
+    respond()
+    const user = userEvent.setup()
+    render(<CierreGrupoTable gradeBookId="gb-1" />)
+
+    expect(await screen.findByText('▲ Falta: se pide para cerrar la reunión')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Texto del informe del grupo'), 'Grupo trabajador.')
+    await user.click(screen.getByRole('button', { name: 'Guardar informe' }))
+
+    await waitFor(() => {
+      const put = apiMock.mock.calls.find(([path]) => String(path).endsWith('/group-report'))
+      expect(put?.[0]).toBe('/gradebook/gb-1/periods/p-e1/group-report')
+      expect(JSON.parse(String((put?.[1] as RequestInit).body))).toEqual({ body: 'Grupo trabajador.' })
+    })
+    expect(await screen.findByText('✓ Cargado')).toBeInTheDocument()
   })
 
   it('pide confirmar antes de cambiar de período con cambios sin guardar', async () => {
@@ -76,9 +96,9 @@ describe('<CierreGrupoTable />', () => {
     const confirm = vi.spyOn(globalThis, 'confirm').mockReturnValue(false)
     const user = userEvent.setup()
     render(<CierreGrupoTable gradeBookId="gb-1" />)
-    await waitFor(() => expect(screen.getByLabelText('C de Cabrera, Luis')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('R (rendimiento) de Cabrera, Luis')).toBeInTheDocument())
 
-    await user.selectOptions(screen.getByLabelText('C de Cabrera, Luis'), '7')
+    await user.selectOptions(screen.getByLabelText('R (rendimiento) de Cabrera, Luis'), '7')
     await user.selectOptions(screen.getByLabelText('Período'), '2.ª Entrega')
 
     expect(confirm).toHaveBeenCalled()
@@ -87,11 +107,13 @@ describe('<CierreGrupoTable />', () => {
   })
 
   it('sin permiso se lee, no se edita', async () => {
-    respond(false)
+    respond(false, { body: 'Buen grupo.', updatedAt: null, required: true })
     render(<CierreGrupoTable gradeBookId="gb-1" />)
     await waitFor(() => expect(screen.getByText('Bien.')).toBeInTheDocument())
-    expect(screen.queryByLabelText('C de Benítez, Ana')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('R (rendimiento) de Benítez, Ana')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Guardar' })).not.toBeInTheDocument()
+    expect(screen.getByText('Buen grupo.')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Texto del informe del grupo')).not.toBeInTheDocument()
   })
 })
 
@@ -110,6 +132,6 @@ describe('currentPeriodId', () => {
 
 describe('rowPatch', () => {
   it('sin cambios no manda nada', () => {
-    expect(rowPatch(ROWS[0], { grade: '8', meeting: '', judgement: 'Bien.', conduct: '' })).toBeNull()
+    expect(rowPatch(ROWS[0], { meeting: '8', judgement: 'Bien.', conduct: '' })).toBeNull()
   })
 })

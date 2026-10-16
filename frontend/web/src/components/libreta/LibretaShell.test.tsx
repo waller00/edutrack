@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LibretaShell from './LibretaShell'
 import { LibretaProvider } from '@/contexts/LibretaContext'
-import { LIBRETA_SECTIONS } from '@/lib/libreta/menu'
+import { sectionsFor } from '@/lib/libreta/menu'
 import { api } from '@/lib/api/client'
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
@@ -12,7 +12,19 @@ const mockedApi = vi.mocked(api)
 
 const pathname = vi.fn(() => '/libreta/gb-1/planificacion')
 const push = vi.fn()
-vi.mock('next/navigation', () => ({ usePathname: () => pathname(), useRouter: () => ({ push }) }))
+const replace = vi.fn()
+vi.mock('next/navigation', () => ({ usePathname: () => pathname(), useRouter: () => ({ push, replace }) }))
+
+// Quien mira: por defecto el docente; los tests de Dirección le dan permisos de supervisión.
+const me = vi.fn<() => unknown>(() => ({ permissions: [] }))
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ me: me() }) }))
+const DIRECCION_ME = {
+  permissions: [
+    { id: 'gradebook.read', scope: 'all' },
+    { id: 'gradebook.review', scope: 'all' },
+    { id: 'gradebook.endorse', scope: 'all' },
+  ],
+}
 
 const DETAIL = {
   id: 'gb-1',
@@ -42,6 +54,7 @@ describe('<LibretaShell />', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     pathname.mockReturnValue('/libreta/gb-1/planificacion')
+    me.mockReturnValue({ permissions: [] })
   })
 
   it('muestra la identidad de la libreta en el encabezado', async () => {
@@ -62,26 +75,51 @@ describe('<LibretaShell />', () => {
     expect(await screen.findByText(/— Ciencias de la Vida/)).toBeInTheDocument()
   })
 
-  it('lista todas las secciones con su explicación', async () => {
+  it('al docente le lista sus secciones con su explicación, con los mensajes del director', async () => {
     mockedApi.mockResolvedValue(DETAIL)
 
     renderShell()
 
     const nav = await screen.findByRole('navigation', { name: 'Secciones de la libreta' })
-    for (const section of LIBRETA_SECTIONS) {
+    for (const section of sectionsFor({ supervises: false })) {
       expect(within(nav).getByText(section.label)).toBeInTheDocument()
       expect(within(nav).getByText(section.hint)).toBeInTheDocument()
     }
+    expect(within(nav).getByText('Mensajes del director')).toBeInTheDocument()
+    expect(within(nav).queryByText('Visado y seguimiento')).not.toBeInTheDocument()
+    expect(within(nav).queryByText('Inasistencias')).not.toBeInTheDocument()
+  })
+
+  it('a Dirección le muestra el visado y no los mensajes del director', async () => {
+    me.mockReturnValue(DIRECCION_ME)
+    mockedApi.mockResolvedValue({ ...DETAIL, access: { level: 'SUPERVISION', canGrade: false, canPlan: false } })
+
+    renderShell()
+
+    const nav = await screen.findByRole('navigation', { name: 'Secciones de la libreta' })
+    expect(within(nav).getByText('Visado y seguimiento')).toBeInTheDocument()
+    expect(within(nav).queryByText('Mensajes del director')).not.toBeInTheDocument()
+  })
+
+  it('el docente que abre el visado vuelve a la portada de su libreta', async () => {
+    mockedApi.mockResolvedValue(DETAIL)
+    pathname.mockReturnValue('/libreta/gb-1/visado')
+
+    renderShell()
+
+    await screen.findByRole('heading', { name: /Libreta:/ })
+    expect(replace).toHaveBeenCalledWith('/libreta/gb-1')
+    expect(screen.queryByText('contenido de la sección')).not.toBeInTheDocument()
   })
 
   it('marca la sección abierta con aria-current', async () => {
     mockedApi.mockResolvedValue(DETAIL)
-    pathname.mockReturnValue('/libreta/gb-1/visados')
+    pathname.mockReturnValue('/libreta/gb-1/mensajes')
 
     renderShell()
 
     const current = await screen.findByRole('link', { current: 'page' })
-    expect(current).toHaveTextContent('Visados')
+    expect(current).toHaveTextContent('Mensajes del director')
   })
 
   it('avisa que un ciclo cerrado es sólo consulta', async () => {

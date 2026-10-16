@@ -59,7 +59,7 @@ describe('MessagesPanel', () => {
 
   it('no deja publicar en blanco', async () => {
     render(<MessagesPanel gradeBookId="gb-1" />)
-    expect(await screen.findByRole('button', { name: /Publicar/ })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: /Enviar/ })).toBeDisabled()
   })
 
   it('publica el mensaje y recarga el hilo', async () => {
@@ -67,7 +67,7 @@ describe('MessagesPanel', () => {
     fireEvent.change(await screen.findByLabelText('Escribir un mensaje'), { target: { value: 'Ya lo cargué.' } })
 
     mockedApi.mockResolvedValueOnce({ data: { id: 'm-2' } } as any)
-    fireEvent.click(screen.getByRole('button', { name: /Publicar/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Enviar/ }))
 
     await waitFor(() => {
       const post = mockedApi.mock.calls.find(([, init]) => (init as any)?.method === 'POST')
@@ -81,7 +81,7 @@ describe('MessagesPanel', () => {
     fireEvent.change(screen.getByLabelText('Escribir un mensaje'), { target: { value: 'Corregido.' } })
 
     mockedApi.mockResolvedValueOnce({ data: { id: 'm-3' } } as any)
-    fireEvent.click(screen.getByRole('button', { name: /Publicar/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Enviar/ }))
 
     await waitFor(() => {
       const post = mockedApi.mock.calls.find(([, init]) => (init as any)?.method === 'POST')
@@ -100,8 +100,46 @@ describe('MessagesPanel', () => {
     fireEvent.change(await screen.findByLabelText('Escribir un mensaje'), { target: { value: 'x' } })
 
     mockedApi.mockRejectedValueOnce(new Error('API 500'))
-    fireEvent.click(screen.getByRole('button', { name: /Publicar/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Enviar/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('API 500')
+  })
+})
+
+describe('MessagesPanel — Mensajes del director (docente)', () => {
+  beforeEach(() => {
+    mockedApi.mockReset()
+    mockedApi.mockResolvedValue({
+      data: [msg({ authorRoleCode: 'DIRECCION', author: { id: 'd-1', name: 'Marta Dirección' }, body: 'Te falta el informe del grupo.' })],
+    } as any)
+  })
+
+  it('pide sólo los hilos que abrió Dirección y se titula así', async () => {
+    render(<MessagesPanel gradeBookId="gb-1" variant="teacher" />)
+    expect(await screen.findByText('Te falta el informe del grupo.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Mensajes del director' })).toBeInTheDocument()
+    expect(mockedApi).toHaveBeenCalledWith('/gradebook/gb-1/messages?from=DIRECCION')
+  })
+
+  it('el docente no abre hilos: responde dentro del mensaje del director', async () => {
+    render(<MessagesPanel gradeBookId="gb-1" variant="teacher" />)
+    await screen.findByText('Te falta el informe del grupo.')
+    expect(screen.queryByLabelText('Escribir un mensaje')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Responder' }))
+    fireEvent.change(screen.getByLabelText('Escribir un mensaje'), { target: { value: 'Ya lo cargué.' } })
+    mockedApi.mockResolvedValueOnce({ data: { id: 'm-2' } } as any)
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar respuesta' }))
+
+    await waitFor(() => {
+      const post = mockedApi.mock.calls.find(([, init]) => (init as any)?.method === 'POST')
+      expect(JSON.parse((post?.[1] as any).body)).toEqual({ body: 'Ya lo cargué.', parentId: 'm-1' })
+    })
+  })
+
+  it('sin mensajes lo dice con palabras del docente', async () => {
+    mockedApi.mockResolvedValue({ data: [] } as any)
+    render(<MessagesPanel gradeBookId="gb-1" variant="teacher" />)
+    expect(await screen.findByText('Dirección todavía no te dejó mensajes en esta libreta.')).toBeInTheDocument()
   })
 })

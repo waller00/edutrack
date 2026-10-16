@@ -62,6 +62,7 @@ const {
       findUnique: vi.fn(),
       upsert: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       create: vi.fn(),
     },
     auditLog: {

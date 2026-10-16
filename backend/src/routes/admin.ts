@@ -1070,7 +1070,7 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
     moodleSyncEnabledFromEnv: isMoodleSyncEnabledFromEnv(),
     moodleReconcileIntervalMs: settings.moodleReconcileIntervalMs ?? 900000,
     moodleSyncStudents: settings.moodleSyncStudents === true,
-    studentRollCallEditWindowHours: settings.studentRollCallEditWindowHours ?? 48,
+    studentRollCallEditWindowHours: settings.studentRollCallEditWindowHours ?? 168,
     studentRollCallCopyPreviousEnabled: settings.studentRollCallCopyPreviousEnabled !== false,
     studentDailyAbsenceThresholdPercent: settings.studentDailyAbsenceThresholdPercent ?? 50,
   })
@@ -1090,7 +1090,7 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       moodleReconcileIntervalMs: z.number().int().min(60000).max(86400000).optional(),
       moodleSyncStudents: z.boolean().optional(),
       institutionTimezone: z.string().trim().min(1).max(64).optional(),
-      studentRollCallEditWindowHours: z.number().int().min(1).max(720).optional(),
+      studentRollCallEditWindowHours: z.number().int().min(1).max(168).optional(),
       studentRollCallCopyPreviousEnabled: z.boolean().optional(),
       studentDailyAbsenceThresholdPercent: z.number().int().min(1).max(100).optional(),
     })
@@ -1120,7 +1120,7 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       moodleReconcileIntervalMs: data.moodleReconcileIntervalMs ?? 900000,
       moodleSyncStudents: data.moodleSyncStudents ?? false,
       institutionTimezone: normalizeInstitutionTimezone(data.institutionTimezone),
-      studentRollCallEditWindowHours: data.studentRollCallEditWindowHours ?? 48,
+      studentRollCallEditWindowHours: data.studentRollCallEditWindowHours ?? 168,
       studentRollCallCopyPreviousEnabled: data.studentRollCallCopyPreviousEnabled ?? true,
       studentDailyAbsenceThresholdPercent: data.studentDailyAbsenceThresholdPercent ?? 50,
     } as any,
@@ -1165,7 +1165,7 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
     moodleSyncEnabledFromEnv: isMoodleSyncEnabledFromEnv(),
     moodleReconcileIntervalMs: updatedSettings.moodleReconcileIntervalMs ?? 900000,
     moodleSyncStudents: updatedSettings.moodleSyncStudents === true,
-    studentRollCallEditWindowHours: updatedSettings.studentRollCallEditWindowHours ?? 48,
+    studentRollCallEditWindowHours: updatedSettings.studentRollCallEditWindowHours ?? 168,
     studentRollCallCopyPreviousEnabled: updatedSettings.studentRollCallCopyPreviousEnabled !== false,
     studentDailyAbsenceThresholdPercent: updatedSettings.studentDailyAbsenceThresholdPercent ?? 50,
   })

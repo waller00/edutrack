@@ -5,6 +5,7 @@ import {
   buildDraft,
   countByStatus,
   fullName,
+  initialDraft,
   isSheetComplete,
   mergeServerRoster,
   setNote,
@@ -37,6 +38,25 @@ describe('buildDraft', () => {
 
   it('deja sin estado a quien no tiene marca', () => {
     expect(buildDraft(students).a).toEqual({ status: null, note: null })
+  })
+})
+
+describe('initialDraft', () => {
+  it('una lista sin pasar arranca con todos presentes', () => {
+    const draft = initialDraft(students, 'PENDING')
+    expect(students.map((s) => draft[s.studentId].status)).toEqual(['PRESENT', 'PRESENT', 'PRESENT'])
+  })
+
+  it('una lista sin pasar respeta una marca que ya traiga el servidor', () => {
+    const draft = initialDraft([student('a', { status: 'ABSENT_JUSTIFIED' }), student('b')], 'PENDING')
+    expect(draft.a.status).toBe('ABSENT_JUSTIFIED')
+    expect(draft.b.status).toBe('PRESENT')
+  })
+
+  it('una lista ya pasada muestra lo guardado y deja sin marcar al alta posterior', () => {
+    const draft = initialDraft([student('a', { status: 'LATE' }), student('nuevo')], 'TAKEN')
+    expect(draft.a.status).toBe('LATE')
+    expect(draft.nuevo.status).toBeNull()
   })
 })
 
@@ -95,6 +115,13 @@ describe('applyCopySuggestion', () => {
     const result = applyCopySuggestion(buildDraft(students), students, [{ studentId: 'a', status: 'PRESENT' }])
     expect(result.unmatchedIds).toEqual(['b', 'c'])
     expect(result.draft.b.status).toBeNull()
+  })
+
+  it('a los nuevos les saca el "presente" con el que abre la lista', () => {
+    const result = applyCopySuggestion(initialDraft(students, 'PENDING'), students, [{ studentId: 'a', status: 'LATE' }])
+    expect(result.draft.a.status).toBe('LATE')
+    expect(result.draft.b.status).toBeNull()
+    expect(result.draft.c.status).toBeNull()
   })
 
   it('ignora sugerencias de alumnos que ya no están en el grupo', () => {

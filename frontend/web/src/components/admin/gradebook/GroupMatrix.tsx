@@ -38,7 +38,7 @@ type Descriptor = { label: string; descriptor: string | null; colorToken: string
 
 type Cell = {
   gradeBookId: string
-  /** R, la nota de reunión: la oficial. */
+  /** R, el rendimiento: la nota oficial. */
   valueHundredths: number | null
   /** C, la del docente. Se muestra como propuesta mientras no hay R; no promedia. */
   proposedValueHundredths?: number | null
@@ -105,8 +105,9 @@ export function reportCardsPath(group: Group, periodId: string): string {
 
 /**
  * Celda de la matriz: color, símbolo y valor de R. El símbolo evita depender del color (RNF 7.2).
- * Sin R, muestra la C del docente como propuesta —es lo que se discute en la reunión—, rotulada
- * con texto y sin color de tramo, porque todavía no es una nota.
+ * Sin R, muestra la calificación que el docente cargó con el sistema anterior (antes de que C
+ * pasara a ser la conducta) como propuesta, rotulada con texto y sin color de tramo, porque
+ * todavía no es una nota.
  */
 function MatrixCell({ cell, decimals }: { cell: Cell; decimals: number }) {
   if (cell.pending) {
@@ -114,9 +115,9 @@ function MatrixCell({ cell, decimals }: { cell: Cell; decimals: number }) {
       return (
         <span
           className="inline-flex items-center gap-1 rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-xs text-gray-600"
-          title="C propuesta por el docente; todavía sin nota de reunión (R)"
+          title="Calificación propuesta por el docente; todavía sin rendimiento (R)"
         >
-          <span className="text-[10px] uppercase text-gray-400">C</span>
+          <span className="text-[10px] uppercase text-gray-400">Prop.</span>
           {formatHundredths(cell.proposedValueHundredths, decimals)}
         </span>
       )
@@ -471,7 +472,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
           </ScrollRegion>
 
           <p className="text-xs text-gray-500">
-            <strong>{matrix.averageLabel}.</strong> Se calcula con la nota de reunión (R); una celda con{' '}
+            <strong>{matrix.averageLabel}.</strong> Se calcula con el rendimiento (R); una celda con{' '}
             <span className="rounded border border-dashed border-gray-300 px-1">C</span> es la propuesta del
             docente y todavía no cuenta. No sustituye las decisiones pedagógicas de la reunión de profesores.
             {matrix.alertSubjectsThreshold != null &&

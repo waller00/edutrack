@@ -24,12 +24,22 @@ type PeriodRow = {
   closedLate?: boolean
 }
 
-type Blocker = { code: 'MISSING_GRADES' | 'MISSING_MEETING_GRADES' | 'MISSING_JUDGEMENT'; studentIds: string[] }
+type Blocker = {
+  code: 'MISSING_GRADES' | 'MISSING_CONDUCT' | 'MISSING_JUDGEMENT' | 'MISSING_GROUP_REPORT'
+  studentIds: string[]
+}
 
 const BLOCKER_LABELS: Record<Blocker['code'], string> = {
-  MISSING_GRADES: 'sin C',
-  MISSING_MEETING_GRADES: 'sin R (nota de reunión)',
+  MISSING_GRADES: 'sin R (rendimiento)',
+  MISSING_CONDUCT: 'sin C (conducta)',
   MISSING_JUDGEMENT: 'sin informe o juicio',
+  MISSING_GROUP_REPORT: 'falta el informe del grupo',
+}
+
+/** "3 sin R (rendimiento)"; el informe del grupo no es de alumnos, va sin número. */
+function blockerText(blocker: Blocker): string {
+  const label = BLOCKER_LABELS[blocker.code] ?? blocker.code
+  return blocker.code === 'MISSING_GROUP_REPORT' ? label : `${blocker.studentIds.length} ${label}`
 }
 
 const STATUS_TEXT: Record<PeriodRow['status'], string> = {
@@ -45,7 +55,7 @@ export function closeErrorText(err: unknown): string {
   const data = (err as { data?: { message?: string; detail?: { blockers?: Blocker[] } } })?.data
   const blockers = data?.detail?.blockers ?? []
   if (blockers.length > 0) {
-    const list = blockers.map((b) => `${b.studentIds.length} ${BLOCKER_LABELS[b.code] ?? b.code}`).join(' · ')
+    const list = blockers.map(blockerText).join(' · ')
     return `No se puede cerrar todavía: ${list}.`
   }
   return data?.message ?? (err instanceof Error ? err.message : 'No se pudo cerrar')

@@ -24,6 +24,7 @@ import {
   applyCopySuggestion,
   buildDraft,
   countByStatus,
+  initialDraft,
   fullName,
   mergeServerRoster,
   setNote,
@@ -88,7 +89,9 @@ export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: 
       const data = await api<SheetResponse>(`/student-attendance/sessions/${eventId}/${ymd}`)
       setSheet(data)
       // Si el docente ya venía marcando, no se le pisa el trabajo con lo del servidor.
-      setDraft((prev) => (Object.keys(prev).length > 0 ? mergeServerRoster(data.students, prev) : buildDraft(data.students)))
+      setDraft((prev) =>
+        Object.keys(prev).length > 0 ? mergeServerRoster(data.students, prev) : initialDraft(data.students, data.rollCall.status),
+      )
     } catch (e) {
       const err = e as Error & { data?: { redirectEventId?: string } }
       // La serie se versionó: seguimos al id vigente en vez de mostrar un error opaco.

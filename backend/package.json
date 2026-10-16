@@ -30,6 +30,7 @@
     "sync:keycloak:usernames": "tsx prisma/sync-keycloak-usernames.ts",
     "seed:biometric": "node prisma/seed-biometric-adms.mjs",
     "backfill:event-attendance-redesign": "tsx scripts/backfill-event-attendance-redesign.ts",
+    "backfill:period-rendimiento": "tsx scripts/backfill-period-rendimiento.ts",
     "moodle:cleanup-orphans": "tsx scripts/cleanup-moodle-orphans.ts",
     "fix:license-future-absences": "tsx scripts/remove-future-license-absences.ts",
     "moodle:provision-demo-students": "tsx scripts/provision-demo-moodle-students.ts",

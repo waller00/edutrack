@@ -20,13 +20,15 @@ import {
 } from '@/lib/gradebook/period-blocks'
 import { gradeTooltipLine } from '@/lib/gradebook/student-evaluation-export'
 import GradeSelect from './GradeSelect'
+import ConductSelect, { conductText, type ConductOption } from './ConductSelect'
 
 /**
  * Un bloque de la carta del alumno, con la forma de la planilla del liceo:
  * tramo (Or · Otras · Ev · [Prueba] · C · R), entrega (informe · C · R) o diagnóstico (texto).
  *
- * C es la calificación del docente y R la que queda después de la reunión. Las notas sueltas se
- * muestran todas, como las dos celdas de cada columna en la planilla: nunca se promedian.
+ * C es la conducta del alumno en la asignatura (escala de conducta) y R el rendimiento, la nota
+ * oficial del período (escala del nivel). Las notas sueltas se muestran todas, como las dos celdas
+ * de cada columna en la planilla: nunca se promedian.
  */
 
 export type BlockLevel = {
@@ -58,8 +60,10 @@ type BlockProps = {
   saved: PeriodGradeValues | null
   levels: readonly BlockLevel[]
   decimals: number
-  /** Escala del nivel: el rango que ofrecen C y R (1–12 en bachillerato). */
+  /** Escala del nivel: el rango que ofrece R (1–12 en bachillerato). */
   scale?: GradeRange | null
+  /** Escala de conducta: las opciones de C ("Buena", "Muy buena"…). */
+  conduct?: readonly ConductOption[]
   /** El docente puede escribir: tiene la libreta y el período está abierto y habilitado. */
   editable: boolean
   status?: Status
@@ -148,7 +152,7 @@ function GradeChips({
   )
 }
 
-/** C o R: selector con la escala del nivel en la misma carta, o el valor con su tramo si no se edita. */
+/** R: selector con la escala del nivel en la misma carta, o el valor con su tramo si no se edita. */
 function PeriodGradeCell({
   label,
   title,
@@ -312,32 +316,79 @@ function BlockHeader({ period, status }: { period: LibretaPeriod; status?: Statu
   )
 }
 
+/** C: la conducta, con las etiquetas de la escala (siempre texto, nunca sólo un color). */
+function ConductCell({
+  title,
+  value,
+  options,
+  editable,
+  onChange,
+}: {
+  title: string
+  value: number | null
+  options: readonly ConductOption[]
+  editable: boolean
+  onChange: (value: number | null) => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+
+  async function handleChange(next: string) {
+    setBusy(true)
+    try {
+      await onChange(next === '' ? null : Number(next))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="px-1 py-1.5 text-center">
+      <p className="font-bold text-amber-900" title={title}>
+        C
+      </p>
+      {editable ? (
+        <span className="inline-flex items-center gap-0.5">
+          <ConductSelect
+            value={value == null ? '' : String(value)}
+            options={options}
+            disabled={busy}
+            onChange={(next) => void handleChange(next)}
+            aria-label={title}
+            className="max-w-[6.5rem] rounded border border-amber-200 bg-amber-50 px-0.5 py-0.5 text-center text-xs disabled:opacity-50"
+          />
+          {busy && <Loader2 className="h-3 w-3 animate-spin text-slate-400" aria-hidden />}
+        </span>
+      ) : (
+        <span className="text-xs text-slate-700">{conductText(value, options)}</span>
+      )}
+    </div>
+  )
+}
+
 function CAndR({
   period,
   saved,
   levels,
   decimals,
   scale,
+  conduct = [],
   editable,
   save,
-}: Pick<BlockProps, 'period' | 'saved' | 'levels' | 'decimals' | 'scale' | 'editable'> & {
+}: Pick<BlockProps, 'period' | 'saved' | 'levels' | 'decimals' | 'scale' | 'conduct' | 'editable'> & {
   save: (patch: PeriodGradePatch) => Promise<void>
 }) {
   return (
     <>
-      <PeriodGradeCell
-        label="C"
-        title={`C: calificación de ${period.name}`}
-        value={saved?.valueHundredths ?? null}
-        levels={levels}
-        decimals={decimals}
-        scale={scale}
+      <ConductCell
+        title={`C: conducta en ${period.name}`}
+        value={saved?.conductValueHundredths ?? null}
+        options={conduct}
         editable={editable}
-        onChange={(value) => save({ valueHundredths: value })}
+        onChange={(value) => save({ conductValueHundredths: value })}
       />
       <PeriodGradeCell
         label="R"
-        title={`R: nota de reunión de ${period.name}`}
+        title={`R: rendimiento de ${period.name}`}
         value={saved?.meetingValueHundredths ?? null}
         levels={levels}
         decimals={decimals}
@@ -431,7 +482,7 @@ export default function PeriodBlock(props: BlockProps) {
     }
   }
 
-  const width = kind === 'TRAMO' ? 'w-[19rem]' : 'w-[13rem]'
+  const width = kind === 'TRAMO' ? 'w-[21rem]' : 'w-[15rem]'
   return (
     <div className={`${width} shrink-0 overflow-hidden rounded border border-amber-200 bg-white text-xs`}>
       <BlockHeader period={props.period} status={props.status} />

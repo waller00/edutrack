@@ -33,7 +33,7 @@ const LEVELS = [
 function student(over: Partial<StudentPeriodRow> = {}): StudentPeriodRow {
   return {
     studentId: 's1', lastName: 'B', firstName: 'Ana',
-    assessmentValues: [], valueHundredths: 700, conceptualJudgement: 'Progresa bien.',
+    assessmentValues: [], meetingValueHundredths: 700, conductValueHundredths: 800, conceptualJudgement: 'Progresa bien.',
     ...over,
   }
 }
@@ -64,9 +64,9 @@ describe('closureBlockers', () => {
 
   it('reporta a TODOS los que faltan, no sólo al primero', () => {
     const rows = [
-      student({ studentId: 's1', valueHundredths: null }),
+      student({ studentId: 's1', meetingValueHundredths: null }),
       student({ studentId: 's2' }),
-      student({ studentId: 's3', valueHundredths: null }),
+      student({ studentId: 's3', meetingValueHundredths: null }),
     ]
     expect(closureBlockers(rows, strict)).toEqual([
       { code: 'MISSING_GRADES', studentIds: ['s1', 's3'] },
@@ -74,7 +74,7 @@ describe('closureBlockers', () => {
   })
 
   it('acumula los dos bloqueos a la vez', () => {
-    const rows = [student({ studentId: 's1', valueHundredths: null, conceptualJudgement: '' })]
+    const rows = [student({ studentId: 's1', meetingValueHundredths: null, conceptualJudgement: '' })]
     expect(closureBlockers(rows, strict).map((b) => b.code).sort()).toEqual([
       'MISSING_GRADES',
       'MISSING_JUDGEMENT',
@@ -91,8 +91,8 @@ describe('closureBlockers', () => {
     expect(closureBlockers(rows, { requiresGeneralGrade: true, requiresConceptualJudgement: false })).toEqual([])
   })
 
-  it('si el período no exige calificación general, tampoco', () => {
-    const rows = [student({ valueHundredths: null })]
+  it('si el período no exige rendimiento, tampoco', () => {
+    const rows = [student({ meetingValueHundredths: null })]
     expect(closureBlockers(rows, { requiresGeneralGrade: false, requiresConceptualJudgement: true })).toEqual([])
   })
 
@@ -177,29 +177,58 @@ describe('canEditStudentClosurePeriod', () => {
   })
 })
 
-describe('reunión: C y R', () => {
+describe('reunión: R = rendimiento, C = conducta', () => {
   const rules = { requiresGeneralGrade: true, requiresConceptualJudgement: false, isMeeting: true }
 
-  it('un período con reunión que exige C exige también R', () => {
-    const rows = [
-      student({ studentId: 's1', meetingValueHundredths: 700 }),
-      student({ studentId: 's2', meetingValueHundredths: null }),
-    ]
-    expect(closureBlockers(rows, rules)).toEqual([{ code: 'MISSING_MEETING_GRADES', studentIds: ['s2'] }])
+  it('R es el rendimiento: sin R no se cierra', () => {
+    const rows = [student({ studentId: 's1' }), student({ studentId: 's2', meetingValueHundredths: null })]
+    expect(closureBlockers(rows, rules)).toEqual([{ code: 'MISSING_GRADES', studentIds: ['s2'] }])
   })
 
-  it('sin reunión, R no se exige', () => {
-    expect(closureBlockers([student({ meetingValueHundredths: null })], { ...rules, isMeeting: false })).toEqual([])
+  it('una reunión que pide rendimiento pide también la conducta (C)', () => {
+    const rows = [student({ studentId: 's1' }), student({ studentId: 's2', conductValueHundredths: null })]
+    expect(closureBlockers(rows, rules)).toEqual([{ code: 'MISSING_CONDUCT', studentIds: ['s2'] }])
   })
 
-  it('con reunión pero sin exigir C (APE), no exige R', () => {
-    expect(closureBlockers([student({ valueHundredths: null })], { ...rules, requiresGeneralGrade: false })).toEqual([])
+  it('sin reunión, la conducta no se exige', () => {
+    expect(closureBlockers([student({ conductValueHundredths: null })], { ...rules, isMeeting: false })).toEqual([])
+  })
+
+  it('con reunión pero sin exigir rendimiento (APE), no exige nada de eso', () => {
+    expect(
+      closureBlockers([student({ meetingValueHundredths: null, conductValueHundredths: null })], { ...rules, requiresGeneralGrade: false }),
+    ).toEqual([])
+  })
+
+  it('la calificación vieja del docente ya no cuenta para cerrar', () => {
+    expect(closureBlockers([student({ valueHundredths: null })], rules)).toEqual([])
   })
 
   it('la nota oficial es siempre R, nunca C', () => {
     expect(officialPeriodValue({ meetingValueHundredths: 800 })).toBe(800)
     expect(officialPeriodValue({ meetingValueHundredths: null })).toBeNull()
     expect(officialPeriodValue(null)).toBeNull()
+  })
+})
+
+describe('informe general del grupo', () => {
+  const reportCard = { requiresGeneralGrade: true, requiresConceptualJudgement: true, isMeeting: true }
+
+  it('una reunión de boletín no cierra sin informe del grupo', () => {
+    expect(closureBlockers([student()], reportCard, null)).toEqual([{ code: 'MISSING_GROUP_REPORT', studentIds: [] }])
+    expect(closureBlockers([student()], reportCard, '   ')).toEqual([{ code: 'MISSING_GROUP_REPORT', studentIds: [] }])
+  })
+
+  it('con informe, cierra', () => {
+    expect(closureBlockers([student()], reportCard, 'El grupo avanzó bien.')).toEqual([])
+  })
+
+  it('un tramo sin reunión no lo pide', () => {
+    expect(closureBlockers([student()], { ...reportCard, isMeeting: false }, null)).toEqual([])
+  })
+
+  it('si no se cargó el informe, no se evalúa', () => {
+    expect(closureBlockers([student()], reportCard)).toEqual([])
   })
 })
 

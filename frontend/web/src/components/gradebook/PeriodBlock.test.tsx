@@ -22,6 +22,11 @@ function grade(over: Partial<BlockGrade>): BlockGrade {
   }
 }
 
+const CONDUCT = [
+  { valueHundredths: 600, label: 'Buena' },
+  { valueHundredths: 800, label: 'Muy buena' },
+]
+
 const TRAMO = { id: 'p1', code: 'MAYO_JUNIO', name: 'Mayo – Junio', kind: 'TRAMO' as const }
 const ENTREGA = {
   id: 'p2',
@@ -71,21 +76,39 @@ describe('<PeriodBlock /> tramo', () => {
     expect(screen.getByLabelText(/^4, En proceso\. /)).toBeInTheDocument()
   })
 
-  it('C y R se editan en la carta y cada una se guarda por separado', async () => {
+  it('C (conducta) y R (rendimiento) se editan en la carta y cada una se guarda por separado', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined)
     render(
       <PeriodBlock
         period={TRAMO}
         grades={[]}
-        saved={{ valueHundredths: 700, meetingValueHundredths: null, conceptualJudgement: null }}
+        saved={{ meetingValueHundredths: null, conductValueHundredths: null, conceptualJudgement: null }}
         levels={LEVELS}
         decimals={0}
+        conduct={CONDUCT}
         editable
         onSave={onSave}
       />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('R: nota de reunión de Mayo – Junio'), '8')
+    await userEvent.selectOptions(screen.getByLabelText('R: rendimiento de Mayo – Junio'), '8')
     expect(onSave).toHaveBeenCalledWith({ meetingValueHundredths: 800 })
+    await userEvent.selectOptions(screen.getByLabelText('C: conducta en Mayo – Junio'), 'Muy buena')
+    expect(onSave).toHaveBeenCalledWith({ conductValueHundredths: 800 })
+  })
+
+  it('C se lee con el texto de la escala de conducta, no como número', () => {
+    render(
+      <PeriodBlock
+        period={TRAMO}
+        grades={[]}
+        saved={{ meetingValueHundredths: 700, conductValueHundredths: 600, conceptualJudgement: null }}
+        levels={LEVELS}
+        decimals={0}
+        conduct={CONDUCT}
+        editable={false}
+      />,
+    )
+    expect(screen.getByText('Buena')).toBeInTheDocument()
   })
 
   it('el + de una columna abre la carga con esa categoría', async () => {
@@ -112,13 +135,15 @@ describe('<PeriodBlock /> entrega', () => {
       <PeriodBlock
         period={ENTREGA}
         grades={[]}
-        saved={{ valueHundredths: 700, meetingValueHundredths: 800, conceptualJudgement: null }}
+        saved={{ meetingValueHundredths: 800, conductValueHundredths: 800, conceptualJudgement: null }}
         levels={LEVELS}
         decimals={0}
+        conduct={CONDUCT}
         editable={false}
       />,
     )
     expect(screen.getByRole('button', { name: /Informe de actuación: falta/ })).toBeInTheDocument()
+    expect(screen.getByText('Muy buena')).toBeInTheDocument()
     expect(screen.getByLabelText('8, Muy bueno')).toBeInTheDocument()
     expect(screen.queryByText('Or')).not.toBeInTheDocument()
   })
@@ -134,13 +159,13 @@ describe('<PeriodBlock /> entrega', () => {
     expect(onSave).toHaveBeenCalledWith({ conceptualJudgement: 'Avanza con autonomía.' })
   })
 
-  it('en bachillerato C y R ofrecen 11 y 12', async () => {
+  it('en bachillerato R ofrece 11 y 12', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined)
     render(
       <PeriodBlock
         period={ENTREGA}
         grades={[]}
-        saved={{ valueHundredths: 1100, meetingValueHundredths: null, conceptualJudgement: null }}
+        saved={{ meetingValueHundredths: 1100, conceptualJudgement: null }}
         levels={LEVELS}
         decimals={0}
         scale={{ minValueHundredths: 100, maxValueHundredths: 1200 }}
@@ -148,9 +173,9 @@ describe('<PeriodBlock /> entrega', () => {
         onSave={onSave}
       />,
     )
-    // Antes una C de 11 se leía vacía: tocar el selector la borraba.
-    expect(screen.getByLabelText('C: calificación de 1.ª Entrega')).toHaveValue('11')
-    await userEvent.selectOptions(screen.getByLabelText('R: nota de reunión de 1.ª Entrega'), '12')
+    // Antes una nota de 11 se leía vacía: tocar el selector la borraba.
+    expect(screen.getByLabelText('R: rendimiento de 1.ª Entrega')).toHaveValue('11')
+    await userEvent.selectOptions(screen.getByLabelText('R: rendimiento de 1.ª Entrega'), '12')
     expect(onSave).toHaveBeenCalledWith({ meetingValueHundredths: 1200 })
   })
 
@@ -159,7 +184,7 @@ describe('<PeriodBlock /> entrega', () => {
     render(
       <PeriodBlock period={ENTREGA} grades={[]} saved={null} levels={LEVELS} decimals={0} editable onSave={onSave} />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('C: calificación de 1.ª Entrega'), '7')
+    await userEvent.selectOptions(screen.getByLabelText('R: rendimiento de 1.ª Entrega'), '7')
     expect(await screen.findByRole('alert')).toHaveTextContent('El período está cerrado.')
   })
 })
@@ -170,7 +195,7 @@ describe('<PeriodBlock /> diagnóstico', () => {
       <PeriodBlock
         period={{ id: 'd', code: 'MODULO_INTRODUCTORIO', name: 'Diagnóstico', kind: 'DIAGNOSTICO' }}
         grades={[]}
-        saved={{ valueHundredths: null, meetingValueHundredths: null, conceptualJudgement: 'Lee con fluidez.' }}
+        saved={{ meetingValueHundredths: null, conceptualJudgement: 'Lee con fluidez.' }}
         levels={LEVELS}
         decimals={0}
         editable={false}

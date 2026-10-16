@@ -46,14 +46,41 @@ function Bubble({ message }: { message: Message }) {
   )
 }
 
+/**
+ * Quién mira el intercambio:
+ * - `teacher`: "Mensajes del director". Sólo los hilos que abrió Dirección, y el docente responde
+ *   dentro de ellos (no abre hilos nuevos: es el canal por el que Dirección le avisa).
+ * - `supervisor`: Dirección en "Visado y seguimiento". Ve todo el intercambio y le escribe al
+ *   docente.
+ */
+export type MessagesVariant = 'teacher' | 'supervisor'
+
+const COPY: Record<MessagesVariant, { title: string; empty: string; placeholder: string }> = {
+  teacher: {
+    title: 'Mensajes del director',
+    empty: 'Dirección todavía no te dejó mensajes en esta libreta.',
+    placeholder: 'Respondele a Dirección…',
+  },
+  supervisor: {
+    title: 'Mensajes al docente',
+    empty: 'Todavía no hay mensajes. Escribile al docente si falta algo o hay algo mal cargado.',
+    placeholder: 'Por ejemplo: te falta el informe del grupo, o las notas del escrito de mayo…',
+  },
+}
+
 /** Espacio de intercambio de la libreta (RF-090). */
 export default function MessagesPanel({
   gradeBookId,
   readOnly = false,
+  variant = 'supervisor',
 }: {
   gradeBookId: string
   readOnly?: boolean
+  variant?: MessagesVariant
 }) {
+  const copy = COPY[variant]
+  // El docente sólo responde: el cuadro aparece cuando eligió a qué mensaje.
+  const canStartThread = variant === 'supervisor'
   const [messages, setMessages] = useState<Message[]>([])
   const [draft, setDraft] = useState('')
   const [replyTo, setReplyTo] = useState<string | null>(null)
@@ -64,14 +91,15 @@ export default function MessagesPanel({
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await api<{ data: Message[] }>(`/gradebook/${gradeBookId}/messages`)
+      const from = variant === 'teacher' ? '?from=DIRECCION' : ''
+      const res = await api<{ data: Message[] }>(`/gradebook/${gradeBookId}/messages${from}`)
       setMessages(res.data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo cargar el intercambio')
     } finally {
       setLoading(false)
     }
-  }, [gradeBookId])
+  }, [gradeBookId, variant])
 
   useEffect(() => {
     void load()
@@ -111,7 +139,7 @@ export default function MessagesPanel({
     <section className="space-y-3">
       <header className="flex items-center gap-2">
         <MessagesSquare className="h-4 w-4 text-gray-400" aria-hidden />
-        <h2 className="text-sm font-semibold text-gray-900">Observaciones y mensajes</h2>
+        <h2 className="text-sm font-semibold text-gray-900">{copy.title}</h2>
       </header>
 
       {error && (
@@ -120,7 +148,7 @@ export default function MessagesPanel({
 
       {threads.length === 0 ? (
         <p className="rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm text-gray-500">
-          Todavía no hay mensajes. Es el espacio de intercambio con adscripción, dirección e inspección.
+          {copy.empty}
         </p>
       ) : (
         <ul className="space-y-3">
@@ -148,11 +176,12 @@ export default function MessagesPanel({
         </ul>
       )}
 
-      {readOnly ? (
+      {readOnly && (
         <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
           El ciclo está cerrado: el intercambio queda como registro y no admite mensajes nuevos.
         </p>
-      ) : (
+      )}
+      {!readOnly && (canStartThread || replyTo) && (
       <div className="space-y-2 rounded-xl border border-gray-200 bg-white p-3">
         {replyTo && <p className="text-xs text-gray-500">Respondiendo a un mensaje del hilo.</p>}
         <textarea
@@ -160,7 +189,7 @@ export default function MessagesPanel({
           onChange={(e) => setDraft(e.target.value)}
           rows={3}
           aria-label="Escribir un mensaje"
-          placeholder="Escribí una observación o una consulta…"
+          placeholder={copy.placeholder}
           className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
         />
         <button
@@ -170,7 +199,7 @@ export default function MessagesPanel({
           className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
-          Publicar
+          {replyTo ? 'Enviar respuesta' : 'Enviar'}
         </button>
       </div>
       )}

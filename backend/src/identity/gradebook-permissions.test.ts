@@ -3,6 +3,7 @@ import {
   BUILTIN_PROFILE_ROLES,
   DEFAULT_PROFILE_PERMISSIONS,
   REMOVED_PROFILE_PERMISSION_IDS,
+  REVOKED_PROFILE_PERMISSION_IDS,
   ROLE_LABELS,
   type BuiltinProfileRole,
 } from './profile-permissions-defaults.js'
@@ -85,23 +86,24 @@ describe('calificar: sólo el docente sobre lo propio', () => {
   })
 })
 
-describe('planificar: Dirección edita la libreta salvo notas y juicios', () => {
+describe('planificar: sólo el docente edita su libreta', () => {
   it('el docente planifica lo propio', () => {
     for (const role of ['TEACHER', 'STAFF'] as const) {
       expect(scopeOf(role, 'gradebook.plan')).toBe('own')
     }
   })
 
-  it('DIRECCION planifica cualquier libreta', () => {
-    expect(scopeOf('DIRECCION', 'gradebook.plan')).toBe('all')
-  })
-
-  it('planificar y calificar son permisos distintos', () => {
-    // Es lo que hace posible la regla del liceo: el director entra a una libreta ajena y corrige
-    // la planificación o el desarrollo, pero no puede tocar una calificación ni un juicio.
-    expect(scopeOf('DIRECCION', 'gradebook.plan')).toBe('all')
+  it('Dirección ve la libreta pero no edita nada: ni notas, ni juicios, ni planificación', () => {
+    // El director observa y avisa al docente; no corrige por él.
+    expect(scopeOf('DIRECCION', 'gradebook.read')).toBe('all')
+    expect(scopeOf('DIRECCION', 'gradebook.plan')).toBeNull()
     expect(scopeOf('DIRECCION', 'gradebook.grade')).toBeNull()
     expect(scopeOf('DIRECCION', 'gradebook.close')).toBeNull()
+  })
+
+  it('a Dirección se le apaga `gradebook.plan` en bases que ya lo tenían', () => {
+    expect(REVOKED_PROFILE_PERMISSION_IDS.DIRECCION).toContain('gradebook.plan')
+    expect(REMOVED_PROFILE_PERMISSION_IDS.DIRECCION.has('gradebook.plan')).toBe(true)
   })
 
   it('adscripción e inspección no editan la libreta: sólo controlan', () => {

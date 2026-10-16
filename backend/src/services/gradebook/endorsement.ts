@@ -5,16 +5,22 @@
  * observación posterior a un visado no lo borra, lo sucede. Todo acá es lógica pura.
  */
 
-export type Section = 'GRADES' | 'CLOSURE' | 'JUDGEMENTS' | 'ALL'
+export type Section = 'GRADES' | 'CLOSURE' | 'JUDGEMENTS' | 'PLANNING' | 'GROUP_REPORT' | 'ALL'
 export type Status = 'PENDING' | 'OBSERVED' | 'CORRECTED' | 'ENDORSED'
 
-/** Secciones que deben estar conformes para poder visar el período (RF-082). */
-export const MANDATORY_SECTIONS: readonly Section[] = ['GRADES', 'CLOSURE', 'JUDGEMENTS']
+/**
+ * Secciones que deben estar conformes para poder visar el período (RF-082). Además de las notas,
+ * Dirección sigue si el docente dio lo que planificó (`PLANNING`) y si hizo el informe general del
+ * grupo que se lleva a la reunión (`GROUP_REPORT`).
+ */
+export const MANDATORY_SECTIONS: readonly Section[] = ['GRADES', 'CLOSURE', 'JUDGEMENTS', 'PLANNING', 'GROUP_REPORT']
 
 export const SECTION_LABELS: Record<Section, string> = {
   GRADES: 'Calificaciones',
   CLOSURE: 'Cierre del período',
   JUDGEMENTS: 'Juicios conceptuales',
+  PLANNING: 'Planificación y desarrollo',
+  GROUP_REPORT: 'Informe del grupo',
   ALL: 'Visado del período',
 }
 

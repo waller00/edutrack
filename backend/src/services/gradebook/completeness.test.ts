@@ -24,7 +24,10 @@ function row(over: Partial<GradeBookCompleteness> = {}): GradeBookCompleteness {
     requiresGrade: true,
     judgedCount: 20,
     requiresJudgement: true,
-    meetingGradedCount: 0,
+    conductCount: 20,
+    requiresConduct: true,
+    hasGroupReport: true,
+    requiresGroupReport: true,
     expectsAssessments: true,
     assessmentCount: 3,
     missingAssessmentGrades: 0,
@@ -33,20 +36,33 @@ function row(over: Partial<GradeBookCompleteness> = {}): GradeBookCompleteness {
 }
 
 describe('summarize', () => {
-  it('con evaluaciones, C y juicio cargados, está lista para la reunión', () => {
-    expect(summarize(row())).toMatchObject({ missingGrades: 0, missingJudgements: 0, hasNoAssessments: false, complete: true })
+  it('con evaluaciones, R, C, juicio e informe cargados, está lista para la reunión', () => {
+    expect(summarize(row())).toMatchObject({
+      missingGrades: 0,
+      missingConduct: 0,
+      missingJudgements: 0,
+      missingGroupReport: false,
+      hasNoAssessments: false,
+      complete: true,
+    })
   })
 
-  it('la R no se exige: se pone en la reunión misma', () => {
-    expect(summarize(row({ meetingGradedCount: 0 })).complete).toBe(true)
+  it('la conducta (C) y el informe del grupo se exigen antes de la reunión', () => {
+    const s = summarize(row({ conductCount: 17, hasGroupReport: false }))
+    expect(s).toMatchObject({ missingConduct: 3, missingGroupReport: true, complete: false })
   })
 
-  it('cuenta lo que falta de C y juicio', () => {
+  it('si el período no pide conducta ni informe, no faltan', () => {
+    const s = summarize(row({ conductCount: 0, requiresConduct: false, hasGroupReport: false, requiresGroupReport: false }))
+    expect(s).toMatchObject({ missingConduct: 0, missingGroupReport: false, complete: true })
+  })
+
+  it('cuenta lo que falta de R y juicio', () => {
     const s = summarize(row({ gradedCount: 14, judgedCount: 11 }))
     expect(s).toMatchObject({ missingGrades: 6, missingJudgements: 9, complete: false })
   })
 
-  it('el juicio no falta si el período no lo pide; la C tampoco', () => {
+  it('el juicio no falta si el período no lo pide; la R tampoco', () => {
     const s = summarize(row({ judgedCount: 0, requiresJudgement: false, gradedCount: 0, requiresGrade: false }))
     expect(s).toMatchObject({ missingJudgements: 0, missingGrades: 0, complete: true })
   })
@@ -167,7 +183,7 @@ describe('completionRequestBody', () => {
   it('dice qué falta y cuánto', () => {
     const s = summarize(row({ gradedCount: 14, judgedCount: 11, missingAssessmentGrades: 5 }))
     expect(completionRequestBody(s, '1.ª Entrega')).toBe(
-      '1.ª Entrega: 5 notas de evaluación sin cargar, 6 sin calificación del período y 9 sin juicio conceptual.',
+      '1.ª Entrega: 5 notas de evaluación sin cargar, 6 sin rendimiento (R) y 9 sin juicio conceptual.',
     )
   })
 
@@ -187,22 +203,20 @@ describe('completionRequestBody', () => {
 })
 
 describe('después de la reunión', () => {
-  it('lo que falta es la R de cada alumno y cerrar el período', () => {
-    const summary = summarize(row({ meetingGradedCount: 18 }))
-    expect(summary.missingMeetingGrades).toBe(2)
-    expect(missingAfterMeeting(summary)).toEqual(['2 sin nota de reunión (R)', 'falta cerrar el período'])
-    expect(completionRequestBody(summary, '1.ª Entrega', 'after')).toBe(
-      '1.ª Entrega: 2 sin nota de reunión (R) y falta cerrar el período.',
-    )
+  it('lo que falta es cerrar el período', () => {
+    const summary = summarize(row())
+    expect(missingAfterMeeting(summary)).toEqual(['falta cerrar el período'])
+    expect(completionRequestBody(summary, '1.ª Entrega', 'after')).toBe('1.ª Entrega: falta cerrar el período.')
   })
 
-  it('una reunión sin C (APE) no pide R', () => {
-    expect(summarize(row({ requiresGrade: false, meetingGradedCount: 0 })).missingMeetingGrades).toBe(0)
+  it('el aviso antes de la reunión nombra la conducta y el informe', () => {
+    const s = summarize(row({ conductCount: 19, hasGroupReport: false }))
+    expect(completionRequestBody(s, 'Mayo')).toBe('Mayo: 1 sin conducta (C) y falta el informe del grupo.')
   })
 
   it('está al día recién cuando cerró el período', () => {
-    const open = summarize(row({ meetingGradedCount: 20 }))
-    const closed = summarize(row({ meetingGradedCount: 20, periodStatus: 'CLOSED' }))
+    const open = summarize(row())
+    const closed = summarize(row({ periodStatus: 'CLOSED' }))
     expect(isStageComplete(open, 'before')).toBe(true)
     expect(isStageComplete(open, 'after')).toBe(false)
     expect(isStageComplete(closed, 'after')).toBe(true)

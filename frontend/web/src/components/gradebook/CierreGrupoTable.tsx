@@ -34,11 +34,13 @@ type Sheet = {
   state: { status: 'OPEN' | 'CLOSED' | 'REOPENED' }
   canEdit: boolean
   students: SheetRow[]
+  /** Informe general del grupo del período; `required` en las reuniones de boletín. */
+  groupReport?: { body: string | null; updatedAt: string | null; required: boolean }
 }
 
-type RowDraft = { grade: string; meeting: string; judgement: string; conduct: string }
+/** R (rendimiento), el texto y C (conducta), en centésimos como texto (`''` sin dato). */
+type RowDraft = { meeting: string; judgement: string; conduct: string }
 type Patch = {
-  valueHundredths?: number | null
   meetingValueHundredths?: number | null
   conceptualJudgement?: string | null
   conductValueHundredths?: number | null
@@ -56,7 +58,6 @@ export function currentPeriodId(periods: Options['periods'], today: string): str
 
 function draftOf(row: SheetRow): RowDraft {
   return {
-    grade: gradeSelectFromHundredths(row.valueHundredths),
     meeting: gradeSelectFromHundredths(row.meetingValueHundredths),
     judgement: row.conceptualJudgement ?? '',
     conduct: row.conductValueHundredths == null ? '' : String(row.conductValueHundredths),
@@ -66,11 +67,9 @@ function draftOf(row: SheetRow): RowDraft {
 /** Lo que cambió en la fila: el guardado es parcial, lo que no viene no se toca. */
 export function rowPatch(row: SheetRow, draft: RowDraft): Patch | null {
   const patch: Patch = {}
-  const grade = gradeSelectToHundredths(draft.grade)
   const meeting = gradeSelectToHundredths(draft.meeting)
   const judgement = draft.judgement.trim() || null
   const conduct = draft.conduct === '' ? null : Number(draft.conduct)
-  if (grade !== row.valueHundredths) patch.valueHundredths = grade
   if (meeting !== row.meetingValueHundredths) patch.meetingValueHundredths = meeting
   if (judgement !== (row.conceptualJudgement ?? null)) patch.conceptualJudgement = judgement
   if (conduct !== row.conductValueHundredths) patch.conductValueHundredths = conduct
@@ -108,22 +107,35 @@ function GrupoRow({
       <td className="px-2 py-1.5 text-center tabular-nums text-slate-500" title="Notas cargadas en el período">
         {row.assessmentCount}
       </td>
-      {hasGrades &&
-        (['grade', 'meeting'] as const).map((field) => (
-          <td key={field} className="px-2 py-1.5">
-            {editable ? (
-              <GradeSelect
-                value={draft[field]}
-                scale={scale}
-                onChange={(value) => onChange({ [field]: value })}
-                aria-label={`${field === 'grade' ? 'C' : 'R'} de ${name}`}
-                className="w-16 rounded border border-amber-200 bg-amber-50 px-1 py-1 text-sm tabular-nums"
-              />
-            ) : (
-              <span className="tabular-nums">{formatGrade(gradeSelectToHundredths(draft[field]))}</span>
-            )}
-          </td>
-        ))}
+      {hasGrades && (
+        <td className="px-2 py-1.5">
+          {editable ? (
+            <ConductSelect
+              value={draft.conduct}
+              options={conduct}
+              onChange={(value) => onChange({ conduct: value })}
+              aria-label={`C (conducta) de ${name}`}
+            />
+          ) : (
+            <span>{conductText(row.conductValueHundredths, conduct)}</span>
+          )}
+        </td>
+      )}
+      {hasGrades && (
+        <td className="px-2 py-1.5">
+          {editable ? (
+            <GradeSelect
+              value={draft.meeting}
+              scale={scale}
+              onChange={(value) => onChange({ meeting: value })}
+              aria-label={`R (rendimiento) de ${name}`}
+              className="w-16 rounded border border-amber-200 bg-amber-50 px-1 py-1 text-sm tabular-nums"
+            />
+          ) : (
+            <span className="tabular-nums">{formatGrade(gradeSelectToHundredths(draft.meeting))}</span>
+          )}
+        </td>
+      )}
       <td className="px-2 py-1.5">
         {editable ? (
           <textarea
@@ -138,27 +150,102 @@ function GrupoRow({
           <p className="whitespace-pre-wrap text-sm text-slate-600">{draft.judgement || '—'}</p>
         )}
       </td>
-      {sheet.period.isMeeting && (
-        <td className="px-2 py-1.5">
-          {editable ? (
-            <ConductSelect
-              value={draft.conduct}
-              options={conduct}
-              onChange={(value) => onChange({ conduct: value })}
-              aria-label={`Conducta de ${name}`}
-            />
-          ) : (
-            <span>{conductText(row.conductValueHundredths, conduct)}</span>
-          )}
-        </td>
-      )}
     </tr>
   )
 }
 
 /**
- * Cierre de un período para todo el grupo: C, R, informe y conducta en una tabla, como se pasa en
- * la planilla. Es la forma rápida de cerrar una entrega; la carta por alumno sigue para mirar a
+ * Informe general del grupo del período: lo escribe el docente para la reunión y Dirección lo
+ * visa. En las reuniones de boletín sin él no se puede cerrar.
+ */
+export function GroupReportCard({
+  gradeBookId,
+  periodId,
+  report,
+  editable,
+  onSaved,
+}: {
+  gradeBookId: string
+  periodId: string
+  report: NonNullable<Sheet['groupReport']>
+  editable: boolean
+  onSaved: (body: string | null) => void
+}) {
+  const [draft, setDraft] = useState(report.body ?? '')
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    setDraft(report.body ?? '')
+  }, [report.body, periodId])
+
+  const dirty = draft.trim() !== (report.body ?? '').trim()
+  const filled = (report.body ?? '').trim() !== ''
+
+  async function save() {
+    setSaving(true)
+    setMessage(null)
+    try {
+      const res = await api<{ data: { body: string | null } }>(`/gradebook/${gradeBookId}/periods/${periodId}/group-report`, {
+        method: 'PUT',
+        body: JSON.stringify({ body: draft.trim() || null }),
+      })
+      onSaved(res.data.body)
+      setMessage({ kind: 'ok', text: 'Informe del grupo guardado.' })
+    } catch (err) {
+      setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'No se pudo guardar el informe' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="space-y-2 rounded border border-amber-200 bg-white p-3" aria-labelledby={`informe-grupo-${periodId}`}>
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id={`informe-grupo-${periodId}`} className="text-sm font-semibold text-amber-950">
+          Informe general del grupo
+        </h3>
+        <span className={`text-xs ${filled ? 'text-emerald-800' : report.required ? 'text-amber-800' : 'text-slate-500'}`}>
+          {filled ? '✓ Cargado' : report.required ? '▲ Falta: se pide para cerrar la reunión' : 'Opcional en este período'}
+        </span>
+      </header>
+      {editable ? (
+        <>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={5}
+            maxLength={10000}
+            aria-label="Texto del informe del grupo"
+            placeholder="Cómo trabajó el grupo en el período: avances, dificultades, propuestas para la reunión…"
+            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+          />
+          <div className="flex items-center justify-end gap-3">
+            {message && (
+              <span role={message.kind === 'error' ? 'alert' : 'status'} className={`text-xs ${message.kind === 'error' ? 'text-red-700' : 'text-emerald-800'}`}>
+                {message.text}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={!dirty || saving}
+              className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white hover:bg-teal-800 disabled:opacity-40"
+            >
+              {saving ? 'Guardando…' : 'Guardar informe'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="whitespace-pre-wrap text-sm text-slate-700">{report.body?.trim() || 'Sin informe cargado.'}</p>
+      )}
+    </section>
+  )
+}
+
+/**
+ * Cierre de un período para todo el grupo: C (conducta), R (rendimiento) y el texto de cada alumno
+ * en una tabla, como se pasa en la planilla, y el informe general del grupo. Es la forma rápida de cerrar una entrega; la carta por alumno sigue para mirar a
  * uno solo con todas sus notas.
  */
 export default function CierreGrupoTable({
@@ -296,12 +383,11 @@ export default function CierreGrupoTable({
                   <th scope="col" className="px-2 py-2 text-center font-medium">Notas</th>
                   {periodKind(sheet.period) !== 'DIAGNOSTICO' && (
                     <>
-                      <th scope="col" className="px-2 py-2 text-left font-medium" title="Calificación del docente">C</th>
-                      <th scope="col" className="px-2 py-2 text-left font-medium" title="Nota de reunión">R</th>
+                      <th scope="col" className="px-2 py-2 text-left font-medium" title="Conducta en la asignatura">C · Conducta</th>
+                      <th scope="col" className="px-2 py-2 text-left font-medium" title="Rendimiento: la nota del boletín">R · Rendimiento</th>
                     </>
                   )}
                   <th scope="col" className="px-2 py-2 text-left font-medium">{judgementLabelOf(sheet.period)}</th>
-                  {sheet.period.isMeeting && <th scope="col" className="px-2 py-2 text-left font-medium">Conducta</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -324,6 +410,18 @@ export default function CierreGrupoTable({
             </table>
           </ScrollRegion>
         )
+      )}
+
+      {sheet?.groupReport && (sheet.groupReport.required || sheet.period.isMeeting || sheet.groupReport.body) && (
+        <GroupReportCard
+          gradeBookId={gradeBookId}
+          periodId={periodId}
+          report={sheet.groupReport}
+          editable={Boolean(sheet.canEdit)}
+          onSaved={(body) =>
+            setSheet((prev) => (prev?.groupReport ? { ...prev, groupReport: { ...prev.groupReport, body } } : prev))
+          }
+        />
       )}
 
       {sheet?.canEdit && (

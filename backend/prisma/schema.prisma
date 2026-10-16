@@ -28,6 +28,8 @@ enum InAppNotificationType {
   GRADEBOOK_PERIOD_REOPENED
   /// Alerta de un estudiante (bajó de boletín, faltas seguidas, 18/25 faltas).
   STUDENT_ALERT
+  /// El docente pasó la lista de una clase después de que terminó (aviso a Dirección).
+  ROLL_CALL_LATE
 }
 
 /// Registro append-only de acciones relevantes (RF-11). Sin updates ni deletes desde la app.
@@ -157,6 +159,7 @@ model User {
   periodGradeRevisions                   PeriodGradeRevision[]            @relation("PeriodGradeRevisionChangedBy")
   gradeBookPeriodsClosed                 GradeBookPeriod[]                @relation("GradeBookPeriodClosedBy")
   gradeBookPeriodsReopened               GradeBookPeriod[]                @relation("GradeBookPeriodReopenedBy")
+  gradeBookPeriodGroupReports            GradeBookPeriod[]                @relation("GradeBookPeriodGroupReportUpdatedBy")
   periodGradesUpdated                    PeriodGrade[]                    @relation("PeriodGradeUpdatedBy")
   teacherMeetingRecords                  TeacherMeetingRecord[]           @relation("TeacherMeetingRecordCreatedBy")
   endorsements                           Endorsement[]                    @relation("EndorsementActor")
@@ -267,7 +270,7 @@ model SystemSettings {
   institutionTimezone                 String   @default("America/Montevideo")
   /// Horas tras el fin de la clase (o el pase de lista, lo que sea posterior) en que el
   /// docente todavía puede editar su planilla. Después solo admin, con auditoría.
-  studentRollCallEditWindowHours      Int      @default(48)
+  studentRollCallEditWindowHours      Int      @default(168)
   /// Habilita la sugerencia "copiar la lista de la hora anterior" del mismo grupo.
   studentRollCallCopyPreviousEnabled  Boolean  @default(true)
   /// % de clases del día con ausencia a partir del cual el día consolida como falta entera
@@ -1992,6 +1995,12 @@ model GradeBookPeriod {
   reopenedAt       DateTime?
   reopenReason     String?   @db.Text
 
+  /// Informe general del grupo que el docente lleva a la reunión. Dirección lo visa (GROUP_REPORT).
+  groupReport                String?   @db.Text
+  groupReportUpdatedAt       DateTime?
+  groupReportUpdatedByUserId String?
+  groupReportUpdatedBy       User?     @relation("GradeBookPeriodGroupReportUpdatedBy", fields: [groupReportUpdatedByUserId], references: [id], onDelete: SetNull)
+
   grades       PeriodGrade[]
   revisions    PeriodGradeRevision[]
   createdAt    DateTime      @default(now())
@@ -2088,6 +2097,10 @@ enum EndorsementSection {
   CLOSURE
   /// Los juicios conceptuales.
   JUDGEMENTS
+  /// Seguimiento: si el docente dio lo que planificó (planificación vs. desarrollo del curso).
+  PLANNING
+  /// El informe general del grupo que el docente lleva a la reunión.
+  GROUP_REPORT
   /// Visado final del período, una vez conformes las secciones obligatorias (RF-082).
   ALL
 }

@@ -83,9 +83,8 @@ export function isSubstitutionWriteOpen(span: SubstitutionSpan, windowDays: numb
  * califica por eso: escribir notas exige `gradebook.grade`, que esos roles no tienen. Separar las
  * dos preguntas evita que un rol de supervisión termine escribiendo por tener alcance amplio.
  *
- * Planificar se resuelve igual pero con su propio permiso: Dirección tiene `gradebook.plan` con
- * alcance `all` y no tiene `gradebook.grade`, así que entra a una libreta ajena, edita la
- * planificación y el desarrollo, y no puede tocar una nota.
+ * Planificar se resuelve igual pero con su propio permiso (`gradebook.plan`). Dirección no tiene
+ * ninguno de los dos: entra a cualquier libreta, la lee y la visa, pero no la edita.
  */
 export async function resolveGradeBookAccess(
   params: {

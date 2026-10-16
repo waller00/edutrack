@@ -8,11 +8,12 @@
  *   una evaluación del grupo, o "no rindió"), y cada evaluación **del grupo** con nota para todos.
  *   Una nota suelta es de un alumno: cruzarla contra el grupo entero marcaba atrasado a un docente
  *   que cargaba desde la carta, con "29 notas sin cargar" por cada nota;
- * - la **calificación del período (C)**, si el período la pide;
- * - el **juicio conceptual**, si el período lo pide.
+ * - el **rendimiento del período (R)**, si el período lo pide, y la **conducta (C)** si además es
+ *   reunión;
+ * - el **juicio conceptual**, si el período lo pide;
+ * - el **informe general del grupo**, en las reuniones de boletín.
  *
- * La **R no cuenta**: se pone en la reunión misma, así que antes no puede estar. Se informa sólo
- * para ver qué reuniones ya se cerraron.
+ * Después de la reunión sólo queda cerrar el período.
  */
 
 export type GradeBookCompleteness = {
@@ -25,15 +26,21 @@ export type GradeBookCompleteness = {
   teacherName: string | null
   periodStatus: 'OPEN' | 'CLOSED' | 'REOPENED' | null
   rosterSize: number
-  /** Alumnos **del roster** con calificación (C) del período. */
+  /** Alumnos **del roster** con rendimiento (R) del período. */
   gradedCount: number
-  /** ¿El período pide C? Las APE, por ejemplo, no. */
+  /** ¿El período pide R? Las APE, por ejemplo, no. */
   requiresGrade: boolean
   /** Alumnos del roster con juicio conceptual. */
   judgedCount: number
   requiresJudgement: boolean
-  /** Alumnos del roster con R. Informativo: la R se pone en la reunión. */
-  meetingGradedCount: number
+  /** Alumnos del roster con conducta (C). */
+  conductCount: number
+  /** ¿Pide conducta? La piden las reuniones que piden rendimiento. */
+  requiresConduct?: boolean
+  /** ¿Hay informe general del grupo? */
+  hasGroupReport?: boolean
+  /** ¿Lo pide? Sólo las reuniones de boletín. */
+  requiresGroupReport?: boolean
   /** ¿La reunión informa tramos con evaluaciones? Un diagnóstico, por ejemplo, no. */
   expectsAssessments: boolean
   /** Evaluaciones (no borradas) de esos tramos. */
@@ -50,8 +57,10 @@ export type CompletenessSummary = GradeBookCompleteness & {
   studentsWithoutGrades: number
   missingGrades: number
   missingJudgements: number
-  /** Después de la reunión: alumnos sin R, si el período pide calificación. */
-  missingMeetingGrades: number
+  /** Alumnos sin conducta (C), si el período la pide. */
+  missingConduct: number
+  /** Falta el informe general del grupo y el período lo pide. */
+  missingGroupReport: boolean
   /** Después de la reunión: la libreta ya cerró el período. */
   closed: boolean
   /** Se esperaban evaluaciones y no hay ninguna. */
@@ -122,11 +131,14 @@ export function summarize(row: GradeBookCompleteness): CompletenessSummary {
   const missingAssessments = row.expectsAssessments ? row.missingAssessmentGrades : 0
   // Sin evaluaciones ya se avisa eso; contar a todos los alumnos además repetiría lo mismo.
   const studentsWithoutGrades = row.expectsAssessments && !hasNoAssessments ? row.studentsWithoutGrades ?? 0 : 0
+  const missingConduct = row.requiresConduct ? Math.max(0, row.rosterSize - row.conductCount) : 0
+  const missingGroupReport = Boolean(row.requiresGroupReport && !row.hasGroupReport)
   return {
     ...row,
     missingGrades,
     missingJudgements,
-    missingMeetingGrades: row.requiresGrade ? Math.max(0, row.rosterSize - row.meetingGradedCount) : 0,
+    missingConduct,
+    missingGroupReport,
     closed: row.periodStatus === 'CLOSED',
     missingAssessmentGrades: missingAssessments,
     studentsWithoutGrades,
@@ -135,6 +147,8 @@ export function summarize(row: GradeBookCompleteness): CompletenessSummary {
       row.periodStatus === 'CLOSED' ||
       (missingGrades === 0 &&
         missingJudgements === 0 &&
+        missingConduct === 0 &&
+        !missingGroupReport &&
         missingAssessments === 0 &&
         studentsWithoutGrades === 0 &&
         !hasNoAssessments),
@@ -145,6 +159,8 @@ function pendingCount(row: CompletenessSummary): number {
   return (
     row.missingGrades +
     row.missingJudgements +
+    row.missingConduct +
+    (row.missingGroupReport ? 1 : 0) +
     row.missingAssessmentGrades +
     row.studentsWithoutGrades +
     (row.hasNoAssessments ? 1 : 0)
@@ -168,7 +184,7 @@ function plural(n: number, singular: string, pluralForm: string): string {
 
 /**
  * Las dos etapas del control. **Antes** de la reunión se mira lo que el docente lleva (evaluaciones,
- * C y juicio); **después**, lo que queda de la reunión: la R de cada alumno y el cierre del período.
+ * R, C, juicio e informe del grupo); **después**, que haya cerrado el período.
  */
 export type CompletenessStage = 'before' | 'after'
 
@@ -194,20 +210,23 @@ export function missingBeforeMeeting(row: CompletenessSummary): string[] {
     }
   }
   if (row.missingGrades > 0) {
-    faltantes.push(`${row.missingGrades} sin calificación del período`)
+    faltantes.push(`${row.missingGrades} sin rendimiento (R)`)
+  }
+  if (row.missingConduct > 0) {
+    faltantes.push(`${row.missingConduct} sin conducta (C)`)
   }
   if (row.missingJudgements > 0) {
     faltantes.push(`${row.missingJudgements} sin juicio conceptual`)
   }
+  if (row.missingGroupReport) {
+    faltantes.push('falta el informe del grupo')
+  }
   return faltantes
 }
 
-/** Qué le falta después de la reunión: la R de cada alumno y cerrar el período. */
+/** Qué le falta después de la reunión: cerrar el período. */
 export function missingAfterMeeting(row: CompletenessSummary): string[] {
-  const faltantes: string[] = []
-  if (row.missingMeetingGrades > 0) faltantes.push(`${row.missingMeetingGrades} sin nota de reunión (R)`)
-  if (!row.closed) faltantes.push('falta cerrar el período')
-  return faltantes
+  return row.closed ? [] : ['falta cerrar el período']
 }
 
 /** Lo que falta en la etapa, sin el nombre del período: va dentro de un aviso que agrupa libretas. */

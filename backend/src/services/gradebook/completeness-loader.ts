@@ -8,7 +8,7 @@ import {
   summarize,
   type CompletenessSummary,
 } from './completeness.js'
-import { assessmentPeriodsFor } from './period-closure.js'
+import { assessmentPeriodsFor, isReportCardPeriod } from './period-closure.js'
 
 export type CompletenessPeriod = {
   id: string
@@ -90,6 +90,7 @@ export async function loadPeriodCompleteness(
       kind: true,
       sortOrder: true,
       requiresConceptualJudgement: true,
+      isMeeting: true,
       requiresGeneralGrade: true,
     },
   })
@@ -147,11 +148,15 @@ export async function loadPeriodCompleteness(
       teacherName: book.teacher?.name ?? null,
       periodStatus: (state?.status as CompletenessSummary['periodStatus']) ?? null,
       rosterSize: roster.length,
-      gradedCount: grades.filter((g) => g.valueHundredths != null).length,
+      // R es el rendimiento (la nota oficial) y C la conducta.
+      gradedCount: grades.filter((g) => g.meetingValueHundredths != null).length,
       requiresGrade: period.requiresGeneralGrade,
       judgedCount: grades.filter((g) => hasText(g.conceptualJudgement)).length,
       requiresJudgement: period.requiresConceptualJudgement,
-      meetingGradedCount: grades.filter((g) => g.meetingValueHundredths != null).length,
+      conductCount: grades.filter((g) => g.conductValueHundredths != null).length,
+      requiresConduct: period.requiresGeneralGrade && period.isMeeting,
+      hasGroupReport: hasText(state?.groupReport),
+      requiresGroupReport: isReportCardPeriod(period),
       expectsAssessments: assessmentPeriodIds.length > 0,
       assessmentCount: book.assessments.length,
       missingAssessmentGrades: countMissingAssessmentGrades(book.assessments, rosterIds),

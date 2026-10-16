@@ -67,7 +67,7 @@ export default function AdminSystemSettingsPage() {
       institutionTimezoneOptions: data.institutionTimezoneOptions ?? [
         { value: 'America/Montevideo', label: 'Uruguay — Montevideo' },
       ],
-      studentRollCallEditWindowHours: data.studentRollCallEditWindowHours ?? 48,
+      studentRollCallEditWindowHours: data.studentRollCallEditWindowHours ?? 168,
       studentRollCallCopyPreviousEnabled:
         data.studentRollCallCopyPreviousEnabled ?? true,
       studentDailyAbsenceThresholdPercent:

@@ -41,7 +41,7 @@ export type RosterStudent = {
 }
 
 export type GradeBookDetail = GradeBookHeader & {
-  /** `canPlan` va aparte: Dirección planifica y corrige el desarrollo sin poder calificar. */
+  /** `canPlan` va aparte de `canGrade`: planificar y calificar son permisos distintos. */
   access: { level: GradeBookAccessLevel; canGrade: boolean; canPlan?: boolean }
   studentCount: number
   students: RosterStudent[]

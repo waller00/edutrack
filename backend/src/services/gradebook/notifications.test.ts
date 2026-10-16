@@ -6,6 +6,7 @@ import {
   notifyGradeBook,
   observationNotification,
   resolveGradeBookRecipients,
+  threadsStartedBy,
 } from './notifications.js'
 
 const { prismaMock, pushMock } = vi.hoisted(() => ({
@@ -100,7 +101,7 @@ describe('armado de los avisos', () => {
     expect(n.title).toBe('Observación en Matemática · Mayo')
     expect(n.body).toBe('Calificaciones: Falta un alumno.')
     // El aviso lleva a la sección donde está la observación, no a la portada de la libreta.
-    expect(n.actionUrl).toBe('/libreta/gb-1/visados')
+    expect(n.actionUrl).toBe('/libreta/gb-1/mensajes')
   })
 
   it('sin período nombra sólo la asignatura', () => {
@@ -120,7 +121,7 @@ describe('armado de los avisos', () => {
     // Estas rutas son del front: si el módulo se reorganiza, este test avisa antes que el usuario
     // se coma un 404 desde la campana de notificaciones.
     expect(endorsedNotification({ subjectName: 'M', periodName: 'Mayo', gradeBookId: 'gb-1' }).actionUrl)
-      .toBe('/libreta/gb-1/visados')
+      .toBe('/libreta/gb-1/mensajes')
     expect(messageNotification({ subjectName: 'M', authorName: 'Ana', body: 'Hola', gradeBookId: 'gb-1' }).actionUrl)
       .toBe('/libreta/gb-1/mensajes')
   })
@@ -128,5 +129,29 @@ describe('armado de los avisos', () => {
   it('un mensaje sin autor conocido no rompe el texto', () => {
     const n = messageNotification({ subjectName: 'M', authorName: null, body: 'Hola', gradeBookId: 'gb-1' })
     expect(n.body).toBe('Alguien: Hola')
+  })
+})
+
+describe('mensajes del director', () => {
+  const msg = (id: string, authorRoleCode: string, parentId: string | null = null) => ({ id, authorRoleCode, parentId })
+
+  it('se queda con los hilos que abrió Dirección y sus respuestas, de quien sean', () => {
+    const all = [
+      msg('d1', 'DIRECCION'),
+      msg('a1', 'ADSCRIPTO'),
+      msg('r1', 'TEACHER', 'd1'),
+      msg('r2', 'TEACHER', 'a1'),
+      msg('r3', 'DIRECCION', 'd1'),
+    ]
+    expect(threadsStartedBy(all, 'DIRECCION').map((m) => m.id)).toEqual(['d1', 'r1', 'r3'])
+  })
+
+  it('una respuesta de Dirección en un hilo ajeno no trae el hilo', () => {
+    expect(threadsStartedBy([msg('a1', 'ADSCRIPTO'), msg('r1', 'DIRECCION', 'a1')], 'DIRECCION')).toEqual([])
+  })
+
+  it('la respuesta del docente le llega a quien supervisa en Visado', () => {
+    const n = messageNotification({ subjectName: 'M', authorName: 'Ana', body: 'Listo', gradeBookId: 'gb-1', recipient: 'supervisor' })
+    expect(n).toMatchObject({ title: 'Respuesta en M', actionUrl: '/libreta/gb-1/visado' })
   })
 })

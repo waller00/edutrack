@@ -1,15 +1,30 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { useLibreta } from '@/contexts/LibretaContext'
-import { LIBRETA_SECTIONS, sectionHref, type LibretaSectionId } from '@/lib/libreta/menu'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasAnyPermission } from '@/lib/auth/permissions'
+import { sectionById, sectionHref, sectionsFor, type LibretaSectionId } from '@/lib/libreta/menu'
+import type { GradeBookAccessLevel } from '@/lib/gradebook/types'
 import { libretaCode } from './MisLibretas'
 import GroupSwitcher from './GroupSwitcher'
 
 const MENU_COLLAPSED_KEY = 'edutrack.libreta.menuCollapsed'
+
+/**
+ * ¿Mira la libreta como supervisor? El titular y el suplente la trabajan; quien entra con alcance
+ * de control (Dirección, adscripción, inspección) la recorre para visarla y avisar.
+ */
+export function supervisesLibreta(
+  level: GradeBookAccessLevel | undefined,
+  me: Parameters<typeof hasAnyPermission>[0],
+): boolean {
+  if (level === 'OWNER' || level === 'SUBSTITUTE') return false
+  return hasAnyPermission(me, ['gradebook.review', 'gradebook.endorse', 'gradebook.inspect'], 'all')
+}
 
 /**
  * Marco del Libro del Profesor: identidad de la libreta arriba, secciones a la izquierda.
@@ -21,11 +36,21 @@ const MENU_COLLAPSED_KEY = 'edutrack.libreta.menuCollapsed'
  */
 export default function LibretaShell({ children }: { children: React.ReactNode }) {
   const { gradeBookId, detail, loading, error } = useLibreta()
+  const me = useOptionalAuth()?.me ?? null
   const pathname = usePathname()
   const router = useRouter()
   // `/libreta/<id>/<sección>` → la sección, o null en la portada. Se conserva al cambiar de grupo.
   const openSection = pathname.split('/')[3] ?? null
   const [menuCollapsed, setMenuCollapsed] = useState(false)
+  const supervises = supervisesLibreta(detail?.access.level, me)
+  const sections = useMemo(() => sectionsFor({ supervises }), [supervises])
+
+  // Una sección que no es de quien mira (el docente en "Visado", Dirección en "Mensajes del
+  // director") vuelve a la portada en vez de mostrar una pantalla que no le corresponde.
+  const misplaced = Boolean(detail && openSection && sectionById(openSection) && !sections.some((s) => s.id === openSection))
+  useEffect(() => {
+    if (misplaced) router.replace(`/libreta/${gradeBookId}`)
+  }, [misplaced, router, gradeBookId])
 
   useEffect(() => {
     try {
@@ -112,7 +137,7 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
           className="w-full rounded border border-gray-300 bg-white px-2 py-2 text-sm"
         >
           <option value="">Lista del grupo</option>
-          {LIBRETA_SECTIONS.map((section) => (
+          {sections.map((section) => (
             <option key={section.id} value={section.id}>
               {section.label}
             </option>
@@ -149,7 +174,7 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
           {menuCollapsed && (
             // Contraído no queda vacío: la abreviatura sigue llevando a cada sección.
             <ul id="libreta-menu-sections" className="space-y-0.5">
-              {LIBRETA_SECTIONS.map((section) => {
+              {sections.map((section) => {
                 const href = sectionHref(gradeBookId, section.id)
                 const active = pathname === href
                 return (
@@ -173,7 +198,7 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
 
           {!menuCollapsed && (
             <ul id="libreta-menu-sections" className="space-y-0.5">
-              {LIBRETA_SECTIONS.map((section) => {
+              {sections.map((section) => {
                 const href = sectionHref(gradeBookId, section.id)
                 const active = pathname === href
                 return (
@@ -197,7 +222,7 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
           )}
         </nav>
 
-        <div className="min-w-0 flex-1">{children}</div>
+        <div className="min-w-0 flex-1">{misplaced ? null : children}</div>
       </div>
     </div>
   )

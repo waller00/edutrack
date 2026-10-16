@@ -10,7 +10,7 @@ export default function Page() {
         <ElegirLibreta
           section="cierre"
           title="Cierre de períodos"
-          hint="Calificación (C), nota de reunión (R) e informe alumno por alumno, y el cierre de cada entrega."
+          hint="Conducta (C), rendimiento (R) e informe alumno por alumno, y el cierre de cada entrega."
         />
       </main>
     </RoleGuard>

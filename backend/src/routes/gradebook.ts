@@ -47,6 +47,7 @@ import {
   buildClosureSheet,
   buildGradesSheet,
   buildPlanillaSheet,
+  conductLabel,
   buildStudentEvaluationsSheet,
   type GradeBookMeta,
 } from '../services/gradebook/exports/gradeBookWorkbook.js'
@@ -56,6 +57,7 @@ import {
   notifyGradeBook,
   reopenedNotification,
   resolveGradeBookRecipients,
+  threadsStartedBy,
 } from '../services/gradebook/notifications.js'
 import { ENDORSEMENT_ROW_INCLUDE, serializeEndorsementRow } from '../services/gradebook/endorsement-view.js'
 import { conductOptions, conductScale, isConductValue } from '../services/gradebook/period-scale.js'
@@ -75,6 +77,7 @@ import {
   describeValue,
   isLateClosure,
   isOutOfScale,
+  isReportCardPeriod,
   isPeriodCalendarOpen,
   periodsCoveredBy,
   periodWriteBlock,
@@ -359,7 +362,7 @@ r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
 
     return res.json({
       ...serializeHeader(row),
-      // `canPlan` aparte de `canGrade`: Dirección planifica y corrige el desarrollo sin calificar.
+      // `canPlan` aparte de `canGrade`: planificar y calificar son permisos distintos.
       access: { level: access.level, canGrade: access.canGrade, canPlan: access.canPlan },
       studentCount: students.length,
       students: students.map((student) => {
@@ -1163,7 +1166,7 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
         where: { schoolYearId: ctx.row.schoolYearId, isActive: true, ...(level ? { level } : {}) },
         select: { id: true, startsOn: true },
       }),
-      // C, R y el texto de cada período: la carta los muestra en el mismo bloque que las notas,
+      // C (conducta), R (rendimiento) y el texto de cada período: la carta los muestra en el mismo bloque que las notas,
       // como la planilla, sin pedir alumno por alumno.
       prisma.gradeBookPeriod.findMany({
         where: { gradeBookId: ctx.row.id },
@@ -1175,6 +1178,7 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
               studentId: true,
               valueHundredths: true,
               meetingValueHundredths: true,
+              conductValueHundredths: true,
               conceptualJudgement: true,
             },
           },
@@ -1700,12 +1704,12 @@ r.get('/:id/options', requirePermission('gradebook.read'), async (req: any, res)
 
 const periodGradeEntrySchema = z.object({
   studentId: z.string().uuid(),
-  /** C: la calificación del docente. */
+  /** Calificación vieja del docente (antes de C = conducta). Se acepta por compatibilidad; ya no se carga. */
   valueHundredths: z.number().int().nullish(),
-  /** R: la nota que queda después de la reunión. */
+  /** R: el rendimiento del período, la nota oficial. */
   meetingValueHundredths: z.number().int().nullish(),
   conceptualJudgement: z.string().trim().max(2000).nullish(),
-  /** Conducta en esta asignatura. El docente la pone junto con la nota, al cerrar. */
+  /** C: la conducta en esta asignatura, sobre la escala de conducta. */
   conductValueHundredths: z.number().int().nullish(),
 })
 
@@ -1776,6 +1780,10 @@ r.get('/:id/periods', requirePermission('gradebook.read'), async (req: any, res)
           reopenedAt: state?.reopenedAt ?? null,
           assessmentCount: assessmentsByPeriod.get(period.id) ?? 0,
           gradedStudents: state?._count.grades ?? 0,
+          // El informe general del grupo, para que Dirección lo lea y lo vise sin abrir cada cierre.
+          groupReport: state?.groupReport ?? null,
+          groupReportUpdatedAt: state?.groupReportUpdatedAt ?? null,
+          requiresGroupReport: isReportCardPeriod(period),
         }
       }),
     })
@@ -1949,6 +1957,11 @@ r.get('/:id/periods/:periodId', requirePermission('gradebook.read'), async (req:
         reopenedAt: ctx.state.reopenedAt,
         reopenReason: ctx.state.reopenReason,
       },
+      groupReport: {
+        body: ctx.state.groupReport ?? null,
+        updatedAt: ctx.state.groupReportUpdatedAt ?? null,
+        required: isReportCardPeriod(rules),
+      },
       // Las mismas reglas que el cierre por alumno: período abierto, ciclo vivo y ya habilitado.
       canEdit: canEditStudentClosurePeriod({
         canGrade: ctx.access.canGrade,
@@ -1957,7 +1970,7 @@ r.get('/:id/periods/:periodId', requirePermission('gradebook.read'), async (req:
         startsOn: ctx.period.startsOn,
         todayYmd: todayUruguayYmd(),
       }),
-      blockers: closureBlockers(rows, rules),
+      blockers: closureBlockers(rows, rules, ctx.state.groupReport ?? null),
       students: rows,
     })
   } catch (error) {
@@ -2302,6 +2315,53 @@ r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), 
   }
 })
 
+const groupReportSchema = z.object({ body: z.string().trim().max(10_000).nullable() })
+
+/**
+ * Informe general del grupo del período: lo escribe el docente para la reunión y Dirección lo visa.
+ * Se edita con las mismas reglas que la carta del alumno: período abierto, ciclo vivo, ya
+ * habilitado y sólo quien califica la libreta (Dirección lo lee, no lo escribe).
+ */
+r.put('/:id/periods/:periodId/group-report', requirePermission('gradebook.close'), async (req: any, res) => {
+  const parsed = groupReportSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+  try {
+    const ctx = await loadClosureContext(req, res)
+    if (!ctx) return
+    if (!ctx.access.canGrade) {
+      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
+    }
+    const editable = canEditStudentClosurePeriod({
+      canGrade: ctx.access.canGrade,
+      periodStatus: ctx.state.status,
+      gradeBookStatus: ctx.row.status,
+      startsOn: ctx.period.startsOn,
+      todayYmd: todayUruguayYmd(),
+    })
+    if (!editable) {
+      return res.status(409).json({
+        message: 'El período no admite cambios: está cerrado, todavía no empezó o el ciclo terminó.',
+        code: 'PERIOD_NOT_EDITABLE',
+      })
+    }
+
+    const body = parsed.data.body?.trim() || null
+    const updated = await prisma.gradeBookPeriod.update({
+      where: { id: ctx.state.id },
+      data: {
+        groupReport: body,
+        groupReportUpdatedAt: new Date(),
+        groupReportUpdatedByUserId: req.user?.id ?? req.user?.sub ?? null,
+      },
+      select: { groupReport: true, groupReportUpdatedAt: true },
+    })
+    return res.json({ data: { body: updated.groupReport, updatedAt: updated.groupReportUpdatedAt } })
+  } catch (error) {
+    console.error('[gradebook] group report put:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
 r.post('/:id/periods/:periodId/close', requirePermission('gradebook.close'), async (req: any, res) => {
   try {
     const ctx = await loadClosureContext(req, res)
@@ -2314,7 +2374,7 @@ r.post('/:id/periods/:periodId/close', requirePermission('gradebook.close'), asy
     }
 
     const rows = buildClosureRows(ctx)
-    const blockers = closureBlockers(rows, closureRulesOf(ctx.period))
+    const blockers = closureBlockers(rows, closureRulesOf(ctx.period), ctx.state.groupReport ?? null)
     if (blockers.length > 0) {
       // Se devuelven todos juntos: la UI marca las filas que faltan de una vez.
       return res.status(409).json({
@@ -2866,7 +2926,9 @@ r.get('/:id/messages', requirePermission('gradebook.read'), async (req: any, res
       orderBy: { createdAt: 'asc' },
       take: 500,
     })
-    return res.json({ data: messages })
+    // `?from=DIRECCION`: "Mensajes del director" del docente, sólo los hilos que abrió Dirección.
+    const from = req.query.from === 'DIRECCION' ? 'DIRECCION' : null
+    return res.json({ data: from ? threadsStartedBy(messages, from) : messages })
   } catch (error) {
     console.error('[gradebook] messages:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -2911,16 +2973,39 @@ r.post('/:id/messages', requirePermission('gradebook.read'), async (req: any, re
       include: MESSAGE_INCLUDE,
     })
 
+    const subjectName = (ctx.row as any).subject?.name ?? 'la libreta'
     const recipients = await resolveGradeBookRecipients(ctx.row.id, userId)
     await notifyGradeBook(
       recipients,
       messageNotification({
-        subjectName: (ctx.row as any).subject?.name ?? 'la libreta',
+        subjectName,
         authorName: created.author?.name ?? null,
         body: created.body,
         gradeBookId: ctx.row.id,
       }),
     )
+
+    // Una respuesta le llega también a quien abrió el hilo: si el docente contesta un mensaje del
+    // director, el director se entera.
+    if (d.parentId) {
+      const root = await prisma.gradeBookMessage.findFirst({
+        where: { id: d.parentId, gradeBookId: ctx.row.id },
+        select: { authorUserId: true },
+      })
+      const rootAuthor = root?.authorUserId
+      if (rootAuthor && rootAuthor !== userId && !recipients.some((r) => r.userId === rootAuthor)) {
+        await notifyGradeBook(
+          [{ userId: rootAuthor }],
+          messageNotification({
+            subjectName,
+            authorName: created.author?.name ?? null,
+            body: created.body,
+            gradeBookId: ctx.row.id,
+            recipient: 'supervisor',
+          }),
+        )
+      }
+    }
 
     return res.status(201).json({ data: created })
   } catch (error) {
@@ -3006,6 +3091,7 @@ r.get('/:id/exports/xlsx', requirePermission('gradebook.export'), async (req: an
       }),
     ])
 
+    const conductLevels = (await conductScale())?.levels ?? []
     const workbook = new ExcelJS.Workbook()
     buildGradesSheet(
       workbook,
@@ -3036,6 +3122,7 @@ r.get('/:id/exports/xlsx', requirePermission('gradebook.export'), async (req: an
       }),
       periods.flatMap((state) => state.grades.map((grade) => ({ ...grade, periodId: state.periodId }))),
       decimals,
+      conductLevels,
     )
 
     // Una hoja de cierre por período, para que el Excel sirva de archivo del año entero.
@@ -3049,7 +3136,7 @@ r.get('/:id/exports/xlsx', requirePermission('gradebook.export'), async (req: an
           lastName: grade.studentLastName,
           firstName: grade.studentFirstName,
           documentId: grade.studentDocumentId,
-          valueHundredths: grade.valueHundredths,
+          conductLabel: conductLabel(grade.conductValueHundredths, conductLevels),
           meetingValueHundredths: grade.meetingValueHundredths,
           // El descriptor que se informa es el de R, la nota oficial.
           descriptorLabel:
@@ -3256,9 +3343,9 @@ const developmentSchema = z.object({
 })
 
 /**
- * Planificación y desarrollo se escriben con `gradebook.plan`, no con `grade`: Dirección corrige
- * la libreta de un docente sin poder tocar una nota. El `canEdit` que ve la pantalla sale de ahí;
- * antes salía de `canGrade` y a Dirección le mostraba todo bloqueado.
+ * Planificación y desarrollo se escriben con `gradebook.plan`, no con `grade`: es del docente (y de
+ * administración); Dirección los lee para el seguimiento, pero no los edita. El `canEdit` que ve
+ * la pantalla sale de `canPlan`.
  *
  * El ciclo cerrado se responde antes que el permiso: sin esto, una libreta archivada decía "no
  * sos docente de esta libreta" en vez de "el ciclo está cerrado".

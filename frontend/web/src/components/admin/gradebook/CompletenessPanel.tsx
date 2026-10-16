@@ -34,14 +34,19 @@ type Row = {
   missingAssessmentGrades: number
   /** Con sólo notas sueltas: alumnos que no tienen ninguna en el tramo. */
   studentsWithoutGrades?: number
+  /** ¿Pide R (rendimiento)? */
   requiresGrade: boolean
+  /** Alumnos sin R. */
   missingGrades: number
   requiresJudgement: boolean
   missingJudgements: number
-  /** Alumnos con R. */
-  meetingGradedCount: number
-  /** Después de la reunión: alumnos sin R. */
-  missingMeetingGrades?: number
+  /** ¿Pide C (conducta)? Las reuniones que piden rendimiento. */
+  requiresConduct?: boolean
+  /** Alumnos sin C. */
+  missingConduct?: number
+  /** ¿Pide el informe general del grupo? Las reuniones de boletín. */
+  requiresGroupReport?: boolean
+  missingGroupReport?: boolean
   complete: boolean
   /** Último aviso por esta reunión, en cada etapa. */
   lastRequestedAt?: { before: string | null; after: string | null }
@@ -56,7 +61,7 @@ const STAGES: { id: Stage; label: string }[] = [
   { id: 'after', label: 'Después de la reunión' },
 ]
 
-/** Antes de la reunión: evaluaciones, C y juicio. Después: R y período cerrado. */
+/** Antes de la reunión: evaluaciones, R, C, juicio e informe del grupo. Después: período cerrado. */
 export function isDone(row: Row, stage: Stage): boolean {
   return stage === 'after' ? row.periodStatus === 'CLOSED' : row.complete
 }
@@ -103,6 +108,12 @@ function MissingCell({ required, missing }: { required: boolean; missing: number
   if (!required) return <span className="text-gray-400">No aplica</span>
   if (missing > 0) return <span className="text-amber-800">Faltan {missing}</span>
   return <span className="text-emerald-700">Completa</span>
+}
+
+function GroupReportCell({ row }: { row: Row }) {
+  if (!row.requiresGroupReport) return <span className="text-gray-400">No aplica</span>
+  if (row.missingGroupReport) return <span className="text-amber-800">▲ Falta</span>
+  return <span className="text-emerald-700">✓ Cargado</span>
 }
 
 function PeriodStatusCell({ status }: { status: string | null }) {
@@ -166,14 +177,9 @@ function NoticeCell({
 function StageColumns({ row, stage }: { row: Row; stage: Stage }) {
   if (stage === 'after') {
     return (
-      <>
-        <td className="px-3 py-1.5">
-          <MissingCell required={row.requiresGrade} missing={row.missingMeetingGrades ?? 0} />
-        </td>
-        <td className="px-3 py-1.5">
-          <PeriodStatusCell status={row.periodStatus} />
-        </td>
-      </>
+      <td className="px-3 py-1.5">
+        <PeriodStatusCell status={row.periodStatus} />
+      </td>
     )
   }
   return (
@@ -185,23 +191,29 @@ function StageColumns({ row, stage }: { row: Row; stage: Stage }) {
         <MissingCell required={row.requiresGrade} missing={row.missingGrades} />
       </td>
       <td className="px-3 py-1.5">
+        <MissingCell required={Boolean(row.requiresConduct)} missing={row.missingConduct ?? 0} />
+      </td>
+      <td className="px-3 py-1.5">
         <MissingCell required={row.requiresJudgement} missing={row.missingJudgements} />
+      </td>
+      <td className="px-3 py-1.5">
+        <GroupReportCell row={row} />
       </td>
     </>
   )
 }
 
 const STAGE_HEADERS: Record<Stage, string[]> = {
-  before: ['Evaluaciones', 'Calificación (C)', 'Juicios'],
-  after: ['Nota de reunión (R)', 'Período'],
+  before: ['Evaluaciones', 'Rendimiento (R)', 'Conducta (C)', 'Juicios', 'Informe del grupo'],
+  after: ['Período'],
 }
 
 /**
  * Control de libretas, antes y después de la reunión de boletín.
  *
  * **Antes**, administración revisa que cada docente tenga cargadas las evaluaciones de los tramos,
- * la calificación del período y el juicio. **Después**, que haya puesto la R de cada alumno y
- * cerrado el período, que es lo que habilita el visado. Si falta algo, le avisa por notificación
+ * R (rendimiento), C (conducta), el juicio y el informe del grupo. **Después**, que haya cerrado el
+ * período, que es lo que habilita el visado. Si falta algo, le avisa por notificación
  * interna, de a uno o a todos juntos (un aviso por docente).
  */
 export default function CompletenessPanel() {

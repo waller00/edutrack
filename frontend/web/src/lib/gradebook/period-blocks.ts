@@ -5,7 +5,7 @@
  * - **Entrega** (1.ª a 4.ª reunión): informe de actuación · C · R.
  * - **Diagnóstico** (reunión de trayectorias): sólo el texto.
  *
- * C es la calificación que pone el docente y R la que queda después de la reunión. Las columnas
+ * C es la conducta del alumno en la asignatura y R el rendimiento, la nota del boletín. Las columnas
  * Or/Otras/Ev muestran las notas sueltas, nunca un promedio.
  */
 import { ACTIVITY_CATEGORY_ORDER, type ActivityCategory } from './activity-category'
@@ -25,10 +25,15 @@ export type LibretaPeriod = {
   judgementLabel?: string | null
 }
 
-/** C, R y el texto de un alumno en un período. */
+/**
+ * Lo que el docente pone en un período: C (conducta, sobre la escala de conducta), R (rendimiento,
+ * la nota oficial, con la escala del nivel) y el texto. `valueHundredths` es la calificación vieja
+ * (antes de C = conducta): se conserva en los datos pero ya no se carga.
+ */
 export type PeriodGradeValues = {
-  valueHundredths: number | null
+  valueHundredths?: number | null
   meetingValueHundredths: number | null
+  conductValueHundredths?: number | null
   conceptualJudgement: string | null
 }
 
@@ -94,7 +99,14 @@ export function mergePeriodGrade(
   if (index < 0) {
     return [
       ...list,
-      { periodId, studentId, valueHundredths: null, meetingValueHundredths: null, conceptualJudgement: null, ...patch },
+      {
+        periodId,
+        studentId,
+        meetingValueHundredths: null,
+        conductValueHundredths: null,
+        conceptualJudgement: null,
+        ...patch,
+      },
     ]
   }
   return list.map((g, i) => (i === index ? { ...g, ...patch } : g))

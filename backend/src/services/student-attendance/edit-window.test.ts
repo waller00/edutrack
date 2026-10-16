@@ -5,6 +5,7 @@ import {
   isTeacherWritableStatus,
   isWithinEditWindow,
   resolveRollCallPermissions,
+  ROLL_CALL_MAX_WINDOW_HOURS,
   rollCallBlockedMessage,
 } from './edit-window.js'
 
@@ -18,18 +19,31 @@ describe('computeEditableUntil', () => {
     )
   })
 
-  it('ancla en takenAt cuando la lista se tomó tarde', () => {
-    const takenAt = new Date('2026-05-08T10:00:00.000Z')
-    expect(computeEditableUntil({ occurrenceEndAt: endAt, takenAt, windowHours: 48 })).toEqual(
-      new Date('2026-05-10T10:00:00.000Z'),
+  it('pasar la lista tarde no abre otra ventana: el ancla sigue siendo el fin de la clase', () => {
+    const takenAt = new Date('2026-05-11T10:00:00.000Z')
+    expect(computeEditableUntil({ occurrenceEndAt: endAt, takenAt, windowHours: 168 })).toEqual(
+      new Date('2026-05-12T14:00:00.000Z'),
     )
   })
 
-  it('ignora un takenAt anterior al fin de la clase', () => {
-    const takenAt = new Date('2026-05-05T13:30:00.000Z')
-    expect(computeEditableUntil({ occurrenceEndAt: endAt, takenAt, windowHours: 24 })).toEqual(
-      new Date('2026-05-06T14:00:00.000Z'),
+  it('nunca pasa de una semana, aunque la configuración diga más', () => {
+    expect(computeEditableUntil({ occurrenceEndAt: endAt, takenAt: null, windowHours: 720 })).toEqual(
+      new Date(endAt.getTime() + ROLL_CALL_MAX_WINDOW_HOURS * 3_600_000),
     )
+  })
+})
+
+describe('ventana de una semana', () => {
+  const week = { occurrenceStartAt: startAt, occurrenceEndAt: endAt, takenAt: null, lockedAt: null, windowHours: 168 }
+
+  it('el docente pasa la lista seis días después de la clase', () => {
+    const result = resolveRollCallPermissions({ ...week, scope: 'own', isAssignedTeacher: true, now: new Date('2026-05-11T14:00:00.000Z') })
+    expect(result.canEdit).toBe(true)
+  })
+
+  it('al octavo día ya no', () => {
+    const result = resolveRollCallPermissions({ ...week, scope: 'own', isAssignedTeacher: true, now: new Date('2026-05-13T14:00:00.000Z') })
+    expect(result).toMatchObject({ canEdit: false, blockedReason: 'WINDOW_EXPIRED' })
   })
 })
 
