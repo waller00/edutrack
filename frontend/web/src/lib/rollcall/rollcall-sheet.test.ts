@@ -63,7 +63,7 @@ describe('initialDraft', () => {
 describe('setStatus / setNote', () => {
   it('cambia el estado conservando la nota', () => {
     const draft = setNote(buildDraft(students), 'a', ' llegó 8:15 ')
-    expect(setStatus(draft, 'a', 'LATE')).toMatchObject({ a: { status: 'LATE', note: 'llegó 8:15' } })
+    expect(setStatus(draft, 'a', 'LATE')).toMatchObject({ a: { status: 'LATE', note: ' llegó 8:15 ' } })
   })
 
   it('una nota vacía se guarda como null, no como cadena vacía', () => {
@@ -184,6 +184,14 @@ describe('toSavePayload', () => {
   it('incluye la nota cuando existe', () => {
     const rows = [student('a', { status: 'LATE', note: 'llegó 8:15' })]
     expect(toSavePayload(buildDraft(rows), rows)[0].note).toBe('llegó 8:15')
+  })
+
+  it('conserva los espacios mientras se escribe y recorta sólo al guardar', () => {
+    let draft = setStatus(buildDraft(students), 'a', 'LATE')
+    draft = setNote(draft, 'a', 'Llegó ')
+    expect(draft.a.note).toBe('Llegó ')
+    draft = setNote(draft, 'a', `${draft.a.note}tarde `)
+    expect(toSavePayload(draft, students)[0].note).toBe('Llegó tarde')
   })
 })
 

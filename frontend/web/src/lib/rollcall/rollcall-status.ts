@@ -2,7 +2,7 @@
 export type RollCallStatus = 'PRESENT' | 'LATE' | 'ABSENT' | 'ABSENT_JUSTIFIED'
 
 /** Los tres que el docente puede elegir; el justificado lo aplica secretaría. */
-export const TEACHER_STATUSES = ['PRESENT', 'LATE', 'ABSENT'] as const
+export const TEACHER_STATUSES = ['PRESENT', 'ABSENT', 'LATE'] as const
 export type TeacherStatus = (typeof TEACHER_STATUSES)[number]
 
 export const ROLL_CALL_STATUS_LABEL: Record<RollCallStatus, string> = {
@@ -57,17 +57,17 @@ export function getRollCallStatusChipClass(status: RollCallStatus | null): strin
 export type SessionStatus = 'PENDING' | 'TAKEN'
 
 /**
- * Ciclo al tocar el nombre del alumno: presente → tarde → ausente → presente.
- * Permite pasar lista rápido en el celular sin apuntar a un botón chico.
+ * Ciclo del botón de estado: presente → ausente → llegada tarde → presente.
+ * La excepción más frecuente, la ausencia, queda a un solo toque.
  */
 export function nextStatusOnTap(current: RollCallStatus | null): TeacherStatus {
   switch (current) {
     case 'PRESENT':
-      return 'LATE'
-    case 'LATE':
       return 'ABSENT'
+    case 'ABSENT':
+      return 'LATE'
     default:
-      // Ausente, justificado o sin marcar arrancan (o vuelven) en presente.
+      // Tarde, justificado o sin marcar arrancan (o vuelven) en presente.
       return 'PRESENT'
   }
 }

@@ -18,7 +18,7 @@ describe('etiquetas', () => {
   })
 
   it('el docente solo elige tres', () => {
-    expect(TEACHER_STATUSES).toEqual(['PRESENT', 'LATE', 'ABSENT'])
+    expect(TEACHER_STATUSES).toEqual(['PRESENT', 'ABSENT', 'LATE'])
     expect(TEACHER_STATUSES).not.toContain('ABSENT_JUSTIFIED')
   })
 })
@@ -49,10 +49,10 @@ describe('getRollCallStatusChipClass', () => {
 })
 
 describe('nextStatusOnTap', () => {
-  it('cicla presente → tarde → ausente → presente', () => {
-    expect(nextStatusOnTap('PRESENT')).toBe('LATE')
-    expect(nextStatusOnTap('LATE')).toBe('ABSENT')
-    expect(nextStatusOnTap('ABSENT')).toBe('PRESENT')
+  it('cicla presente → ausente → llegada tarde → presente', () => {
+    expect(nextStatusOnTap('PRESENT')).toBe('ABSENT')
+    expect(nextStatusOnTap('ABSENT')).toBe('LATE')
+    expect(nextStatusOnTap('LATE')).toBe('PRESENT')
   })
 
   it('sin marcar arranca en presente', () => {

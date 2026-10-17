@@ -322,6 +322,11 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
   Dos horas seguidas del mismo grupo son dos listas distintas.
 - **Presente por defecto:** una lista que nunca se pasó abre con todos presentes; el docente sólo
   toca a quien faltó o llegó tarde. Una lista ya pasada muestra lo guardado.
+- **Marcación para celular:** cada estudiante tiene un único botón de estado, de al menos 48 px,
+  que recorre **Presente → Ausente → Llegada tarde → Presente**. El color se acompaña con texto e
+  icono. La búsqueda por nombre o documento conserva las marcas del grupo completo. El resumen y
+  el botón Guardar quedan al pie, con indicación de cambios pendientes; durante el guardado se
+  bloquea la edición para no perder marcas. Las notas son opcionales y se despliegan por alumno.
 - **Copiar la hora anterior:** si el mismo grupo ya tiene una lista tomada ese día, se ofrece
   precargarla. Es siempre una sugerencia que el docente confirma, y los alumnos que no estaban
   en la hora anterior quedan explícitamente sin marcar (se les saca el "presente" por defecto).

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import RollCallSheet, { type SheetResponse } from './RollCallSheet'
 import { ROLL_CALL_SAVED_EVENT } from '@/lib/rollcall/class-row'
@@ -119,6 +120,79 @@ describe('<RollCallSheet />', () => {
     expect(JSON.parse(put![1].body).entries).toEqual([{ studentId: 's1', status: 'PRESENT', note: null }])
   })
 
+  it('un solo botón recorre presente, ausente, tarde y presente, también con el teclado', async () => {
+    apiMock.mockResolvedValue(sheet())
+    const user = userEvent.setup()
+    render(<RollCallSheet eventId="ev-1" ymd="2026-10-08" />)
+    const button = await screen.findByRole('button', { name: /^Presente — Cabrera, Camila/ })
+    await user.click(button)
+    expect(button).toHaveTextContent('Ausente')
+    expect(button).toHaveAccessibleName(/Cambiar a llegada tarde/)
+    await user.click(button)
+    expect(button).toHaveTextContent('Llegada tarde')
+    await user.keyboard('{Enter}')
+    expect(button).toHaveTextContent('Presente')
+    expect(apiMock.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false)
+  })
+
+  it('guarda la marca elegida y una nota de varias palabras', async () => {
+    apiMock.mockResolvedValue(sheet())
+    const user = userEvent.setup()
+    render(<RollCallSheet eventId="ev-1" ymd="2026-10-08" />)
+    const button = await screen.findByRole('button', { name: /^Presente — Cabrera, Camila/ })
+    await user.click(button)
+    await user.click(button)
+    await user.click(screen.getByRole('button', { name: 'Nota para Cabrera, Camila' }))
+    await user.type(screen.getByRole('textbox', { name: 'Nota para Cabrera, Camila' }), 'Llegó a las 10:15')
+    await user.click(screen.getByRole('button', { name: 'Guardar lista' }))
+    const put = apiMock.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(JSON.parse(put![1].body).entries).toEqual([{ studentId: 's1', status: 'LATE', note: 'Llegó a las 10:15' }])
+  })
+
+  it('al buscar conserva las marcas de quienes quedan fuera del filtro', async () => {
+    const data = sheet()
+    data.students.push({ ...data.students[0], studentId: 's2', lastName: 'Díaz', firstName: 'Lucía', documentId: '5.123.456-7' })
+    apiMock.mockResolvedValue(data)
+    const user = userEvent.setup()
+    render(<RollCallSheet eventId="ev-1" ymd="2026-10-08" />)
+    await user.click(await screen.findByRole('button', { name: /^Presente — Cabrera, Camila/ }))
+    const search = screen.getByRole('searchbox', { name: 'Buscar estudiante' })
+    await user.type(search, 'diaz')
+    expect(screen.queryByText('Cabrera, Camila')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Presente — Díaz, Lucía/ })).toBeInTheDocument()
+    await user.clear(search)
+    expect(screen.getByRole('button', { name: /^Ausente — Cabrera, Camila/ })).toBeInTheDocument()
+    await user.type(search, '5123456')
+    expect(screen.queryByText('Cabrera, Camila')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Guardar lista' }))
+    const put = apiMock.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(JSON.parse(put![1].body).entries).toEqual([
+      { studentId: 's1', status: 'ABSENT', note: null }, { studentId: 's2', status: 'PRESENT', note: null },
+    ])
+  })
+
+  it('conserva una lista guardada y bloquea la edición durante el guardado', async () => {
+    const data = sheet({ rollCall: { status: 'TAKEN' } })
+    data.students[0].status = 'ABSENT_JUSTIFIED'
+    let finishSave!: (value: SheetResponse) => void
+    apiMock.mockImplementation(async (_path: string, init?: { method?: string }) => init?.method === 'PUT'
+      ? new Promise<SheetResponse>((resolve) => { finishSave = resolve }) : data)
+    const user = userEvent.setup()
+    render(<RollCallSheet eventId="ev-1" ymd="2026-10-08" />)
+    const button = await screen.findByRole('button', { name: /^Ausente justificado — Cabrera, Camila/ })
+    expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled()
+    await user.click(button)
+    expect(screen.getByText('Cambios sin guardar')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    expect(button).toBeDisabled()
+    await user.click(screen.getByLabelText('Opciones de lista'))
+    expect(screen.getByRole('button', { name: 'Todos presentes' })).toBeDisabled()
+    finishSave({ ...data, students: [{ ...data.students[0], status: 'PRESENT' }] })
+    await waitFor(() => expect(button).toBeEnabled())
+    expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent('Lista guardada')
+  })
+
   it('copia la hora anterior del mismo grupo y lo guarda como copiada', async () => {
     const previous = {
       available: true,
@@ -134,7 +208,8 @@ describe('<RollCallSheet />', () => {
     })
     render(<RollCallSheet eventId="ev-1" ymd="2026-10-08" />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /Copiar hora anterior/ }))
+    fireEvent.click(await screen.findByLabelText('Opciones de lista'))
+    fireEvent.click(screen.getByRole('button', { name: /Copiar hora anterior/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }))
     fireEvent.click(screen.getByRole('button', { name: /Guardar lista/ }))
 
@@ -154,7 +229,8 @@ describe('<RollCallSheet />', () => {
     globalThis.addEventListener(ROLL_CALL_SAVED_EVENT, listener)
 
     render(<RollCallSheet eventId="ev-1" ymd="2026-10-08" />)
-    fireEvent.click(await screen.findByRole('button', { name: /Todos presentes/ }))
+    fireEvent.click(await screen.findByLabelText('Opciones de lista'))
+    fireEvent.click(screen.getByRole('button', { name: /Todos presentes/ }))
     fireEvent.click(screen.getByRole('button', { name: /Guardar lista/ }))
 
     await waitFor(() => expect(listener).toHaveBeenCalledTimes(1))

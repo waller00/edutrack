@@ -47,7 +47,7 @@ export function setNote(draft: SheetDraft, studentId: string, note: string): She
   const trimmed = note.trim()
   return {
     ...draft,
-    [studentId]: { status: draft[studentId]?.status ?? null, note: trimmed ? trimmed : null },
+    [studentId]: { status: draft[studentId]?.status ?? null, note: trimmed ? note : null },
   }
 }
 
@@ -146,7 +146,7 @@ export function toSavePayload(draft: SheetDraft, students: SheetStudent[]): Save
     payload.push({
       studentId: student.studentId,
       status: cell.status === 'ABSENT_JUSTIFIED' ? 'ABSENT' : (cell.status as TeacherStatus),
-      note: cell.note ?? null,
+      note: cell.note?.trim() || null,
     })
   }
   return payload
