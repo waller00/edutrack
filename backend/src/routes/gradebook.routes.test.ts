@@ -7,7 +7,7 @@ import { signAccessToken } from '../test-utils/bearer-token.js'
 const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMock, loadReportMock, dayOccurrenceMock, findSessionMock, saveRollCallMock } = vi.hoisted(() => ({
   prismaMock: {
     gradeBook: { findMany: vi.fn(), findUnique: vi.fn() },
-    substitution: { findMany: vi.fn() },
+    substitution: { findMany: vi.fn(), findFirst: vi.fn() },
     assessment: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     gradeBookPeriod: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     periodGrade: { findMany: vi.fn(), upsert: vi.fn() },
@@ -51,7 +51,10 @@ vi.mock('../services/student-attendance/roster.js', () => ({
   loadRosterForScope: rosterMock,
   canResolveRoster: (e: any) => Boolean(e.schoolYearId && e.courseOfferingId),
 }))
-vi.mock('../services/gradebook/access.js', () => ({ resolveGradeBookAccess: accessMock }))
+vi.mock('../services/gradebook/access.js', async () => ({
+  ...await vi.importActual<any>('../services/gradebook/access.js'),
+  resolveGradeBookAccess: accessMock,
+}))
 vi.mock('../services/gradebook/absences-day.js', async () => {
   const actual = await vi.importActual<any>('../services/gradebook/absences-day.js')
   return {
@@ -125,6 +128,7 @@ beforeEach(() => {
   scopeMock.mockResolvedValue('own')
   accessMock.mockResolvedValue({ level: 'OWNER', canRead: true, canGrade: true })
   prismaMock.substitution.findMany.mockResolvedValue([])
+  prismaMock.substitution.findFirst.mockReset().mockResolvedValue(null)
   rosterMock.mockResolvedValue([])
   // El registro de acceso (RF-100) y los avisos son fire-and-forget: el mock igual tiene que
   // devolver una promesa, porque el código encadena `.catch()` para no tumbar la lectura.
@@ -2554,5 +2558,167 @@ describe('GET /:id/endorsements (visado visto desde la libreta)', () => {
     const res = await request(app()).get(`/gradebook/${GB_ID}/endorsements`).set('Authorization', `Bearer ${tok()}`)
     expect(res.status).toBe(403)
     expect(prismaMock.gradeBookPeriod.findMany).not.toHaveBeenCalled()
+  })
+})
+
+// AUD-03: keep the real dated authorization helper; mock only database queries.
+describe('AUD-03: cobertura de suplentes en todas las escrituras', () => {
+  const entries = [{ studentId: STUDENT_A, valueHundredths: 700 }]
+  const body = { periodId: PERIOD_ID, date: '2026-05-10', title: 'Escrito', gradingScaleId: SCALE_ID }
+  beforeEach(() => {
+    readyForAssessments()
+    accessMock.mockResolvedValue({ level: 'SUBSTITUTE', canRead: true, canGrade: true, canPlan: true })
+    scopeMock.mockImplementation(async (_u: string, code: string) => code === 'gradebook.manage' ? null : 'own')
+    prismaMock.gradeBookPeriod.findUnique.mockResolvedValue({ id: 'p', status: 'OPEN' })
+    prismaMock.assessment.create.mockResolvedValue(ASSESSMENT)
+    prismaMock.assessment.update.mockResolvedValue(ASSESSMENT)
+    prismaMock.assessmentGrade.findMany.mockResolvedValue([])
+    saveGradesMock.mockResolvedValue({ created: 1, updated: 0, unchanged: 0, revisions: 0 })
+    prismaMock.substitution.findFirst.mockImplementation(async ({ where }) =>
+      where.date?.toISOString() === '2026-05-10T03:00:00.000Z' ? { id: 'substitution' } : null)
+  })
+
+  it.each(['2026-05-09', '2026-05-11', '2026-09-01'])('no crea evaluaciones fuera de cobertura: %s', async (date) => {
+    const res = await request(app()).post(`/gradebook/${GB_ID}/assessments`)
+      .set('Authorization', `Bearer ${tok()}`).send({ ...body, date })
+    expect(res.status).toBe(403)
+    expect(prismaMock.assessment.create).not.toHaveBeenCalled()
+  })
+
+  it('crea y califica una evaluación del día cubierto dentro del plazo', async () => {
+    const created = await request(app()).post(`/gradebook/${GB_ID}/assessments`)
+      .set('Authorization', `Bearer ${tok()}`).send(body)
+    const graded = await request(app()).put(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
+      .set('Authorization', `Bearer ${tok()}`).send({ entries })
+    expect(created.status).toBe(201)
+    expect(graded.status).toBe(200)
+    expect(saveGradesMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['patch', 'delete', 'grades', 'delete-grade'])('rechaza %s de una evaluación fuera de cobertura sin escribir', async (operation) => {
+    prismaMock.assessment.findFirst.mockResolvedValue({ ...ASSESSMENT, date: new Date('2026-05-11T12:00Z') })
+    // Even gradebook.manage does not grant authority over another day's grades.
+    scopeMock.mockResolvedValue('own')
+    const path = `/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}`
+    const call = operation === 'patch' ? request(app()).patch(path).send({ title: 'Cambio' })
+      : operation === 'delete' ? request(app()).delete(path)
+      : operation === 'delete-grade' ? request(app()).delete(`${path}/grades/${STUDENT_A}`)
+      : request(app()).put(`${path}/grades`).send({ entries })
+    const res = await call.set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(403)
+    expect(res.body.code).toBe('NOT_ASSIGNED')
+    expect(prismaMock.assessment.update).not.toHaveBeenCalled()
+    expect(prismaMock.assessmentGrade.delete).not.toHaveBeenCalled()
+    expect(saveGradesMock).not.toHaveBeenCalled()
+  })
+
+  it('rechaza mover una evaluación cubierta a una fecha no cubierta', async () => {
+    const res = await request(app()).patch(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`).send({ date: '2026-05-11' })
+    expect(res.status).toBe(403)
+    expect(prismaMock.assessment.update).not.toHaveBeenCalled()
+  })
+
+  it('rechaza apropiarse de una evaluación ajena moviéndola al día cubierto', async () => {
+    prismaMock.assessment.findFirst.mockResolvedValue({ ...ASSESSMENT, date: new Date('2026-05-11T12:00Z') })
+    const res = await request(app()).patch(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`).send({ date: '2026-05-10' })
+    expect(res.status).toBe(403)
+    expect(prismaMock.assessment.update).not.toHaveBeenCalled()
+  })
+
+  it('permite editar una evaluación cubierta y leer una no cubierta sin permiso de escritura', async () => {
+    const changed = await request(app()).patch(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`).send({ title: 'Cambio' })
+    expect(changed.status).toBe(200)
+    prismaMock.assessment.findFirst.mockResolvedValue({ ...ASSESSMENT, date: new Date('2026-05-11T12:00Z') })
+    const read = await request(app()).get(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
+      .set('Authorization', `Bearer ${tok()}`)
+    expect(read.status).toBe(200)
+    expect(read.body.permissions.canEdit).toBe(false)
+  })
+
+  it.each(['period', 'student-closure', 'close', 'moodle'])('una suplencia no concede escritura global: %s', async (operation) => {
+    const path = `/gradebook/${GB_ID}`
+    const call = operation === 'period' ? request(app()).put(`${path}/periods/${PERIOD_ID}/grades`).send({ entries })
+      : operation === 'student-closure' ? request(app()).put(`${path}/students/${STUDENT_A}/closure`).send({ entries: [{ periodId: PERIOD_ID, valueHundredths: 700 }] })
+      : operation === 'close' ? request(app()).post(`${path}/periods/${PERIOD_ID}/close`)
+      : request(app()).post(`${path}/moodle/import`).send({ moodleGradeItemIds: [1], periodId: PERIOD_ID, gradingScaleId: SCALE_ID })
+    const res = await call.set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(403)
+    expect(prismaMock.gradeBookPeriod.create).not.toHaveBeenCalled()
+    expect(prismaMock.gradeBookPeriod.update).not.toHaveBeenCalled()
+    expect(prismaMock.periodGrade.upsert).not.toHaveBeenCalled()
+    expect(loadReportMock).not.toHaveBeenCalled()
+    expect(saveGradesMock).not.toHaveBeenCalled()
+  })
+
+  it('la cobertura no elude la ventana de edición ni de creación', async () => {
+    vi.setSystemTime(new Date('2026-09-01T12:00Z'))
+    const created = await request(app()).post(`/gradebook/${GB_ID}/assessments`)
+      .set('Authorization', `Bearer ${tok()}`).send(body)
+    const graded = await request(app()).put(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
+      .set('Authorization', `Bearer ${tok()}`).send({ entries })
+    expect(created.body.code).toBe('WINDOW_EXPIRED')
+    expect(graded.body.code).toBe('WINDOW_EXPIRED')
+    expect(prismaMock.assessment.create).not.toHaveBeenCalled()
+    expect(saveGradesMock).not.toHaveBeenCalled()
+  })
+
+  it('la cobertura no permite crear ni calificar en un período cerrado', async () => {
+    prismaMock.gradeBookPeriod.findUnique.mockResolvedValue({ status: 'CLOSED' })
+    const created = await request(app()).post(`/gradebook/${GB_ID}/assessments`)
+      .set('Authorization', `Bearer ${tok()}`).send(body)
+    const graded = await request(app()).put(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
+      .set('Authorization', `Bearer ${tok()}`).send({ entries })
+    expect(created.body.code).toBe('PERIOD_CLOSED')
+    expect(graded.body.code).toBe('PERIOD_CLOSED')
+    expect(prismaMock.assessment.create).not.toHaveBeenCalled()
+    expect(saveGradesMock).not.toHaveBeenCalled()
+  })
+
+  it('respeta grade all explícito aunque el usuario también tenga una suplencia histórica', async () => {
+    scopeMock.mockImplementation(async (_u: string, code: string) => code === 'gradebook.manage' ? null : 'all')
+    prismaMock.assessment.findFirst.mockResolvedValue({ ...ASSESSMENT, date: new Date('2026-05-11T12:00Z') })
+    const res = await request(app()).put(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
+      .set('Authorization', `Bearer ${tok()}`).send({ entries })
+    expect(res.status).toBe(200)
+    expect(prismaMock.substitution.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('una suplencia eliminada deja de autorizar nuevas escrituras', async () => {
+    prismaMock.substitution.findFirst.mockResolvedValue(null)
+    const res = await request(app()).put(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
+      .set('Authorization', `Bearer ${tok()}`).send({ entries })
+    expect(res.status).toBe(403)
+    expect(saveGradesMock).not.toHaveBeenCalled()
+  })
+
+  it('no mueve una evaluación cubierta a un período cerrado', async () => {
+    prismaMock.gradeBookPeriod.findUnique.mockResolvedValueOnce({ status: 'OPEN' })
+      .mockResolvedValueOnce({ status: 'CLOSED' })
+    const res = await request(app()).patch(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`).send({ periodId: '77777777-7777-4777-8777-777777777777' })
+    expect(res.status).toBe(403)
+    expect(res.body.code).toBe('PERIOD_CLOSED')
+    expect(prismaMock.assessment.update).not.toHaveBeenCalled()
+  })
+
+  it('no permite editar un ciclo archivado aunque exista cobertura', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue({ ...ROW, status: 'ARCHIVED' })
+    accessMock.mockResolvedValue({ level: 'SUBSTITUTE', canRead: true, canGrade: false, canPlan: false })
+    const res = await request(app()).put(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
+      .set('Authorization', `Bearer ${tok()}`).send({ entries })
+    expect(res.status).toBe(403)
+    expect(res.body.code).toBe('ARCHIVED')
+    expect(saveGradesMock).not.toHaveBeenCalled()
+  })
+
+  it('informa que los períodos se pueden leer pero no editar por una suplencia', async () => {
+    readyForClosure()
+    const res = await request(app()).get(`/gradebook/${GB_ID}/periods/${PERIOD_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(200)
+    expect(res.body.canEdit).toBe(false)
   })
 })

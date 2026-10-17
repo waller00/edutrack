@@ -1,0 +1,77 @@
+[
+  {
+    "url": "https://edutrack-uy.com/",
+    "final_url": "https://edutrack-uy.com/",
+    "status": 200,
+    "headers": {
+      "server": "cloudflare",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "referrer-policy": "strict-origin-when-cross-origin",
+      "cache-control": "s-maxage=31536000, stale-while-revalidate"
+    }
+  },
+  {
+    "url": "https://api.edutrack-uy.com/auth/me",
+    "final_url": "https://api.edutrack-uy.com/auth/me",
+    "status": 401,
+    "headers": {
+      "server": "cloudflare",
+      "strict-transport-security": "max-age=15552000; includeSubDomains",
+      "content-security-policy": "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "referrer-policy": "no-referrer"
+    }
+  },
+  {
+    "url": "https://api.edutrack-uy.com/admin/users",
+    "final_url": "https://api.edutrack-uy.com/admin/users",
+    "status": 401,
+    "headers": {
+      "server": "cloudflare",
+      "strict-transport-security": "max-age=15552000; includeSubDomains",
+      "content-security-policy": "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "referrer-policy": "no-referrer"
+    }
+  },
+  {
+    "url": "https://api.edutrack-uy.com/gradebook/mine",
+    "final_url": "https://api.edutrack-uy.com/gradebook/mine",
+    "status": 401,
+    "headers": {
+      "server": "cloudflare",
+      "strict-transport-security": "max-age=15552000; includeSubDomains",
+      "content-security-policy": "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "referrer-policy": "no-referrer"
+    }
+  },
+  {
+    "url": "https://api.edutrack-uy.com/medical-leaves/my-leaves",
+    "final_url": "https://api.edutrack-uy.com/medical-leaves/my-leaves",
+    "status": 401,
+    "headers": {
+      "server": "cloudflare",
+      "strict-transport-security": "max-age=15552000; includeSubDomains",
+      "content-security-policy": "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "referrer-policy": "no-referrer"
+    }
+  },
+  {
+    "url": "https://moodle.edutrack-uy.com/",
+    "final_url": "https://moodle.edutrack-uy.com/login/index.php",
+    "status": 200,
+    "headers": {
+      "server": "cloudflare",
+      "x-frame-options": "sameorigin",
+      "cache-control": "no-store, no-cache, must-revalidate, no-transform"
+    }
+  }
+]

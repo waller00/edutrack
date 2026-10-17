@@ -5,7 +5,7 @@ import { attachmentDisposition } from '../services/exports/content-disposition.j
 import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { canResolveRoster, loadRosterForScope } from '../services/student-attendance/roster.js'
-import { resolveGradeBookAccess, type GradeBookAccess } from '../services/gradebook/access.js'
+import { canWriteGradeBookGrades, resolveGradeBookAccess, type GradeBookAccess } from '../services/gradebook/access.js'
 import { photoETag } from '../services/student-photo.js'
 import {
   basicCycleDays,
@@ -1014,6 +1014,15 @@ r.get('/:id/students/:studentId/photo', requirePermission('gradebook.read'), asy
 })
 
 
+/** Cada escritura valida su fecha; la lectura histórica no autoriza a calificar. */
+async function canWriteGrades(req: any, ctx: { row: any; access: GradeBookAccess }, date?: Date) {
+  if (!ctx.access.canGrade) return false
+  if (ctx.access.level !== 'SUBSTITUTE') return true
+  const userId = req.user?.id ?? req.user?.sub
+  const gradeScope = await userPermissionScope(userId, 'gradebook.grade', req.user?.role)
+  return canWriteGradeBookGrades({ access: ctx.access, gradeBook: ctx.row, userId, gradeScope, assessmentDate: date })
+}
+
 // ─── Evaluaciones y calificaciones (RF-040 a RF-043) ────────────────────────
 
 const ymdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida')
@@ -1179,6 +1188,7 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
     ])
 
     const todayYmd = todayUruguayYmd()
+    const canGradePeriods = await canWriteGrades(req, ctx)
     const statusByPeriod = new Map(states.map((state) => [state.periodId, state.status]))
 
     return res.json({
@@ -1188,7 +1198,7 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
           periodId: period.id,
           status,
           canEdit: canEditStudentClosurePeriod({
-            canGrade: ctx.access.canGrade,
+            canGrade: canGradePeriods,
             periodStatus: status,
             gradeBookStatus: ctx.row.status,
             startsOn: period.startsOn,
@@ -1261,13 +1271,35 @@ r.post('/:id/assessments', requirePermission('gradebook.grade'), async (req: any
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
-    if (!ctx.access.canGrade) {
+    if (!(await canWriteGrades(req, ctx, parseYmd(parsed.data.date)))) {
       return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
     }
 
     const d = parsed.data
     const periodError = await assertPeriodFitsGradeBook(d.periodId, ctx.row)
     if (periodError) return res.status(400).json(periodError)
+
+    if (ctx.access.level === 'SUBSTITUTE') {
+      const userId = req.user?.id ?? req.user?.sub
+      const { editWindowDays } = await getGradeBookSettings()
+      const permissions = resolveGradeEditPermissions({
+        gradeScope: await userPermissionScope(userId, 'gradebook.grade', req.user?.role),
+        canManage: (await userPermissionScope(userId, 'gradebook.manage', req.user?.role)) !== null,
+        isResponsible: true,
+        assessmentDate: parseYmd(d.date), windowDays: editWindowDays, gradeBookStatus: ctx.row.status,
+      })
+      if (!permissions.canEdit) {
+        const reason = permissions.blockedReason!
+        return res.status(403).json({ message: GRADE_BLOCK_MESSAGES[reason], code: reason })
+      }
+    }
+    const periodState = await prisma.gradeBookPeriod.findUnique({
+      where: { gradeBookId_periodId: { gradeBookId: ctx.row.id, periodId: d.periodId } },
+      select: { status: true },
+    })
+    if (periodState?.status === 'CLOSED') {
+      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.PERIOD_CLOSED, code: 'PERIOD_CLOSED' })
+    }
 
     const created = await prisma.assessment.create({
       data: {
@@ -1343,7 +1375,10 @@ async function loadAssessmentContext(req: any, res: any) {
     periodStatus: gradeBookPeriod?.status ?? null,
     gradeBookStatus: ctx.row.status,
   })
-  const effective = block === 'CLOSED'
+  const covered = await canWriteGrades(req, ctx, assessment.date)
+  const effective = !covered && permissions.blockedReason !== 'ARCHIVED'
+    ? { ...permissions, canEdit: false, blockedReason: 'NOT_ASSIGNED' as const }
+    : block === 'CLOSED'
     ? { ...permissions, canEdit: false, blockedReason: 'PERIOD_CLOSED' as const }
     : permissions
 
@@ -1363,9 +1398,20 @@ r.patch('/:id/assessments/:assessmentId', requirePermission('gradebook.grade'), 
     }
 
     const d = parsed.data
+    if (d.date && !(await canWriteGrades(req, ctx, parseYmd(d.date)))) {
+      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
+    }
+
     if (d.periodId) {
       const periodError = await assertPeriodFitsGradeBook(d.periodId, ctx.row)
       if (periodError) return res.status(400).json(periodError)
+      const targetPeriod = await prisma.gradeBookPeriod.findUnique({
+        where: { gradeBookId_periodId: { gradeBookId: ctx.row.id, periodId: d.periodId } },
+        select: { status: true },
+      })
+      if (targetPeriod?.status === 'CLOSED') {
+        return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.PERIOD_CLOSED, code: 'PERIOD_CLOSED' })
+      }
     }
 
     const updated = await prisma.assessment.update({
@@ -1790,9 +1836,13 @@ function serializeYmd(value: Date | null): string | null {
  * Contexto de cierre: período, estado, cohorte y lo cargado.
  * Responde el error por su cuenta y devuelve `null`.
  */
-async function loadClosureContext(req: any, res: any) {
+async function loadClosureContext(req: any, res: any, writing = false) {
   const ctx = await loadContext(req, res)
   if (!ctx) return null
+  if (writing && !(await canWriteGrades(req, ctx))) {
+    res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
+    return null
+  }
 
   const level = ctx.row.courseOffering?.course?.level ?? null
   const period = await prisma.academicPeriod.findFirst({
@@ -1947,7 +1997,7 @@ r.get('/:id/periods/:periodId', requirePermission('gradebook.read'), async (req:
       },
       // Las mismas reglas que el cierre por alumno: período abierto, ciclo vivo y ya habilitado.
       canEdit: canEditStudentClosurePeriod({
-        canGrade: ctx.access.canGrade,
+        canGrade: await canWriteGrades(req, ctx),
         periodStatus: ctx.state.status,
         gradeBookStatus: ctx.row.status,
         startsOn: ctx.period.startsOn,
@@ -1967,11 +2017,8 @@ r.put('/:id/periods/:periodId/grades', requirePermission('gradebook.grade'), asy
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
 
   try {
-    const ctx = await loadClosureContext(req, res)
+    const ctx = await loadClosureContext(req, res, true)
     if (!ctx) return
-    if (!ctx.access.canGrade) {
-      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
-    }
 
     const block = periodWriteBlock({ periodStatus: ctx.state.status, gradeBookStatus: ctx.row.status })
     if (block) {
@@ -2124,12 +2171,13 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
     }
 
     const todayYmd = todayUruguayYmd()
+    const canGradePeriods = await canWriteGrades(req, ctx)
     return res.json({
       student: {
         ...student,
         hasPhoto: Boolean(photo),
       },
-      canGrade: ctx.access.canGrade,
+      canGrade: canGradePeriods,
       // La escala del nivel: el selector de C y R ofrece su rango (1–12 en bachillerato).
       scale,
       conduct: conduct ? conductOptions(conduct.levels) : [],
@@ -2156,7 +2204,7 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
           closedAt: state?.closedAt ? state.closedAt.toISOString() : null,
           closedLate: state?.closedLate ?? false,
           canEdit: canEditStudentClosurePeriod({
-            canGrade: ctx.access.canGrade,
+            canGrade: canGradePeriods,
             periodStatus: status,
             gradeBookStatus: ctx.row.status,
             startsOn: period.startsOn,
@@ -2213,7 +2261,7 @@ r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), 
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
-    if (!ctx.access.canGrade) {
+    if (!(await canWriteGrades(req, ctx))) {
       return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
     }
     if (ctx.row.status === 'ARCHIVED') {
@@ -2300,11 +2348,8 @@ r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), 
 
 r.post('/:id/periods/:periodId/close', requirePermission('gradebook.close'), async (req: any, res) => {
   try {
-    const ctx = await loadClosureContext(req, res)
+    const ctx = await loadClosureContext(req, res, true)
     if (!ctx) return
-    if (!ctx.access.canGrade) {
-      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
-    }
     if (ctx.state.status === 'CLOSED') {
       return res.status(409).json({ message: 'El período ya está cerrado.', code: 'ALREADY_CLOSED' })
     }
@@ -2713,7 +2758,7 @@ r.post('/:id/moodle/import', requirePermission('gradebook.grade'), async (req: a
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
-    if (!ctx.access.canGrade) {
+    if (!(await canWriteGrades(req, ctx))) {
       return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
     }
 

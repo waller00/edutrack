@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-14",
+  "git_head": "c4e574ab40fd603eb4acc06869da1a4379e3b727",
+  "node": "22.23.3",
+  "npm": "10.9.9",
+  "scope": "working tree, tracked backend files copied without local .env",
+  "sha256": {
+    "backend/package-lock.json": "363c49a4edd048836b4b3950eeeb3e616b147642bf06ae1259a1fef56af17b5d",
+    "frontend/web/package-lock.json": "bae1b8c837ad1f17af72b9e64caa55e477418a4cf85ecdcbd1af58d05a24cf69",
+    "backend/src/routes/auth-keycloak.ts": "99b0b92693952a8c78bf68c1b05f6496076d1250647d90b415dc956c2ffe6e35",
+    "backend/src/auth/keycloak-provisioning.ts": "20bf8751204a7eac689a9052b9be7e25bd06746fcad9e691912c6d4f6a162920",
+    "backend/src/services/gradebook/access.ts": "badb9c9282296898293c3137f36608bfc46d45847f0de00f7e17528e7c49ae95",
+    "backend/src/middlewares/auth.ts": "6c176cbeb45a48e468c0547007106a3e963fe884dc2f32c61b415e7dc8234c11",
+    "backend/src/routes/zkteco-iclock.ts": "5ad98c474f508f518618a73648e3d66dec33a7bf6492fe22a03376f1bf38a6f3",
+    "backend/src/middlewares/rate-limit.ts": "0766096df5c84c63713bac30d995f3407f40886a2cf6ac42e589480d462e9a4b"
+  }
+}

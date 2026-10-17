@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client'
 import { prisma as defaultPrisma } from '../../db/prisma.js'
+import { uruguayWallToUtc } from '../../config/app-timezone.js'
 /**
  * Quién puede ver y escribir una libreta.
  *
@@ -13,7 +14,7 @@ export type GradeBookAccessLevel = 'OWNER' | 'SUBSTITUTE' | 'SUPERVISION' | 'NON
 export type GradeBookAccess = {
   level: GradeBookAccessLevel
   canRead: boolean
-  /** Evaluaciones, notas parciales, notas de período y juicios conceptuales. */
+  /** Capacidad general; cada escritura debe validar además la cobertura de la suplencia. */
   canGrade: boolean
   /**
    * Planificación y desarrollo del curso.
@@ -32,10 +33,8 @@ const NO_ACCESS: GradeBookAccess = { level: 'NONE', canRead: false, canGrade: fa
  * Se resuelve por los eventos del scope de la libreta y no por el evento puntual: la libreta es
  * la unidad, y quien cubrió una de sus clases pertenece a ella.
  *
- * Alcance deliberado: da acceso a la libreta entera, no sólo al día suplido. Para leer el grupo
- * es lo correcto; cuando lleguen las evaluaciones (que sí llevan fecha) la escritura tendrá que
- * acotarse a la ventana de la suplencia, porque si no un suplente de un día de marzo podría
- * calificar todo el año.
+ * Da lectura histórica a la libreta. La escritura se valida por separado con
+ * canWriteGradeBookGrades: haber cubierto una clase no autoriza a calificar todo el año.
  */
 async function hasSubstitution(
   db: PrismaClient,
@@ -127,4 +126,45 @@ export async function resolveGradeBookAccess(
   }
 
   return NO_ACCESS
+}
+
+/**
+ * Autorización de escritura por objeto, independiente de la ventana de edición.
+ * Assessment.date es un día civil (serializado como YYYY-MM-DD en UTC), mientras
+ * Substitution.date guarda el inicio del día institucional. No comparar sus
+ * timestamps directamente ni convertir medianoche UTC al día local anterior.
+ * Sin fecha (períodos, cierres, importación masiva) una suplencia no da permiso.
+ */
+export async function canWriteGradeBookGrades(params: {
+  access: GradeBookAccess
+  gradeScope: 'own' | 'all' | null
+  userId: string
+  gradeBook: {
+    schoolYearId: string
+    courseOfferingId: string
+    subjectId: string
+    orientationId: string | null
+    courseOrientationId: string | null
+  }
+  assessmentDate?: Date
+}, db: PrismaClient = defaultPrisma): Promise<boolean> {
+  if (!params.access.canGrade || params.gradeScope === null) return false
+  if (params.access.level !== 'SUBSTITUTE' || params.gradeScope === 'all') return true
+  const date = params.assessmentDate
+  if (!date || !Number.isFinite(date.getTime())) return false
+  const found = await db.substitution.findFirst({
+    where: {
+      substituteUserId: params.userId,
+      date: uruguayWallToUtc(date.toISOString().slice(0, 10), 0, 0),
+      event: {
+        schoolYearId: params.gradeBook.schoolYearId,
+        courseOfferingId: params.gradeBook.courseOfferingId,
+        subjectId: params.gradeBook.subjectId,
+        orientationId: params.gradeBook.orientationId,
+        courseOrientationId: params.gradeBook.courseOrientationId,
+      },
+    },
+    select: { id: true },
+  })
+  return Boolean(found)
 }

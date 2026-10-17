@@ -6,6 +6,7 @@ import request from "supertest";
 const { redisMock, buildLoginUrlMock, getSessionMock, prismaMock, sendMailMock } = vi.hoisted(() => ({
   redisMock: {
     set: vi.fn().mockResolvedValue("OK"),
+    eval: vi.fn(),
   },
   buildLoginUrlMock: vi.fn().mockResolvedValue({
     codeVerifier: "verifier-1",
@@ -79,7 +80,9 @@ vi.mock("../auth/keycloak.js", () => ({
 }));
 
 vi.mock("../auth/keycloak-provisioning.js", () => ({
-  SsoRegistrationRequiredError: class SsoRegistrationRequiredError extends Error {},
+  SsoRegistrationRequiredError: class SsoRegistrationRequiredError extends Error {
+    constructor(public profile: unknown) { super("SSO_REGISTRATION_REQUIRED"); }
+  },
   provisionUserFromClaims: vi.fn(),
 }));
 
@@ -88,6 +91,10 @@ vi.mock("../auth/sso-registration.js", () => ({
 }));
 
 import keycloakAuthRoutes from "./auth-keycloak.js";
+import { exchangeCode } from "../auth/keycloak.js";
+import { provisionUserFromClaims, SsoRegistrationRequiredError } from "../auth/keycloak-provisioning.js";
+import { saveSession } from "../auth/session-store.js";
+import { createSsoRegistration } from "../auth/sso-registration.js";
 
 function app() {
   const a = express();
@@ -98,9 +105,175 @@ function app() {
   return a;
 }
 
+describe("OIDC browser binding (AUD-01)", () => {
+  const transactions = new Map<string, string>();
+  const cookies = (res: any): string[] => res.headers["set-cookie"] || [];
+  const transactionCookie = (res: any) => cookies(res).find((value) => value.startsWith("oidc-"))!.split(";")[0];
+  let counter = 0;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv("FRONTEND_URL", "http://localhost:3000");
+    vi.stubEnv("COOKIE_SECURE", "false");
+    transactions.clear();
+    counter = 0;
+    buildLoginUrlMock.mockImplementation(async () => {
+      const state = `state-${++counter}`;
+      return { codeVerifier: `verifier-${counter}`, state, authUrl: `https://auth.local/login?state=${state}` };
+    });
+    redisMock.set.mockImplementation(async (key, value) => {
+      transactions.set(key, value);
+      return "OK";
+    });
+    // Models the atomic Lua compare-and-delete; no await between read/delete.
+    redisMock.eval.mockImplementation(async (_script, _count, key, binding) => {
+      const value = transactions.get(key);
+      if (!value || JSON.parse(value).browserBinding !== binding) return null;
+      transactions.delete(key);
+      return value;
+    });
+    vi.mocked(exchangeCode).mockResolvedValue({
+      accessToken: "access", expiresAt: Date.now() + 60_000,
+      claims: { sub: "kc-1", email: "u@example.com" },
+    });
+    vi.mocked(provisionUserFromClaims).mockResolvedValue({ id: "user-1", email: "u@example.com", role: "STAFF" });
+  });
+
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("sets a short-lived host-only HttpOnly cookie, regardless of session domain", async () => {
+    vi.stubEnv("COOKIE_SECURE", "true");
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+    vi.stubEnv("COOKIE_SAMESITE", "strict");
+    const res = await request(app()).get("/auth/login");
+    const cookie = cookies(res)[0];
+    expect(cookie).toMatch(/^__Host-oidc-[a-f0-9]{64}=[a-f0-9]{64};/);
+    for (const attribute of ["HttpOnly", "Secure", "SameSite=Lax", "Path=/", "Max-Age=600"]) {
+      expect(cookie).toContain(attribute);
+    }
+    expect(cookie).not.toContain("Domain=");
+    expect(res.headers["cache-control"]).toBe("no-store");
+  });
+
+  it("rejects another browser without consuming the legitimate transaction", async () => {
+    const login = await request(app()).get("/auth/login?returnTo=/profile");
+    const stolen = await request(app()).get("/auth/callback?code=code&state=state-1");
+    expect(stolen.headers.location).toContain("error=state");
+    expect(exchangeCode).not.toHaveBeenCalled();
+    expect(redisMock.eval).not.toHaveBeenCalled();
+    expect(saveSession).not.toHaveBeenCalled();
+    const legitimate = await request(app()).get("/auth/callback?code=code&state=state-1")
+      .set("Cookie", transactionCookie(login));
+    expect(legitimate.headers.location).toBe("http://localhost:3000/profile");
+    expect(exchangeCode).toHaveBeenCalledWith(expect.any(URL), "verifier-1", "state-1");
+    expect(saveSession).toHaveBeenCalledTimes(1);
+    expect(cookies(legitimate).some((cookie) => cookie.startsWith("sid="))).toBe(true);
+    expect(cookies(legitimate).some((cookie) => cookie.startsWith("oidc-") && cookie.includes("Expires=Thu, 01 Jan 1970"))).toBe(true);
+  });
+
+  it("rejects a wrong browser secret without consuming state", async () => {
+    const login = await request(app()).get("/auth/login");
+    const [name] = transactionCookie(login).split("=");
+    const res = await request(app()).get("/auth/callback?code=code&state=state-1")
+      .set("Cookie", `${name}=${"a".repeat(64)}`);
+    expect(res.headers.location).toContain("error=state");
+    expect(exchangeCode).not.toHaveBeenCalled();
+    expect(transactions.has("bff:oauth:state-1")).toBe(true);
+  });
+
+  it("allows independent tabs and rejects a cookie belonging to another flow", async () => {
+    const first = await request(app()).get("/auth/login");
+    const second = await request(app()).get("/auth/login?provider=google");
+    expect(buildLoginUrlMock).toHaveBeenLastCalledWith(expect.objectContaining({ identityProvider: "google" }));
+    const wrong = await request(app()).get("/auth/callback?code=code&state=state-2")
+      .set("Cookie", transactionCookie(first));
+    expect(wrong.headers.location).toContain("error=state");
+    for (const state of ["state-2", "state-1"]) {
+      const res = await request(app()).get(`/auth/callback?code=code&state=${state}`)
+        .set("Cookie", [transactionCookie(first), transactionCookie(second)].join("; "));
+      expect(res.headers.location).toBe("http://localhost:3000/");
+    }
+    expect(saveSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("consumes a transaction only once under concurrent and repeated callbacks", async () => {
+    const login = await request(app()).get("/auth/login");
+    const callback = () => request(app()).get("/auth/callback?code=code&state=state-1")
+      .set("Cookie", transactionCookie(login));
+    const responses = await Promise.all([callback(), callback()]);
+    expect(responses.map((res) => res.headers.location).sort()).toEqual([
+      "http://localhost:3000/", "http://localhost:3000/login?error=state",
+    ]);
+    expect((await callback()).headers.location).toContain("error=state");
+    expect(exchangeCode).toHaveBeenCalledTimes(1);
+    expect(saveSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["expired", "legacy"])("rejects %s transactions", async (kind) => {
+    const login = await request(app()).get("/auth/login");
+    if (kind === "expired") transactions.clear();
+    else transactions.set("bff:oauth:state-1", JSON.stringify({ codeVerifier: "old", returnTo: "/" }));
+    const res = await request(app()).get("/auth/callback?code=code&state=state-1")
+      .set("Cookie", transactionCookie(login));
+    expect(res.headers.location).toContain("error=state");
+    expect(exchangeCode).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "a".repeat(257)])("rejects invalid state before reading Redis", async (state) => {
+    const res = await request(app()).get(`/auth/callback?code=code&state=${state}`);
+    expect(res.headers.location).toContain("error=state");
+    expect(redisMock.eval).not.toHaveBeenCalled();
+    expect(exchangeCode).not.toHaveBeenCalled();
+  });
+
+  it("does not exchange tokens when Redis fails", async () => {
+    const login = await request(app()).get("/auth/login");
+    redisMock.eval.mockRejectedValueOnce(new Error("Redis unavailable"));
+    const res = await request(app()).get("/auth/callback?code=code&state=state-1")
+      .set("Cookie", transactionCookie(login));
+    expect(res.headers.location).toContain("error=oidc");
+    expect(exchangeCode).not.toHaveBeenCalled();
+  });
+
+  it("clears the cookie and consumes state even when the IdP rejects the code", async () => {
+    const login = await request(app()).get("/auth/login");
+    vi.mocked(exchangeCode).mockRejectedValueOnce(new Error("invalid_grant"));
+    const res = await request(app()).get("/auth/callback?code=bad&state=state-1")
+      .set("Cookie", transactionCookie(login));
+    expect(res.headers.location).toContain("error=oidc");
+    expect(transactions.size).toBe(0);
+    expect(saveSession).not.toHaveBeenCalled();
+    expect(cookies(res)[0]).toContain("Expires=Thu, 01 Jan 1970");
+  });
+
+  it("preserves Google registration after validating the browser", async () => {
+    const login = await request(app()).get("/auth/login?provider=google");
+    const error = new SsoRegistrationRequiredError({ kcId: "new", email: "new@example.com" });
+    vi.mocked(provisionUserFromClaims).mockRejectedValueOnce(error);
+    vi.mocked(createSsoRegistration).mockResolvedValueOnce("registration-token");
+    const res = await request(app()).get("/auth/callback?code=code&state=state-1")
+      .set("Cookie", transactionCookie(login));
+    expect(res.headers.location).toBe("http://localhost:3000/register?sso=registration-token");
+    expect(createSsoRegistration).toHaveBeenCalledWith({ kcId: "new", email: "new@example.com" });
+    expect(saveSession).not.toHaveBeenCalled();
+  });
+
+  it("creates a fresh browser transaction for recovery codes after TOTP setup", async () => {
+    const login = await request(app()).get("/auth/login");
+    const res = await request(app()).get("/auth/callback?code=code&state=state-1&kc_action=CONFIGURE_TOTP&kc_action_status=success")
+      .set("Cookie", transactionCookie(login));
+    expect(buildLoginUrlMock).toHaveBeenLastCalledWith(expect.objectContaining({ requiredAction: "CONFIGURE_RECOVERY_AUTHN_CODES" }));
+    expect(res.headers.location).toBe("https://auth.local/login?state=state-2");
+    expect(transactions.has("bff:oauth:state-1")).toBe(false);
+    expect(transactions.has("bff:oauth:state-2")).toBe(true);
+    expect(cookies(res).filter((cookie) => cookie.startsWith("oidc-"))).toHaveLength(2);
+  });
+});
+
 describe("auth-keycloak account routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    buildLoginUrlMock.mockResolvedValue({ codeVerifier: "verifier-1", state: "state-1", authUrl: "https://auth.local/realms/edutrack/login-actions/authenticate?kc_action=CONFIGURE_TOTP" });
     process.env.FRONTEND_URL = "http://localhost:3000";
     process.env.TWO_FACTOR_DISABLE_EMAIL_SECRET = "test-2fa-disable-secret";
     redisMock.set.mockResolvedValue("OK");

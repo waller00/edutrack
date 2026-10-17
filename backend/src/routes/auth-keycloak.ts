@@ -43,6 +43,32 @@ const r = Router();
 const OAUTH_PREFIX = "bff:oauth:";
 const OAUTH_TTL_SECONDS = 600;
 
+// Compare and consume in one Redis operation: concurrent callbacks must not
+// exchange the same code twice. A callback from another browser cannot consume
+// the legitimate browser's pending transaction either.
+export const CONSUME_OAUTH_TRANSACTION = `
+local raw = redis.call('GET', KEYS[1])
+if not raw then return nil end
+local transaction = cjson.decode(raw)
+if transaction.browserBinding ~= ARGV[1] then return nil end
+redis.call('DEL', KEYS[1])
+return raw
+`;
+
+function oauthCookie(state: string) {
+  const secure = resolveCookieConfig().secure;
+  const suffix = crypto.createHash("sha256").update(state).digest("hex");
+  return {
+    // Host-only and one cookie per transaction: independent tabs can log in.
+    name: `${secure ? "__Host-" : ""}oidc-${suffix}`,
+    options: { httpOnly: true, secure, sameSite: "lax" as const, path: "/" },
+  };
+}
+
+function browserBinding(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
 function frontendUrl(): string {
   return (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
 }
@@ -144,12 +170,16 @@ async function beginLoginFlow(
     return;
   }
   const returnTo = options.returnTo && options.returnTo.startsWith("/") ? options.returnTo : "/";
+  const browserSecret = crypto.randomBytes(32).toString("hex");
   await redis.set(
     OAUTH_PREFIX + state,
-    JSON.stringify({ codeVerifier, returnTo }),
+    JSON.stringify({ codeVerifier, returnTo, browserBinding: browserBinding(browserSecret) }),
     "EX",
     OAUTH_TTL_SECONDS,
   );
+  const cookie = oauthCookie(state);
+  res.cookie(cookie.name, browserSecret, { ...cookie.options, maxAge: OAUTH_TTL_SECONDS * 1000 });
+  res.setHeader("Cache-Control", "no-store");
   res.redirect(authUrl);
 }
 
@@ -167,13 +197,23 @@ r.get("/login", async (req, res) => {
 
 r.get("/callback", async (req, res) => {
   const state = typeof req.query.state === "string" ? req.query.state : "";
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  if (!state || state.length > 256) return res.redirect(`${frontendUrl()}/login?error=state`);
+  const cookie = oauthCookie(state);
+  const browserSecret = req.cookies?.[cookie.name];
+  if (typeof browserSecret !== "string" || !/^[a-f0-9]{64}$/.test(browserSecret)) {
+    return res.redirect(`${frontendUrl()}/login?error=state`);
+  }
   const redis = getRedis();
   if (!redis) return res.status(503).json({ message: "Redis no disponible" });
 
   try {
-    const stored = await redis.get(OAUTH_PREFIX + state);
+    const stored = await redis.eval(
+      CONSUME_OAUTH_TRANSACTION, 1, OAUTH_PREFIX + state, browserBinding(browserSecret),
+    ) as string | null;
     if (!stored) return res.redirect(`${frontendUrl()}/login?error=state`);
-    await redis.del(OAUTH_PREFIX + state);
+    res.clearCookie(cookie.name, cookie.options);
     const { codeVerifier, returnTo } = JSON.parse(stored) as {
       codeVerifier: string;
       returnTo: string;

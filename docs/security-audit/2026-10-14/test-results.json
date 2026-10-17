@@ -1,0 +1,560 @@
+{
+  "reproductions": {
+    "numTotalTests": 9,
+    "numPassedTests": 9,
+    "numFailedTests": 0,
+    "success": true,
+    "tests": [
+      {
+        "file": "src/security-audit/auth-boundaries.test.ts",
+        "assertions": [
+          {
+            "title": "AUD-01: callback without initiating-browser cookie creates a session for the supplied flow",
+            "status": "passed"
+          },
+          {
+            "title": "AUD-04: expired performance token still authorizes a protected route while Redis session exists",
+            "status": "passed"
+          },
+          {
+            "title": "control: disabled account is rejected by authGuard",
+            "status": "passed"
+          },
+          {
+            "title": "hardening: account endpoints check Redis session without checking disabled account",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/security-audit/forwarded-ip.test.ts",
+        "assertions": [
+          {
+            "title": "AUD-05: spoofed leftmost forwarded IP passes the ADMS allowlist without a device secret",
+            "status": "passed"
+          },
+          {
+            "title": "AUD-05: the rate limiter keys by attacker-supplied leftmost forwarded IP",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/security-audit/identity-linking.test.ts",
+        "assertions": [
+          {
+            "title": "AUD-02: unverified email from a different OIDC subject is matched to an existing privileged user",
+            "status": "passed"
+          },
+          {
+            "title": "AUD-02: username fallback can overwrite the local account email for a different subject",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/security-audit/substitute-scope.test.ts",
+        "assertions": [
+          {
+            "title": "AUD-03: a historical substitution allows grading a current assessment outside its day",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  },
+  "existing-tests": {
+    "numTotalTests": 109,
+    "numPassedTests": 109,
+    "numFailedTests": 0,
+    "success": true,
+    "tests": [
+      {
+        "file": "src/auth/keycloak-provisioning.test.ts",
+        "assertions": [
+          {
+            "title": "provisionUserFromClaims NO revierte el rol de un usuario existente con el rol del realm",
+            "status": "passed"
+          },
+          {
+            "title": "provisionUserFromClaims pide completar registro para un usuario SSO sin cuenta local",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/middlewares/auth-permissions.test.ts",
+        "assertions": [
+          {
+            "title": "auth middleware — permisos y sesión userPermissionScope: en test resuelve por roleCode",
+            "status": "passed"
+          },
+          {
+            "title": "auth middleware — permisos y sesión userPermissionScope: rama DB (sin roleCode)",
+            "status": "passed"
+          },
+          {
+            "title": "auth middleware — permisos y sesión requirePermission: sin userId → 403",
+            "status": "passed"
+          },
+          {
+            "title": "auth middleware — permisos y sesión requirePermission: scope ok → next; requiredScope all con own → 403",
+            "status": "passed"
+          },
+          {
+            "title": "auth middleware — permisos y sesión requireRole / requireAnyRole sin coincidencia → 403",
+            "status": "passed"
+          },
+          {
+            "title": "auth middleware — permisos y sesión authGuard: sesión válida adjunta el usuario",
+            "status": "passed"
+          },
+          {
+            "title": "auth middleware — permisos y sesión authGuard: expirada (401), inhabilitada (403) y bloqueada (403)",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/middlewares/auth-session.test.ts",
+        "assertions": [
+          {
+            "title": "authGuard (sesión BFF + estado de cuenta) 200 con sesión válida y cuenta activa/aprobada",
+            "status": "passed"
+          },
+          {
+            "title": "authGuard (sesión BFF + estado de cuenta) 401 si la sesión ya no existe en Redis",
+            "status": "passed"
+          },
+          {
+            "title": "authGuard (sesión BFF + estado de cuenta) 401 si el usuario fue borrado",
+            "status": "passed"
+          },
+          {
+            "title": "authGuard (sesión BFF + estado de cuenta) 403 si la cuenta fue desactivada después de iniciar sesión",
+            "status": "passed"
+          },
+          {
+            "title": "authGuard (sesión BFF + estado de cuenta) 403 si la cuenta quedó pendiente de aprobación",
+            "status": "passed"
+          },
+          {
+            "title": "authGuard (sesión BFF + estado de cuenta) 403 dice que falta verificar el correo (paso previo a la aprobación)",
+            "status": "passed"
+          },
+          {
+            "title": "authGuard (sesión BFF + estado de cuenta) 403 con el correo verificado dice que falta la aprobación",
+            "status": "passed"
+          },
+          {
+            "title": "authGuard (sesión BFF + estado de cuenta) 403 de cuenta dada de baja no expone el correo",
+            "status": "passed"
+          },
+          {
+            "title": "authGuard (sesión BFF + estado de cuenta) 403 si la cuenta está bloqueada (lockUntil futuro)",
+            "status": "passed"
+          },
+          {
+            "title": "authGuard (sesión BFF + estado de cuenta) 200 si el bloqueo ya expiró (lockUntil pasado)",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/routes/auth-keycloak.routes.test.ts",
+        "assertions": [
+          {
+            "title": "auth-keycloak account routes GET /auth/account/2fa inicia required action CONFIGURE_TOTP con sesión válida",
+            "status": "passed"
+          },
+          {
+            "title": "auth-keycloak account routes POST /auth/account/2fa/disable valida el código OTP antes de borrar 2FA",
+            "status": "passed"
+          },
+          {
+            "title": "auth-keycloak account routes POST /auth/account/2fa/disable no borra 2FA con código OTP inválido",
+            "status": "passed"
+          },
+          {
+            "title": "auth-keycloak account routes POST /auth/account/2fa/disable-email envía correo de confirmación",
+            "status": "passed"
+          },
+          {
+            "title": "auth-keycloak account routes POST /auth/account/2fa/disable-email falla si no hay secreto configurado",
+            "status": "passed"
+          },
+          {
+            "title": "auth-keycloak account routes POST /auth/account/2fa/disable-email-public envía correo sin sesión y responde genérico",
+            "status": "passed"
+          },
+          {
+            "title": "auth-keycloak account routes POST /auth/account/2fa/disable-email-public no revela cuentas inexistentes",
+            "status": "passed"
+          },
+          {
+            "title": "auth-keycloak account routes GET /auth/account/2fa/disable-email muestra confirmación sin borrar credenciales",
+            "status": "passed"
+          },
+          {
+            "title": "auth-keycloak account routes GET /auth/account/2fa/disable-email redirige a error si el token es inválido",
+            "status": "passed"
+          },
+          {
+            "title": "auth-keycloak account routes POST /auth/account/2fa/disable-email/confirm borra 2FA una sola vez",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/routes/medical-leaves.routes.test.ts",
+        "assertions": [
+          {
+            "title": "medical-leaves (prisma mock) GET /medical-leaves/all ADMIN",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) GET /medical-leaves/my-leaves",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) GET /medical-leaves/all aplica filtros y paginación",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) GET /medical-leaves/all por ciclo: vigente algún día del ciclo, también el último",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) GET /medical-leaves/all con un ciclo sin fechas usa su año calendario",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) GET /medical-leaves/all cuenta los totales de todo el filtro, no de la página",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) GET /medical-leaves/all ordena por fecha de la licencia y pone tope a la página",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) POST /medical-leaves 400 zod",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) POST /medical-leaves 404 usuario inexistente",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) POST /medical-leaves 400 fechas invertidas",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) POST /medical-leaves 201",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) POST /medical-leaves 500 si prisma falla",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) 403 staff en /all",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) PUT /medical-leaves/:id 400",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) PUT /medical-leaves/:id 404",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) PUT /medical-leaves/:id edita y dispara reconciliación",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) PUT /medical-leaves/:id acepta notas opcionales en null (como desde Prisma/UI)",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) PUT /medical-leaves/:id valida fechas",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) PUT /medical-leaves/:id 500 en error interno",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) DELETE /medical-leaves/:id desactiva y deshace lo que la licencia justificó",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) DELETE /medical-leaves/:id 404 si no existe",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) DELETE /medical-leaves/:id 500 si update falla",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) GET /medical-leaves/:id 404",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) GET /medical-leaves/:id 403 si no es admin ni dueño",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) GET /medical-leaves/:id permite al admin",
+            "status": "passed"
+          },
+          {
+            "title": "medical-leaves (prisma mock) GET /medical-leaves/:id 500 en error interno",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/routes/zkteco-iclock.routes.test.ts",
+        "assertions": [
+          {
+            "title": "zkteco iclock routes GET getrequest responde OK",
+            "status": "passed"
+          },
+          {
+            "title": "zkteco iclock routes GET cdata options=all devuelve configuración",
+            "status": "passed"
+          },
+          {
+            "title": "zkteco iclock routes POST cdata ATTLOG procesa fichadas",
+            "status": "passed"
+          },
+          {
+            "title": "zkteco iclock routes POST cdata ATTLOG no registra asistencia si la marca se captura para vinculación",
+            "status": "passed"
+          },
+          {
+            "title": "zkteco iclock routes POST cdata ATTLOG ignora marcas de PIN tomado durante vinculación",
+            "status": "passed"
+          },
+          {
+            "title": "zkteco iclock routes GET getrequest sin SN devuelve 400",
+            "status": "passed"
+          },
+          {
+            "title": "zkteco iclock routes POST ATTLOG sin dispositivo registrado responde OK",
+            "status": "passed"
+          },
+          {
+            "title": "zkteco iclock routes rechaza IP no permitida en ATTLOG",
+            "status": "passed"
+          },
+          {
+            "title": "zkteco iclock routes POST registry responde OK",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/services/student-photo.test.ts",
+        "assertions": [
+          {
+            "title": "sniffImageMime reconoce los tres rasters admitidos",
+            "status": "passed"
+          },
+          {
+            "title": "sniffImageMime no reconoce un SVG",
+            "status": "passed"
+          },
+          {
+            "title": "sniffImageMime no reconoce HTML ni contenido vacío o truncado",
+            "status": "passed"
+          },
+          {
+            "title": "validateStudentPhoto acepta cada tipo declarado correctamente",
+            "status": "passed"
+          },
+          {
+            "title": "validateStudentPhoto tolera parámetros en el Content-Type",
+            "status": "passed"
+          },
+          {
+            "title": "validateStudentPhoto rechaza cuando lo declarado no es lo que el archivo es",
+            "status": "passed"
+          },
+          {
+            "title": "validateStudentPhoto rechaza un SVG aunque se declare como imagen",
+            "status": "passed"
+          },
+          {
+            "title": "validateStudentPhoto rechaza vacío y por tamaño",
+            "status": "passed"
+          },
+          {
+            "title": "validateStudentPhoto acepta justo en el límite",
+            "status": "passed"
+          },
+          {
+            "title": "photoRejectionResponse el exceso de tamaño es 413 y lo dice en criollo",
+            "status": "passed"
+          },
+          {
+            "title": "photoRejectionResponse el formato no admitido es 415 y el desajuste 400",
+            "status": "passed"
+          },
+          {
+            "title": "photoETag cambia cuando cambia la foto",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/integrations/moodle/client.test.ts",
+        "assertions": [
+          {
+            "title": "moodle client config moodleBaseUrl recorta las barras finales",
+            "status": "passed"
+          },
+          {
+            "title": "moodle client config moodleBaseUrl es null si no está configurado",
+            "status": "passed"
+          },
+          {
+            "title": "moodle client config moodleToken devuelve el token o null",
+            "status": "passed"
+          },
+          {
+            "title": "moodle client config moodleCanonicalHostHeader devuelve el host o null",
+            "status": "passed"
+          },
+          {
+            "title": "moodle client config isMoodleIntegrationEnabled requiere URL y token",
+            "status": "passed"
+          },
+          {
+            "title": "moodle client config los ids de rol/categoría usan defaults estándar y aceptan override numérico",
+            "status": "passed"
+          },
+          {
+            "title": "moodle client config un override no numérico cae al default",
+            "status": "passed"
+          },
+          {
+            "title": "moodle client config moodlePublicUrl exige MOODLE_PUBLIC_URL y NO cae a la URL interna",
+            "status": "passed"
+          },
+          {
+            "title": "moodle client config el rol suplente reutiliza el rol titular si no se configura",
+            "status": "passed"
+          },
+          {
+            "title": "moodle client config moodleUserAuthMethod por defecto es manual",
+            "status": "passed"
+          },
+          {
+            "title": "moodle client config moodleUserLang es null por defecto (no forzar lang; usa el default del sitio)",
+            "status": "passed"
+          },
+          {
+            "title": "moodle client config moodleUserLangParam omite la key salvo que MOODLE_USER_LANG esté seteado",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/services/gradebook/access.test.ts",
+        "assertions": [
+          {
+            "title": "titular lee y califica su libreta",
+            "status": "passed"
+          },
+          {
+            "title": "titular no consulta suplencias si ya es titular",
+            "status": "passed"
+          },
+          {
+            "title": "suplente accede si cubrió alguna clase de la libreta",
+            "status": "passed"
+          },
+          {
+            "title": "suplente busca la suplencia por el scope de la libreta, no por un evento suelto",
+            "status": "passed"
+          },
+          {
+            "title": "docente ajeno no accede a una libreta que no es suya ni suplió",
+            "status": "passed"
+          },
+          {
+            "title": "supervisión (alcance all) adscripción y dirección leen todo pero NO califican",
+            "status": "passed"
+          },
+          {
+            "title": "supervisión (alcance all) administración con grade all sí puede escribir",
+            "status": "passed"
+          },
+          {
+            "title": "supervisión (alcance all) dirección planifica una libreta ajena pero no la califica",
+            "status": "passed"
+          },
+          {
+            "title": "supervisión (alcance all) un alcance amplio no se busca suplencias: no hace falta",
+            "status": "passed"
+          },
+          {
+            "title": "sin permiso sin gradebook.read no lee, aunque sea el titular",
+            "status": "passed"
+          },
+          {
+            "title": "ciclo archivado nadie escribe una libreta archivada, ni siquiera administración",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/services/gradebook/edit-window.test.ts",
+        "assertions": [
+          {
+            "title": "computeEditableUntil cuenta los días desde la fecha de la evaluación",
+            "status": "passed"
+          },
+          {
+            "title": "titular edita dentro del plazo",
+            "status": "passed"
+          },
+          {
+            "title": "titular en el borde exacto todavía edita",
+            "status": "passed"
+          },
+          {
+            "title": "titular un segundo después ya no",
+            "status": "passed"
+          },
+          {
+            "title": "titular acortar la ventana aplica retroactivamente",
+            "status": "passed"
+          },
+          {
+            "title": "docente ajeno no edita aunque esté dentro del plazo",
+            "status": "passed"
+          },
+          {
+            "title": "administración con gradebook.manage edita fuera de plazo, marcado para auditar",
+            "status": "passed"
+          },
+          {
+            "title": "administración alcance all SIN manage no habilita fuera de plazo",
+            "status": "passed"
+          },
+          {
+            "title": "sin permiso de calificar adscripción y dirección no escriben, aunque vean la libreta",
+            "status": "passed"
+          },
+          {
+            "title": "ciclo archivado nadie escribe, ni siquiera con manage",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  }
+}

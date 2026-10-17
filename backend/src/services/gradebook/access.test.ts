@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { resolveGradeBookAccess } from './access.js'
+import { canWriteGradeBookGrades, resolveGradeBookAccess } from './access.js'
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: { substitution: { findFirst: vi.fn() } },
@@ -121,5 +121,51 @@ describe('ciclo archivado', () => {
       expect(access.canGrade, `${who.userId} no debe escribir un ciclo cerrado`).toBe(false)
       expect(access.canRead).toBe(true)
     }
+  })
+})
+
+describe('AUD-03: escritura por día de suplencia', () => {
+  const access = { level: 'SUBSTITUTE' as const, canRead: true, canGrade: true, canPlan: true }
+  const params = { access, gradeScope: 'own' as const, userId: 'suplente-1', gradeBook: GB }
+
+  beforeEach(() => {
+    // Only this user, class and day are covered. The real date predicate must
+    // discriminate historical access from write authorization.
+    prismaMock.substitution.findFirst.mockImplementation(async ({ where }) => {
+      return where.substituteUserId === 'suplente-1'
+        && where.date?.toISOString() === '2026-05-10T03:00:00.000Z'
+        && where.event.schoolYearId === GB.schoolYearId
+        && where.event.courseOfferingId === GB.courseOfferingId
+        && where.event.subjectId === GB.subjectId
+        && where.event.orientationId === null
+        && where.event.courseOrientationId === null ? { id: 's-1' } : null
+    })
+  })
+
+  it.each(['2026-05-09', '2026-05-11', '2026-09-10'])('rechaza escritura del %s fuera del día cubierto', async (day) => {
+    expect(await canWriteGradeBookGrades({ ...params, assessmentDate: new Date(`${day}T12:00:00Z`) }, prismaMock as any)).toBe(false)
+  })
+
+  it.each(['00:00:00', '12:00:00'])('autoriza el día civil cubierto, incluso con ancla UTC %s', async (time) => {
+    expect(await canWriteGradeBookGrades({ ...params, assessmentDate: new Date(`2026-05-10T${time}Z`) }, prismaMock as any)).toBe(true)
+  })
+
+  it.each(['schoolYearId', 'courseOfferingId', 'subjectId', 'orientationId', 'courseOrientationId'])('no reutiliza cobertura con otro %s', async (field) => {
+    expect(await canWriteGradeBookGrades({ ...params, gradeBook: { ...GB, [field]: 'other' }, assessmentDate: new Date('2026-05-10T12:00Z') }, prismaMock as any)).toBe(false)
+  })
+
+  it('no reutiliza la suplencia de otro docente', async () => {
+    expect(await canWriteGradeBookGrades({ ...params, userId: 'other', assessmentDate: new Date('2026-05-10T12:00Z') }, prismaMock as any)).toBe(false)
+  })
+
+  it('no concede escrituras globales por una suplencia, pero respeta un grant all explícito', async () => {
+    expect(await canWriteGradeBookGrades(params, prismaMock as any)).toBe(false)
+    expect(await canWriteGradeBookGrades({ ...params, gradeScope: 'all' }, prismaMock as any)).toBe(true)
+    expect(prismaMock.substitution.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('no concede escritura en un ciclo archivado ni sin permiso', async () => {
+    expect(await canWriteGradeBookGrades({ ...params, access: { ...access, canGrade: false }, gradeScope: 'all' }, prismaMock as any)).toBe(false)
+    expect(await canWriteGradeBookGrades({ ...params, gradeScope: null }, prismaMock as any)).toBe(false)
   })
 })
