@@ -10,15 +10,24 @@
   despliegue ni cambios de firewall. El servidor tambien reporto `4ac360d`.
 - El administrador confirmo `PRODUCTION_SSH_TAILSCALE=true` en el environment
   `production`. El proximo despliegue usara el transporte privado.
-- Sigue pendiente comprobar un despliegue completo por Tailscale, la
-  recuperacion y el acceso privado de los tres administradores. El puerto
-  publico 22 debe permanecer abierto hasta completar esas verificaciones.
+- Por instruccion explicita del administrador, el 17/10 se retiraron de UFW
+  las reglas `ALLOW 22/tcp` publicas de IPv4 e IPv6. Se conserva el acceso por
+  `tailscale0` y la politica entrante por defecto `deny`.
+- Verificacion posterior: nueva sesion SSH autenticada desde `100.92.202.71`
+  a `100.92.202.72`; conexion TCP a `165.22.34.95:22` expiro; web y discovery
+  OIDC respondieron 200. No habia una IPv6 publica configurada; se verifico
+  la retirada de su regla, sin prueba externa IPv6.
+- Configuracion UFW anterior guardada en
+  `/root/edutrack-deploy-backups/ssh-private-20261017`. Se programo una
+  reapertura automatica a cinco minutos y se cancelo tras verificar el acceso.
+- No se certificaron en esta intervencion el acceso individual de los otros
+  administradores, un nuevo runner tras el cierre ni la recuperacion completa.
 
 Los workflows de produccion pueden conectarse a Tailscale antes del SSH usando
 la accion local `.github/actions/production-ssh`. Se conserva OpenSSH en TCP 22,
 usuario `root` y `SSH_PRIVATE_KEY`. No se activa el producto Tailscale SSH, no se
-cambian `authorized_keys`, `sshd_config` ni UFW. El puerto 22 publico permanece
-abierto hasta completar pruebas con los tres administradores y los runners.
+cambian `authorized_keys` ni `sshd_config`. UFW ahora bloquea nuevas conexiones
+SSH publicas; OpenSSH sigue escuchando en TCP 22 y es accesible por Tailscale.
 
 Si `PRODUCTION_SSH_TAILSCALE` no esta definida o vale `false`, los despliegues usan
 el destino publico `SSH_HOST`. La prueba privada se puede ejecutar sin activar
@@ -170,13 +179,16 @@ publico:
 ssh root@100.92.202.72
 ```
 
-## Reversion durante las pruebas
+## Reversion del transporte
 
-Cambiar `PRODUCTION_SSH_TAILSCALE=false`: los workflows vuelven a `SSH_HOST`
-publico. No borrar sus secretos durante la migracion. Desactivar el flag es una
-decision explicita; un fallo privado nunca cambia automaticamente de ruta.
-El puerto publico permanece abierto por instruccion del usuario; ningun archivo
-de este cambio ejecuta modificaciones de firewall o del servicio SSH.
+Con SSH publico cerrado, cambiar solamente `PRODUCTION_SSH_TAILSCALE=false`
+no recupera el acceso: los workflows intentarian un destino bloqueado.
+Si fuera necesario volver al transporte publico, primero restaurar de forma
+controlada el acceso de firewall desde una sesion Tailscale o la consola de
+DigitalOcean; despues cambiar el flag. No borrar los secretos existentes.
+Un fallo privado nunca cambia automaticamente de ruta. La reapertura temporal
+de emergencia con `ufw allow 22/tcp` restituye la regla publica previa y debe
+retirarse de nuevo una vez resuelto el incidente.
 
 ## Referencias
 

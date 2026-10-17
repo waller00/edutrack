@@ -2,10 +2,35 @@
 
 ## Estado
 
-Corrección implementada y probada localmente. **Pendiente de
-aplicación en el servidor**. La revisión de producción fue exclusivamente de
-lectura: no se eliminaron históricos, cambiaron permisos ni reiniciaron servicios.
-SSH público permanece abierto y la migración de identidades AUD-02 está postergada.
+**Aplicación completada y verificada en producción el 17/10/2026** sobre el
+repositorio del servidor en `008d5fc`. La revisión original del 14/10 fue de
+lectura; el 17/10 se reiniciaron únicamente Alloy y el proxy privado de Keycloak
+para completar la carga de las configuraciones publicadas. La API y el proxy
+público ya tenían la corrección. No se eliminaron históricos ni se cambiaron
+permisos o retención. SSH público permanece abierto.
+
+### Verificación en producción del 17/10
+
+- Configuraciones anteriores respaldadas en el servidor en
+  `/root/edutrack-deploy-backups/logs-20261017T180537Z`, con directorio `0700` y
+  archivos `0600`. Son configuraciones, no copias de logs ni de bases de datos.
+- Nginx validado y Alloy cargado en un contenedor aislado antes de la activación.
+- Reinicio de los contenedores existentes, conservando sus históricos Docker.
+  Se comprobó que ambos montaron los archivos actuales y que el proxy regeneró
+  su configuración con `access_safe`.
+- API y ambos proxies: parámetros sintéticos ausentes en los access logs.
+- Logout con JWT ficticio: Keycloak devolvió 400, sin falso positivo del WAF.
+  Otro parámetro sospechoso produjo el evento WAF esperado; una prueba de
+  inyección fue bloqueada con 403. No se usaron tokens reales ni sesiones de usuario.
+- Loki recibió los eventos de los proxies y cuatro líneas de una fuente Docker
+  temporal con query, Bearer, Cookie y access_token ficticios: valores sustituidos
+  por `[REDACTED]`. El contenedor de prueba se eliminó al finalizar.
+  Marcador de la comprobación: `log-check-1792260404`.
+- Alloy ready, frontend público y discovery OIDC respondieron HTTP 200.
+
+Pendiente: automatizar la aplicación de cambios de configuración de Alloy y del
+proxy privado en futuros despliegues; revisar acceso/retención e históricos como
+tareas separadas. Esta prueba no sustituye un login/logout autenticado de usuario.
 
 ## Corrección
 
@@ -93,18 +118,18 @@ La retención se elimina de forma asíncrona; las métricas exitosas no certific
 que una línea concreta ya haya desaparecido. No se inspeccionaron backups,
 snapshots, exportaciones ni copias fuera del servidor.
 
-## Históricos y aplicación pendiente
+## Históricos y futuros despliegues
 
 Cambiar el formato sólo protege nuevas emisiones tras aplicar el cambio. No
 redacta lo ya guardado en Loki, Docker, backups o exportaciones. No se borraron
 datos ni se redujo la retención como parte de esta tarea.
 
-Para aplicar, publicar únicamente esta corrección y validar los archivos del
-servidor; recargar el proxy público tras `nginx -t`, regenerar la configuración
-del proxy privado desde su template, recargar/recrear Alloy con validación de
-configuración y reconstruir auth para el formato Morgan. El proyecto tiene
-otras correcciones de auditoría locales: no mezclarlas por accidente en el
-despliegue. Verificar después un logout legítimo sin copiar el token al informe.
+Para cambios futuros, validar los archivos del servidor antes de aplicarlos.
+Actualizar un archivo en Git no garantiza que un contenedor existente recargue
+su bind mount ni que el proxy regenere el template. Comprobar la configuración
+montada y efectiva después de cada actualización, y validar con datos sintéticos
+la salida tanto en Docker como en Loki. Verificar además un logout legítimo sin
+copiar el token al informe.
 
 Antes de una eventual eliminación histórica, acordar el alcance (servicio,
 período, Loki/Docker/backups), conservar la evidencia necesaria y usar el
