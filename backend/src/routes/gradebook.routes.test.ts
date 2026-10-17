@@ -51,7 +51,10 @@ vi.mock('../services/student-attendance/roster.js', () => ({
   loadRosterForScope: rosterMock,
   canResolveRoster: (e: any) => Boolean(e.schoolYearId && e.courseOfferingId),
 }))
-vi.mock('../services/gradebook/access.js', () => ({ resolveGradeBookAccess: accessMock }))
+vi.mock('../services/gradebook/access.js', async () => ({
+  ...(await vi.importActual<object>('../services/gradebook/access.js')),
+  resolveGradeBookAccess: accessMock,
+}))
 vi.mock('../services/gradebook/absences-day.js', async () => {
   const actual = await vi.importActual<any>('../services/gradebook/absences-day.js')
   return {
@@ -180,6 +183,8 @@ describe('GET /gradebook/mine', () => {
     // Si se filtrara por oferta+asignatura, un suplente de una orientación vería las otras.
     prismaMock.substitution.findMany.mockResolvedValue([
       {
+        // Cubre hoy: la suplencia está abierta.
+        date: new Date(Date.now() - 3_600_000),
         event: {
           schoolYearId: 'sy-1',
           courseOfferingId: 'off-1',
@@ -255,7 +260,7 @@ describe('GET /gradebook/:id', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.studentCount).toBe(2)
-    expect(res.body.access).toEqual({ level: 'OWNER', canGrade: true })
+    expect(res.body.access).toEqual({ level: 'OWNER', canGrade: true, substituteUntil: null })
     expect(res.body.students[0].hasPhoto).toBe(false)
     expect(res.body.students[0].badges).toEqual([])
   })
@@ -428,7 +433,7 @@ describe('GET /gradebook/:id', () => {
     const res = await request(app()).get(`/gradebook/${GB_ID}`).set('Authorization', `Bearer ${tok('DIRECCION', 'd-1')}`)
 
     expect(res.status).toBe(200)
-    expect(res.body.access).toEqual({ level: 'SUPERVISION', canGrade: false })
+    expect(res.body.access).toEqual({ level: 'SUPERVISION', canGrade: false, substituteUntil: null })
   })
 })
 
@@ -715,10 +720,7 @@ describe('GET /:id/options', () => {
     // ROW es de bachillerato: con esta escala el docente puede poner 11 y 12.
     expect(prismaMock.gradingScale.findUnique.mock.calls[0][0].where).toEqual({ code: 'NUMERICA_1_12' })
     expect(res.body.periodScale).toMatchObject({ id: 'sc-12', maxValueHundredths: 1200 })
-    expect(res.body.conduct).toEqual([
-      { valueHundredths: 100, label: 'Mala' },
-      { valueHundredths: 400, label: 'Muy buena' },
-    ])
+    expect(res.body.conduct).toEqual(Array.from({ length: 10 }, (_, i) => ({ valueHundredths: (i + 1) * 100, label: String(i + 1) })))
   })
 })
 
@@ -923,7 +925,7 @@ describe('PUT /:id/periods/:periodId/grades', () => {
     expect(res.body.code).toBe('STUDENT_NOT_IN_ROSTER')
   })
 
-  it('la conducta tiene que ser un valor de la escala de conducta', async () => {
+  it('la conducta es una nota del 1 al 10 aunque el catálogo sea ordinal', async () => {
     readyForClosure()
     prismaMock.gradingScale.findFirst.mockResolvedValue({
       code: 'CONDUCTA',
@@ -941,6 +943,8 @@ describe('PUT /:id/periods/:periodId/grades', () => {
 
     expect((await put(300)).status).toBe(200)
     expect(prismaMock.periodGrade.upsert.mock.calls[0][0].update).toMatchObject({ conductValueHundredths: 300 })
+    expect((await put(1000)).status).toBe(200)
+    expect((await put(1100)).status).toBe(400)
   })
 
   it('no escribe en un período que todavía no empezó, igual que el cierre por alumno', async () => {
@@ -2713,5 +2717,119 @@ describe('GET /:id/endorsements (visado visto desde la libreta)', () => {
     const res = await request(app()).get(`/gradebook/${GB_ID}/endorsements`).set('Authorization', `Bearer ${tok()}`)
     expect(res.status).toBe(403)
     expect(prismaMock.gradeBookPeriod.findMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('suplente: ve y carga sólo sus notas', () => {
+  const SUBSTITUTE = {
+    level: 'SUBSTITUTE',
+    canRead: true,
+    canGrade: true,
+    canPlan: false,
+    ownWorkOnly: true,
+    substituteUntil: new Date('2026-05-27T02:59:59.999Z'),
+  }
+  const subTok = () => tok('TEACHER', 'suplente-1')
+
+  beforeEach(() => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    accessMock.mockResolvedValue(SUBSTITUTE)
+  })
+
+  it('lo del titular le queda cerrado: planificación, períodos, cierre, mensajes, historia y exportaciones', async () => {
+    for (const path of ['planning', 'development', 'periods', 'messages', 'endorsements', 'exports/xlsx']) {
+      const res = await request(app()).get(`/gradebook/${GB_ID}/${path}`).set('Authorization', `Bearer ${subTok()}`)
+      expect(res.status, path).toBe(403)
+      expect(res.body.code, path).toBe('SUBSTITUTE_OWN_WORK_ONLY')
+    }
+  })
+
+  it('el encabezado dice que es una suplencia y hasta cuándo', async () => {
+    const res = await request(app()).get(`/gradebook/${GB_ID}`).set('Authorization', `Bearer ${subTok()}`)
+    expect(res.status).toBe(200)
+    expect(res.body.access).toMatchObject({
+      level: 'SUBSTITUTE',
+      ownWorkOnly: true,
+      substituteUntil: '2026-05-27T02:59:59.999Z',
+    })
+  })
+
+  it('la carta le trae sólo sus evaluaciones, sin C, R ni juicios', async () => {
+    prismaMock.assessment.findMany.mockResolvedValue([])
+    prismaMock.assessmentGrade.findMany.mockResolvedValue([])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      { periodId: 'p-1', status: 'OPEN', grades: [{ studentId: STUDENT_A, meetingValueHundredths: 800, conceptualJudgement: 'Bien.' }] },
+    ])
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}/grades-board`).set('Authorization', `Bearer ${subTok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.periodGrades).toEqual([])
+    expect(prismaMock.assessment.findMany.mock.calls[0][0].where).toMatchObject({ createdByUserId: 'suplente-1' })
+    expect(prismaMock.assessmentGrade.findMany.mock.calls[0][0].where.assessment).toMatchObject({
+      createdByUserId: 'suplente-1',
+    })
+  })
+
+  it('una evaluación del titular no existe para él', async () => {
+    prismaMock.assessment.findFirst.mockResolvedValue(null)
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/assessments/${'66666666-6666-4666-8666-666666666666'}/grades`)
+      .set('Authorization', `Bearer ${subTok()}`)
+    expect(res.status).toBe(404)
+    expect(prismaMock.assessment.findFirst.mock.calls[0][0].where).toMatchObject({ createdByUserId: 'suplente-1' })
+  })
+
+  it('agrega sus notas: la evaluación queda a su nombre', async () => {
+    readyForAssessments()
+    prismaMock.assessment.create.mockResolvedValue(ASSESSMENT)
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/assessments`)
+      .set('Authorization', `Bearer ${subTok()}`)
+      .send({ periodId: PERIOD_ID, date: '2026-05-10', title: 'Escrito de la suplencia', gradingScaleId: SCALE_ID })
+    expect(res.status).toBe(201)
+    expect(prismaMock.assessment.create.mock.calls[0][0].data.createdByUserId).toBe('suplente-1')
+  })
+})
+
+describe('el titular ve quién cargó cada nota', () => {
+  it('marca las del suplente', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    prismaMock.assessment.findMany.mockResolvedValue([
+      { id: 'a-1', periodId: 'p-1', date: new Date('2026-05-10T12:00:00.000Z'), title: 'Escrito', scope: 'GROUP', activityType: null, gradingScale: null, period: null, createdBy: { id: 'suplente-1', name: 'Bruno Suplente', firstName: null, lastName: null } },
+      { id: 'a-2', periodId: 'p-1', date: new Date('2026-05-11T12:00:00.000Z'), title: 'Oral', scope: 'GROUP', activityType: null, gradingScale: null, period: null, createdBy: { id: 'teacher-1', name: 'Ana G', firstName: null, lastName: null } },
+    ])
+    prismaMock.assessmentGrade.findMany.mockResolvedValue([])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([])
+    prismaMock.substitution.findMany.mockResolvedValue([{ substituteUserId: 'suplente-1' }])
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}/grades-board`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.assessments.map((a: any) => a.author)).toEqual([
+      { id: 'suplente-1', name: 'Bruno Suplente', isSubstitute: true },
+      { id: 'teacher-1', name: 'Ana G', isSubstitute: false },
+    ])
+  })
+})
+
+describe('GET /gradebook/mine: la suplencia es provisoria', () => {
+  const coveredEvent = { schoolYearId: 'sy-1', courseOfferingId: 'off-1', subjectId: 'sub-1', orientationId: null, courseOrientationId: null }
+
+  it('una suplencia vencida no pone la libreta en la lista', async () => {
+    prismaMock.substitution.findMany.mockResolvedValue([{ date: new Date('2020-03-10T03:00:00.000Z'), event: coveredEvent }])
+    prismaMock.gradeBook.findMany.mockResolvedValue([])
+    await request(app()).get('/gradebook/mine').set('Authorization', `Bearer ${tok('TEACHER', 'suplente-1')}`)
+    expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where.OR[1]).toEqual({ scopeKey: { in: [] } })
+  })
+
+  it('una suplencia abierta trae la fecha en que se le cierra', async () => {
+    prismaMock.substitution.findMany.mockResolvedValue([{ date: new Date(Date.now() - 3_600_000), event: coveredEvent }])
+    prismaMock.gradeBook.findMany.mockResolvedValue([{ ...ROW, teacherUserId: 'teacher-1' }])
+    const res = await request(app()).get('/gradebook/mine').set('Authorization', `Bearer ${tok('TEACHER', 'suplente-1')}`)
+    expect(res.status).toBe(200)
+    expect(res.body.data[0].substitution.until).toEqual(expect.any(String))
   })
 })

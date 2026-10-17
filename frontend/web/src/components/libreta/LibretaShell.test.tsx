@@ -67,6 +67,35 @@ describe('<LibretaShell />', () => {
     expect(screen.getByText(/22 estudiantes/)).toBeInTheDocument()
   })
 
+  it('al suplente le muestra sólo sus notas y hasta cuándo dura la suplencia', async () => {
+    pathname.mockReturnValue('/libreta/gb-1/evaluaciones')
+    mockedApi.mockResolvedValue({
+      ...DETAIL,
+      access: { level: 'SUBSTITUTE', canGrade: true, ownWorkOnly: true, substituteUntil: '2026-06-13T02:59:59.999Z' },
+    })
+
+    renderShell()
+
+    const nav = await screen.findByRole('navigation', { name: 'Secciones de la libreta' })
+    expect(within(nav).getAllByRole('link')).toHaveLength(1)
+    expect(within(nav).getByRole('link', { name: /Tus notas \(suplencia\)/ })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(/Suplencia\..*hasta el 12\/06\/2026.*titular no se muestra/)
+  })
+
+  it('el suplente que llega a otra sección por la URL vuelve a la portada', async () => {
+    pathname.mockReturnValue('/libreta/gb-1/planificacion')
+    mockedApi.mockResolvedValue({
+      ...DETAIL,
+      access: { level: 'SUBSTITUTE', canGrade: true, ownWorkOnly: true, substituteUntil: null },
+    })
+
+    renderShell()
+
+    await screen.findByRole('navigation', { name: 'Secciones de la libreta' })
+    expect(replace).toHaveBeenCalledWith('/libreta/gb-1')
+    expect(screen.queryByText('contenido de la sección')).not.toBeInTheDocument()
+  })
+
   it('nombra la orientación cuando la libreta la tiene', async () => {
     mockedApi.mockResolvedValue({ ...DETAIL, orientation: 'Ciencias de la Vida' })
 

@@ -31,7 +31,8 @@ export default function LibretaHomePage() {
         />
       </section>
 
-      <ExportButtons gradeBookId={gradeBookId} />
+      {/* Exportar es la libreta entera del titular: el suplente no la exporta. */}
+      {!detail.access.ownWorkOnly && <ExportButtons gradeBookId={gradeBookId} />}
 
       {openStudent && (
         <StudentSheet

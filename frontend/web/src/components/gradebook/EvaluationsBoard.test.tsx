@@ -172,3 +172,110 @@ describe('<EvaluationsBoard />', () => {
     expect(callBody('PUT', '/assessments/escrito/grades').entries[0]).toMatchObject({ valueHundredths: 1100, comment: null })
   })
 })
+
+describe('<EvaluationsBoard /> con suplencia', () => {
+  const PERIOD = { id: 'p1', code: 'MAR_ABR', name: 'Marzo – Abril', kind: 'TRAMO' }
+  const substituteAssessment = {
+    id: 'a-sup',
+    periodId: 'p1',
+    period: PERIOD,
+    date: '2026-04-10',
+    title: 'Escrito de la suplencia',
+    scope: 'GROUP',
+    activityType: { id: 'oral', code: 'ORAL', name: 'Oral', category: 'ORAL' },
+    gradingScale: EMS_SCALE,
+    author: { id: 'sup-1', name: 'Bruno Suplente', isSubstitute: true },
+  }
+  const board = {
+    assessments: [substituteAssessment],
+    grades: [
+      { assessmentId: 'a-sup', studentId: 's1', valueHundredths: 900, isAbsent: false, comment: null, gradedAt: '2026-04-10T12:00:00.000Z', gradedByName: 'Bruno Suplente' },
+    ],
+  }
+
+  beforeEach(() => {
+    apiMock.mockReset()
+  })
+
+  it('el suplente ve sólo sus notas: sin conducta, rendimiento, impresión ni Moodle', async () => {
+    respond(board)
+    const substitute = { ...detail(), access: { level: 'SUBSTITUTE' as const, canGrade: true, ownWorkOnly: true } }
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={substitute} />)
+
+    expect(await screen.findByRole('heading', { name: 'Tus notas de suplencia' })).toBeInTheDocument()
+    expect(await screen.findByLabelText(/^9\. /)).toBeInTheDocument()
+    expect(screen.queryByLabelText('R: rendimiento de Marzo – Abril')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Imprimir evaluaciones del alumno' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Importar desde Moodle')).not.toBeInTheDocument()
+  })
+
+  it('el titular ve marcadas las notas que cargó el suplente', async () => {
+    respond(board)
+    const user = userEvent.setup()
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={detail()} />)
+
+    // La nota en la carta lo dice al enfocarla.
+    expect(await screen.findByLabelText(/Suplente: Bruno Suplente/)).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: 'Mostrar detalle' })[0])
+    expect(screen.getByText('Suplente: Bruno Suplente')).toBeInTheDocument()
+  })
+})
+
+describe('<EvaluationsBoard /> calificar a todo el grupo', () => {
+  function twoStudents(): GradeBookDetail {
+    const base = detail()
+    return {
+      ...base,
+      studentCount: 2,
+      students: [
+        ...base.students,
+        { studentId: 's2', studentEnrollmentId: 'e2', firstName: 'Bruno', lastName: 'Cabrera', documentId: null, hasPhoto: false },
+      ],
+    }
+  }
+
+  beforeEach(() => {
+    apiMock.mockReset()
+  })
+
+  it('crea una actividad del grupo y guarda la nota de cada uno de una vez', async () => {
+    respond()
+    const user = userEvent.setup()
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={twoStudents()} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Calificar a todo el grupo' }))
+    const dialog = screen.getByRole('dialog', { name: 'Calificar a todo el grupo' })
+    expect(within(dialog).getByText('0 de 2 con nota o "no rindió"')).toBeInTheDocument()
+
+    await user.selectOptions(within(dialog).getByLabelText('Nota de Benítez, Ana'), '9')
+    await user.click(within(dialog).getAllByLabelText('No rindió')[1])
+    expect(within(dialog).getByText('2 de 2 con nota o "no rindió"')).toBeInTheDocument()
+    await user.type(within(dialog).getByLabelText('Título'), 'Escrito 1')
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Calificar a todo el grupo' })).not.toBeInTheDocument())
+    expect(callBody('POST', '/assessments')).toMatchObject({ title: 'Escrito 1', scope: 'GROUP', periodId: 'p1', gradingScaleId: 'sc-12' })
+    expect(callBody('PUT', '/assessments/nueva/grades')).toEqual({
+      entries: [
+        { studentId: 's1', valueHundredths: 900, isAbsent: false, comment: null },
+        { studentId: 's2', valueHundredths: null, isAbsent: true, comment: null },
+      ],
+    })
+  })
+
+  it('los que quedan sin nota no se mandan: quedan pendientes', async () => {
+    respond()
+    const user = userEvent.setup()
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={twoStudents()} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Calificar a todo el grupo' }))
+    const dialog = screen.getByRole('dialog', { name: 'Calificar a todo el grupo' })
+    await user.selectOptions(within(dialog).getByLabelText('Nota de Cabrera, Bruno'), '7')
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() => expect(callBody('PUT', '/assessments/nueva/grades')).not.toBeNull())
+    expect(callBody('PUT', '/assessments/nueva/grades').entries).toEqual([
+      { studentId: 's2', valueHundredths: 700, isAbsent: false, comment: null },
+    ])
+  })
+})

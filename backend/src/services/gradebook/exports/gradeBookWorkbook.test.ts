@@ -77,7 +77,7 @@ describe('buildClosureSheet', () => {
     const sheet = buildClosureSheet(workbook, META, '1.ª Entrega', [
       {
         studentId: 's1', lastName: 'Benítez', firstName: 'Ana', documentId: null,
-        conductLabel: 'Muy buena', meetingValueHundredths: 800, descriptorLabel: 'Muy bueno',
+        conductLabel: '8', meetingValueHundredths: 800, descriptorLabel: 'Muy bueno',
         conceptualJudgement: 'Progresa bien.',
       },
     ], 1, 'Informe de actuación')
@@ -85,7 +85,7 @@ describe('buildClosureSheet', () => {
     expect(sheet.getRow(5).values).toEqual([
       undefined, 'Estudiante', 'Documento', 'C (conducta)', 'R (rendimiento)', 'Descriptor', 'Informe de actuación',
     ])
-    expect(cellAt(sheet, 6, 3)).toBe('Muy buena')
+    expect(cellAt(sheet, 6, 3)).toBe('8')
     expect(cellAt(sheet, 6, 4)).toBe(8)
     expect(cellAt(sheet, 6, 5)).toBe('Muy bueno')
     expect(cellAt(sheet, 6, 6)).toBe('Progresa bien.')
@@ -159,7 +159,7 @@ describe('hoja Planilla', () => {
       { periodId: 's1', studentId: 's1', conductValueHundredths: 900, meetingValueHundredths: 900, conceptualJudgement: 'Muy buen semestre.' },
     ], 0, CONDUCT)
     // Nº · Estudiante · Documento · Or · Otras · Ev · C · R · Juicio
-    expect(cellAt(sheet, 7, 7)).toBe('Muy buena')
+    expect(cellAt(sheet, 7, 7)).toBe('9')
     expect(cellAt(sheet, 7, 8)).toBe(9)
     expect(cellAt(sheet, 7, 9)).toBe('Muy buen semestre.')
   })
@@ -176,13 +176,13 @@ describe('hoja Planilla', () => {
     expect(cellAt(sheet, 7, 5)).toBe('7 · 9')
     expect(cellAt(sheet, 7, 8)).toBe('Aus')
     expect(cellAt(sheet, 7, 11)).toBe('Avanza.')
-    expect(cellAt(sheet, 7, 12)).toBe('Buena')
+    expect(cellAt(sheet, 7, 12)).toBe('7')
     expect(cellAt(sheet, 7, 13)).toBe(8)
   })
 
   it('una conducta sin cargar queda vacía', () => {
     expect(conductLabel(null, CONDUCT)).toBe('')
-    expect(conductLabel(900, CONDUCT)).toBe('Muy buena')
+    expect(conductLabel(900, CONDUCT)).toBe('9')
   })
 })
 

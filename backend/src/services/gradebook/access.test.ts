@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { isSubstitutionWriteOpen, resolveGradeBookAccess } from './access.js'
+import { isSubstituteAccessOpen, resolveGradeBookAccess, substituteAccessUntil } from './access.js'
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: { substitution: { aggregate: vi.fn() } },
@@ -27,7 +27,7 @@ const GB = {
 
 function call(over: Partial<Parameters<typeof resolveGradeBookAccess>[0]> = {}) {
   return resolveGradeBookAccess(
-    { userId: 'u-1', readScope: 'own', gradeScope: 'own', planScope: 'own', gradeBook: GB, editWindowDays: 30, now: NOW, ...over },
+    { userId: 'u-1', readScope: 'own', gradeScope: 'own', planScope: 'own', gradeBook: GB, now: NOW, ...over },
     prismaMock as any,
   )
 }
@@ -37,6 +37,8 @@ beforeEach(() => {
   prismaMock.substitution.aggregate.mockResolvedValue(NO_SPAN)
 })
 
+const OWN_WORK = { ownWorkOnly: false, substituteUntil: null }
+
 describe('titular', () => {
   it('lee y califica su libreta', async () => {
     expect(await call({ userId: 'titular-1' })).toEqual({
@@ -44,6 +46,7 @@ describe('titular', () => {
       canRead: true,
       canGrade: true,
       canPlan: true,
+      ...OWN_WORK,
     })
   })
 
@@ -53,14 +56,18 @@ describe('titular', () => {
   })
 })
 
-describe('suplente', () => {
-  it('mientras dura su suplencia lee y escribe la libreta', async () => {
+describe('suplente: acceso provisional a lo suyo', () => {
+  it('mientras dura su suplencia agrega notas, pero sólo ve y toca lo suyo', async () => {
     substituted('2026-06-10', '2026-06-20')
     expect(await call({ userId: 'suplente-1' })).toEqual({
       level: 'SUBSTITUTE',
       canRead: true,
       canGrade: true,
-      canPlan: true,
+      // Planificar, poner C y R o cerrar es del titular.
+      canPlan: false,
+      ownWorkOnly: true,
+      // Fin del 27/6 en Uruguay: la última clase (20/6) más 7 días.
+      substituteUntil: new Date('2026-06-28T02:59:59.999Z'),
     })
   })
 
@@ -72,41 +79,50 @@ describe('suplente', () => {
       event: { schoolYearId: 'sy-1', courseOfferingId: 'off-1', subjectId: 'sub-1' },
     })
   })
+
+  it('sin gradebook.grade entra, pero no agrega notas', async () => {
+    substituted('2026-06-10', '2026-06-20')
+    const access = await call({ userId: 'suplente-1', gradeScope: null })
+    expect(access.canRead).toBe(true)
+    expect(access.canGrade).toBe(false)
+  })
 })
 
-describe('suplente fuera de su ventana', () => {
-  it('quien cubrió un día de marzo ya no califica en junio, pero sigue leyendo', async () => {
+describe('suplente fuera de su plazo', () => {
+  it('quien cubrió un día de marzo ya no entra en junio: ni lee', async () => {
     substituted('2026-03-10')
     expect(await call({ userId: 'suplente-1' })).toEqual({
-      level: 'SUBSTITUTE',
-      canRead: true,
+      level: 'NONE',
+      canRead: false,
       canGrade: false,
       canPlan: false,
+      ...OWN_WORK,
     })
   })
 
-  it('una suplencia futura todavía no habilita a escribir', async () => {
+  it('una suplencia futura todavía no abre la libreta', async () => {
     substituted('2026-07-01', '2026-07-31')
-    expect((await call({ userId: 'suplente-1' })).canGrade).toBe(false)
+    expect((await call({ userId: 'suplente-1' })).level).toBe('NONE')
   })
 
   it('si además supervisa, decide la rama de supervisión', async () => {
-    substituted('2026-03-10')
+    substituted('2026-06-10')
     expect(
       await call({ userId: 'admin-1', readScope: 'all', gradeScope: 'own', planScope: 'all' }),
-    ).toEqual({ level: 'SUPERVISION', canRead: true, canGrade: false, canPlan: true })
+    ).toEqual({ level: 'SUPERVISION', canRead: true, canGrade: false, canPlan: true, ...OWN_WORK })
   })
 })
 
-describe('isSubstitutionWriteOpen', () => {
+describe('isSubstituteAccessOpen', () => {
   const span = { first: new Date('2026-06-01T03:00:00.000Z'), last: new Date('2026-06-05T03:00:00.000Z') }
 
-  it('abre en la primera clase y cierra la ventana de edición después de la última', () => {
-    expect(isSubstitutionWriteOpen(span, 30, new Date('2026-05-31T23:00:00.000Z'))).toBe(false)
-    expect(isSubstitutionWriteOpen(span, 30, new Date('2026-06-01T03:00:00.000Z'))).toBe(true)
-    // Último día (5/6) entero + 30 días: hasta el 6/7 a la medianoche de Uruguay.
-    expect(isSubstitutionWriteOpen(span, 30, new Date('2026-07-06T02:59:00.000Z'))).toBe(true)
-    expect(isSubstitutionWriteOpen(span, 30, new Date('2026-07-06T03:01:00.000Z'))).toBe(false)
+  it('abre en la primera clase cubierta y cierra 7 días después de la última', () => {
+    expect(isSubstituteAccessOpen(span, new Date('2026-05-31T23:00:00.000Z'))).toBe(false)
+    expect(isSubstituteAccessOpen(span, new Date('2026-06-01T03:00:00.000Z'))).toBe(true)
+    // Último día (5/6) entero + 7 días: hasta el fin del 12/6 en Uruguay.
+    expect(isSubstituteAccessOpen(span, new Date('2026-06-13T02:59:00.000Z'))).toBe(true)
+    expect(isSubstituteAccessOpen(span, new Date('2026-06-13T03:01:00.000Z'))).toBe(false)
+    expect(substituteAccessUntil(span)).toEqual(new Date('2026-06-13T02:59:59.999Z'))
   })
 })
 
@@ -117,6 +133,7 @@ describe('docente ajeno', () => {
       canRead: false,
       canGrade: false,
       canPlan: false,
+      ...OWN_WORK,
     })
   })
 })
@@ -126,20 +143,20 @@ describe('supervisión (alcance all)', () => {
     // Tienen gradebook.read con alcance all y no tienen gradebook.grade.
     expect(
       await call({ userId: 'adscripto-1', readScope: 'all', gradeScope: null, planScope: null }),
-    ).toEqual({ level: 'SUPERVISION', canRead: true, canGrade: false, canPlan: false })
+    ).toEqual({ level: 'SUPERVISION', canRead: true, canGrade: false, canPlan: false, ...OWN_WORK })
   })
 
   it('administración con grade all sí puede escribir', async () => {
     expect(
       await call({ userId: 'admin-1', readScope: 'all', gradeScope: 'all', planScope: 'all' }),
-    ).toEqual({ level: 'SUPERVISION', canRead: true, canGrade: true, canPlan: true })
+    ).toEqual({ level: 'SUPERVISION', canRead: true, canGrade: true, canPlan: true, ...OWN_WORK })
   })
 
   it('dirección planifica una libreta ajena pero no la califica', async () => {
     // Es la regla del liceo: el director corrige la libreta salvo calificaciones y juicios.
     expect(
       await call({ userId: 'director-1', readScope: 'all', gradeScope: null, planScope: 'all' }),
-    ).toEqual({ level: 'SUPERVISION', canRead: true, canGrade: false, canPlan: true })
+    ).toEqual({ level: 'SUPERVISION', canRead: true, canGrade: false, canPlan: true, ...OWN_WORK })
   })
 
   it('un alcance amplio no se busca suplencias: no hace falta', async () => {
@@ -163,7 +180,7 @@ describe('ciclo archivado', () => {
       { userId: 'titular-1', readScope: 'own' as const, gradeScope: 'own' as const, planScope: 'own' as const },
       { userId: 'admin-1', readScope: 'all' as const, gradeScope: 'all' as const, planScope: 'all' as const },
     ]) {
-      const access = await resolveGradeBookAccess({ ...who, gradeBook: archived, editWindowDays: 30 }, prismaMock as any)
+      const access = await resolveGradeBookAccess({ ...who, gradeBook: archived }, prismaMock as any)
       expect(access.canGrade, `${who.userId} no debe escribir un ciclo cerrado`).toBe(false)
       expect(access.canRead).toBe(true)
     }

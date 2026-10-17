@@ -13,6 +13,12 @@ describe('menú del Libro del Profesor', () => {
     expect(sectionById('mensajes')?.label).toBe('Mensajes del director')
   })
 
+  it('el suplente sólo tiene sus notas: lo demás de la libreta es del titular', () => {
+    const sections = sectionsFor({ supervises: false, substitute: true })
+    expect(sections.map((s) => s.id)).toEqual(['evaluaciones'])
+    expect(sections[0].label).toBe('Tus notas (suplencia)')
+  })
+
   it('el visado es de quien supervisa, no del docente', () => {
     expect(sectionsFor({ supervises: true }).map((s) => s.id)).toEqual([
       'planificacion',

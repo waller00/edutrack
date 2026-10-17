@@ -822,10 +822,10 @@ r.put('/conduct', requirePermission('gradebook.review', 'all'), async (req: any,
       conductScale(),
     ])
     if (!period) return res.status(404).json({ message: 'El período no es de ese ciclo', code: 'PERIOD_NOT_FOUND' })
-    // Sólo valores de la escala: una conducta "250" no tiene texto y el boletín la mostraría como número.
+    // Conducta numérica del 1 al 10, aunque aún no se haya actualizado el catálogo.
     const levels = conduct?.levels ?? []
-    if (levels.length > 0 && d.entries.some((entry) => !isConductValue(entry.valueHundredths, levels))) {
-      return res.status(400).json({ message: 'La conducta tiene que ser un valor de la escala.', code: 'CONDUCT_OUT_OF_SCALE' })
+    if (d.entries.some((entry) => !isConductValue(entry.valueHundredths, levels))) {
+      return res.status(400).json({ message: 'La conducta tiene que ser una nota entera del 1 al 10.', code: 'CONDUCT_OUT_OF_SCALE' })
     }
 
     const userId = req.user?.id ?? req.user?.sub ?? null

@@ -44,9 +44,9 @@ const LEVELS = [
 ]
 
 describe('escala de conducta', () => {
-  it('rotula con el tramo de la escala, no con una tabla fija', () => {
-    expect(conductLabel(300, LEVELS)).toBe('Buena')
-    expect(conductLabel(400, [{ minValueHundredths: 400, maxValueHundredths: 400, label: 'Excelente' }])).toBe('Excelente')
+  it('muestra el número aunque la escala conserve etiquetas antiguas', () => {
+    expect(conductLabel(300, LEVELS)).toBe('3')
+    expect(conductLabel(1000, LEVELS)).toBe('10')
   })
 
   it('sin nota no hay texto; fuera de la escala muestra el número', () => {
@@ -54,10 +54,16 @@ describe('escala de conducta', () => {
     expect(conductLabel(250, LEVELS)).toBe('2,5')
   })
 
-  it('ofrece un valor por tramo y valida contra la escala', () => {
-    expect(conductOptions(LEVELS).map((o) => o.valueHundredths)).toEqual([100, 200, 300, 400])
+  it('ofrece todas las notas del 1 al 10, incluso sin catálogo', () => {
+    const expected = Array.from({ length: 10 }, (_, i) => ({ valueHundredths: (i + 1) * 100, label: String(i + 1) }))
+    expect(conductOptions(LEVELS)).toEqual(expected)
+    expect(conductOptions([])).toEqual(expected)
     expect(isConductValue(200, LEVELS)).toBe(true)
-    expect(isConductValue(500, LEVELS)).toBe(false)
+    expect(isConductValue(1000, [])).toBe(true)
     expect(isConductValue(null, LEVELS)).toBe(true)
+  })
+
+  it.each([0, 99, 250, 1001, 1100, 800.5])('rechaza conducta %s fuera del rango o con decimales', (value) => {
+    expect(isConductValue(value, [])).toBe(false)
   })
 })

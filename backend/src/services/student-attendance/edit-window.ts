@@ -1,7 +1,7 @@
 import type { StudentAttendanceStatus } from '@prisma/client'
 import { formatUruguayHhMm } from '../../config/app-timezone.js'
 
-export type RollCallBlockReason = 'LOCKED' | 'WINDOW_EXPIRED' | 'NOT_ASSIGNED' | 'NOT_STARTED'
+export type RollCallBlockReason = 'LOCKED' | 'WINDOW_EXPIRED' | 'NOT_ASSIGNED' | 'NOT_STARTED' | 'COVERED_BY_SUBSTITUTE'
 
 /**
  * La lista se abre unos minutos antes de la clase, para el docente que entra temprano. Antes no
@@ -62,6 +62,11 @@ export type RollCallPermissions = {
 export function resolveRollCallPermissions(params: {
   scope: 'own' | 'all'
   isAssignedTeacher: boolean
+  /**
+   * Quien pide es el titular y ese día lo cubrió un suplente: la lista de ese día es del suplente.
+   * El titular la ve, pero no la pasa.
+   */
+  coveredBySubstitute?: boolean
   occurrenceStartAt: Date
   occurrenceEndAt: Date
   takenAt: Date | null
@@ -87,6 +92,7 @@ export function resolveRollCallPermissions(params: {
   if (params.scope === 'all') {
     return notStarted ? blocked('NOT_STARTED') : { canEdit: true, opensAt, editableUntil, blockedReason: null }
   }
+  if (params.coveredBySubstitute) return blocked('COVERED_BY_SUBSTITUTE')
   if (!params.isAssignedTeacher) return blocked('NOT_ASSIGNED')
   if (params.lockedAt && params.lockedAt.getTime() <= now.getTime()) return blocked('LOCKED')
   if (notStarted) return blocked('NOT_STARTED')
@@ -103,6 +109,8 @@ export function rollCallBlockedMessage(permissions: Pick<RollCallPermissions, 'b
       return `La lista se abre a las ${formatUruguayHhMm(permissions.opensAt)}, ${ROLL_CALL_OPENS_BEFORE_MINUTES} minutos antes de la clase.`
     case 'NOT_ASSIGNED':
       return 'No sos el docente de esta clase.'
+    case 'COVERED_BY_SUBSTITUTE':
+      return 'Esta clase la cubrió un suplente: la lista de ese día la pasa él.'
     default:
       return 'Se venció el plazo: la lista se puede pasar hasta una semana después de la clase. Pedile el cambio a administración.'
   }

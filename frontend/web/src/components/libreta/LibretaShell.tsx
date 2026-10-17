@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight, Loader2, UserRoundCheck } from 'lucide-react'
+import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
 import { useLibreta } from '@/contexts/LibretaContext'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasAnyPermission } from '@/lib/auth/permissions'
@@ -43,7 +44,8 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
   const openSection = pathname.split('/')[3] ?? null
   const [menuCollapsed, setMenuCollapsed] = useState(false)
   const supervises = supervisesLibreta(detail?.access.level, me)
-  const sections = useMemo(() => sectionsFor({ supervises }), [supervises])
+  const substitute = Boolean(detail?.access.ownWorkOnly)
+  const sections = useMemo(() => sectionsFor({ supervises, substitute }), [supervises, substitute])
 
   // Una sección que no es de quien mira (el docente en "Visado", Dirección en "Mensajes del
   // director") vuelve a la portada en vez de mostrar una pantalla que no le corresponde.
@@ -96,6 +98,7 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
   }
 
   const readOnly = detail.status === 'ARCHIVED'
+  const substituteUntil = detail.access.substituteUntil ? formatDateInUruguay(detail.access.substituteUntil) : null
 
   return (
     <div className="space-y-4">
@@ -118,6 +121,16 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
           {' · '}{detail.studentCount} estudiante{detail.studentCount === 1 ? '' : 's'}
         </p>
       </header>
+
+      {substitute && (
+        <p role="status" className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+          <UserRoundCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>
+            <strong className="font-semibold">Suplencia.</strong> Cargás tus notas en esta libreta
+            {substituteUntil ? ` hasta el ${substituteUntil}` : ''}. Lo que cargó el titular no se muestra.
+          </span>
+        </p>
+      )}
 
       {readOnly && (
         <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">

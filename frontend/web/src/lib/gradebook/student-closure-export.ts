@@ -5,7 +5,7 @@ import type { GradeBookDetail, RosterStudent } from '@/lib/gradebook/types'
 export type ClosurePrintPeriod = {
   name: string
   status: string
-  /** C: la conducta, con el texto de su escala ("Muy buena"); `'—'` sin dato. */
+  /** C: la nota numérica de conducta, del 1 al 10; `'—'` sin dato. */
   conductLabel: string
   /** R: el rendimiento, la nota del boletín. */
   meetingValueHundredths: number | null

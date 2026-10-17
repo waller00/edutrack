@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ExternalLink, Loader2, X } from 'lucide-react'
+import { AlertTriangle, BookX, ExternalLink, HeartHandshake, Loader2, StickyNote, X } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { apiBlob } from '@/lib/api/binary'
 import type { StudentBadgeFocus } from './StudentBadges'
@@ -195,16 +195,51 @@ export default function StudentSheet({
 
   return (
     <div className="responsive-modal" role="dialog" aria-modal="true" aria-labelledby="student-sheet-title">
-      <div className="responsive-modal-panel max-w-2xl space-y-4">
-        <header className="flex items-start justify-between gap-3">
-          <h2 id="student-sheet-title" className="text-lg font-semibold text-gray-900">
-            {sheet
-              ? focusGen
-                ? 'Observaciones generales'
-                : `${sheet.student.lastName}, ${sheet.student.firstName}`
-              : 'Hoja del estudiante'}
-          </h2>
-          <button type="button" aria-label="Cerrar" onClick={onClose} className="text-gray-400 hover:text-gray-700">
+      <div className="responsive-modal-panel max-w-xl space-y-5">
+        <header className="flex items-start gap-4">
+          {sheet && !focusGen && (
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-slate-50">
+              {photo ? (
+                // eslint-disable-next-line @next/next/no-img-element -- blob local, no una URL remota
+                <img src={photo} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-xl font-semibold text-slate-400" aria-hidden>
+                  {initials}
+                </span>
+              )}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <h2 id="student-sheet-title" className="text-lg font-semibold leading-snug text-gray-900">
+              {sheet
+                ? focusGen
+                  ? 'Observaciones generales'
+                  : `${sheet.student.lastName}, ${sheet.student.firstName}`
+                : 'Hoja del estudiante'}
+            </h2>
+            {sheet && !focusGen && (
+              <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <div>
+                  <dt className="text-xs text-gray-500">Cédula</dt>
+                  <dd className="font-mono text-gray-900">{sheet.student.documentId ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500">Nacimiento</dt>
+                  <dd className="text-gray-900">{formatDay(sheet.student.birthDate)}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="text-xs text-gray-500">Ingreso</dt>
+                  <dd className="text-gray-900">{sheet.admission.label}</dd>
+                </div>
+              </dl>
+            )}
+          </div>
+          <button
+            type="button"
+            aria-label="Cerrar"
+            onClick={onClose}
+            className="-mr-1 -mt-1 shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          >
             <X className="h-5 w-5" aria-hidden />
           </button>
         </header>
@@ -251,46 +286,21 @@ export default function StudentSheet({
 
         {sheet && !focusGen && (
           <>
-            <div className="flex gap-4">
-              <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-slate-50">
-                {photo ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- blob local, no una URL remota
-                  <img src={photo} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <span className="text-xl font-semibold text-slate-400" aria-hidden>
-                    {initials}
-                  </span>
-                )}
-              </div>
-
-              <dl className="grid flex-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
-                <div>
-                  <dt className="text-xs text-gray-500">Cédula</dt>
-                  <dd className="font-mono text-gray-900">{sheet.student.documentId ?? '—'}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500">Nacimiento</dt>
-                  <dd className="text-gray-900">{formatDay(sheet.student.birthDate)}</dd>
-                </div>
-                <div className="sm:col-span-2">
-                  <dt className="text-xs text-gray-500">Ingreso</dt>
-                  <dd className="text-gray-900">{sheet.admission.label}</dd>
-                </div>
-              </dl>
-            </div>
-
             {sheet.apeReferred && (
               <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 Derivado a APE.
               </p>
             )}
 
-            <section ref={pendingRef} className="rounded-lg">
-              <h3 className="text-sm font-semibold text-gray-900">Materias que arrastra</h3>
+            <section ref={pendingRef} className="rounded-lg border-t border-gray-100 pt-4">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                <BookX className="h-4 w-4 text-gray-400" aria-hidden />
+                Materias que arrastra
+              </h3>
               {sheet.pendingSubjects.length === 0 ? (
-                <p className="mt-1 text-sm text-gray-500">No debe ninguna materia.</p>
+                <p className="mt-1 pl-6 text-sm text-gray-500">No debe ninguna materia.</p>
               ) : (
-                <ul className="mt-1 space-y-1">
+                <ul className="mt-1 space-y-1 pl-6">
                   {sheet.pendingSubjects.map((row) => (
                     <li key={row.id} className="text-sm text-gray-800">
                       {row.subjectName}
@@ -302,17 +312,18 @@ export default function StudentSheet({
               )}
             </section>
 
-            <section ref={accommodationsRef} className="rounded-lg">
-              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+            <section ref={accommodationsRef} className="rounded-lg border-t border-gray-100 pt-4">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                <HeartHandshake className="h-4 w-4 text-gray-400" aria-hidden />
                 Adecuaciones
                 {sheet.accommodations.length > 0 && (
                   <AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden />
                 )}
               </h3>
               {sheet.accommodations.length === 0 ? (
-                <p className="mt-1 text-sm text-gray-500">Sin adecuaciones vigentes.</p>
+                <p className="mt-1 pl-6 text-sm text-gray-500">Sin adecuaciones vigentes.</p>
               ) : (
-                <ul className="mt-1 space-y-2">
+                <ul className="mt-1 space-y-2 pl-6">
                   {sheet.accommodations.map((row) => (
                     <li key={row.id} className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2">
                       <p className="text-xs font-medium text-amber-900">
@@ -342,11 +353,14 @@ export default function StudentSheet({
               )}
             </section>
 
-            <section ref={generalRef} className="rounded-lg">
-              <h3 className="text-sm font-semibold text-gray-900">Observaciones generales</h3>
+            <section ref={generalRef} className="rounded-lg border-t border-gray-100 pt-4">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                <StickyNote className="h-4 w-4 text-gray-400" aria-hidden />
+                Observaciones generales
+              </h3>
               {sheet.generalNotes?.trim() ? (
                 <>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-gray-800">{sheet.generalNotes}</p>
+                  <p className="mt-1 whitespace-pre-wrap pl-6 text-sm text-gray-800">{sheet.generalNotes}</p>
                   <AuditLine
                     registeredBy={sheet.generalNotesMeta?.updatedByName}
                     registeredAt={sheet.generalNotesMeta?.updatedAt}
@@ -355,7 +369,7 @@ export default function StudentSheet({
                   />
                 </>
               ) : (
-                <p className="mt-1 text-sm text-gray-500">Sin observaciones cargadas por administración.</p>
+                <p className="mt-1 pl-6 text-sm text-gray-500">Sin observaciones cargadas por administración.</p>
               )}
             </section>
           </>

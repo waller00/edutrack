@@ -359,7 +359,12 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
   - O **posterior**: al crearla justifica las ausencias ya marcadas del rango.
   - Si el docente marca presente o tarde, gana su marca.
   - Revocar un rango deja de aplicarlo de ahí en adelante, pero no deshace lo ya justificado.
-- **Suplencias:** el suplente oficial del día puede pasar la lista igual que el titular.
+- **Suplencias: un día cubierto, la lista es del suplente.**
+  - La pasa el suplente oficial de ese día, y queda a su nombre.
+  - Le llegan a él los avisos y figura como responsable en "Listas sin pasar"; el filtro por
+    docente lo encuentra.
+  - El titular ve la planilla de ese día pero no la pasa ("La pasa el suplente"). Administración
+    sí puede.
 
 ---
 
@@ -375,7 +380,9 @@ pantalla con paneles apilados.
 **Pantallas del docente:** `/libreta` (mis libretas, con filtros Libreta / Asignatura / Docente) y
 `/libreta/[id]`, que abre el Libro del Profesor. El menú depende de quién mira
 (`sectionsFor` en `lib/libreta/menu.ts`):
-- **Docente** (titular o suplente): `planificacion`, `desarrollo`, `evaluaciones`, `cierre` y
+- **Suplente:** sólo **Tus notas (suplencia)** (`evaluaciones`), con la lista del grupo. Ver
+  "Acceso del suplente" más abajo.
+- **Docente titular:** `planificacion`, `desarrollo`, `evaluaciones`, `cierre` y
   **Mensajes del director** (`mensajes`): lo que Dirección le observó en el visado y los hilos que le
   abrió, a los que responde.
 - **Supervisión** (Dirección, adscripción, inspección): las mismas cuatro, de sólo lectura, y
@@ -406,9 +413,18 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
   dicta qué sólo existe en el horario. Es idempotente, sólo reescribe el titular si cambió, no
   revive libretas archivadas y respeta la oferta del ciclo (un curso no ofertado no genera
   libretas). El resumen avisa las clases sin asignatura o curso, que no generan libreta.
-- **Acceso:** el titular y el suplente que cubrió alguna de sus clases. Adscripción, Dirección e
-  Inspección leen todas las del centro pero **no** califican: leer y escribir son permisos
-  distintos (`gradebook.read` vs `gradebook.grade`).
+- **Acceso:** el titular, y por un tiempo el suplente que cubrió alguna de sus clases. Adscripción,
+  Dirección e Inspección leen todas las del centro pero **no** califican: leer y escribir son
+  permisos distintos (`gradebook.read` vs `gradebook.grade`).
+- **Acceso del suplente: provisorio y sólo a lo suyo.**
+  - Dura desde su primera clase cubierta hasta **7 días después de la última**. Después la libreta
+    desaparece de "Mis libretas" y no la puede abrir. La tarjeta y la libreta dicen hasta cuándo.
+  - Ve la lista del grupo y la hoja de cada alumno, y **agrega notas** (de grupo o sueltas). Ve y
+    corrige sólo las que cargó él.
+  - No ve nada del titular: sus notas, planificación, desarrollo, conducta (C), rendimiento (R),
+    cierre, mensajes, historia ni exportaciones. El servidor se lo cierra por defecto.
+  - El titular ve las notas del suplente en la carta y en el detalle, marcadas "Suplente: Nombre",
+    y las puede corregir como las suyas.
 - **Calificar y planificar también son permisos distintos.** `gradebook.grade` cubre evaluaciones,
   notas y juicios conceptuales; `gradebook.plan`, la planificación y el desarrollo del curso.
   **Dirección no tiene ninguno de los dos:** ve la libreta, la visa y le avisa al docente lo que
@@ -431,8 +447,10 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
     (`ActivityType.category`), editable en la configuración.
   - *Entrega* (1.ª a 4.ª, cada una con su reunión): **informe de actuación · C · R**. No admite
     notas sueltas: ni el docente ni la importación de Moodle pueden cargar evaluaciones ahí.
-- **C = conducta, R = rendimiento.** **C** es la conducta del estudiante en la asignatura, sobre la
-  escala de conducta (`PeriodGrade.conductValueHundredths`); **R** es el rendimiento, con la escala
+- **C = conducta, R = rendimiento.** **C** es una nota entera del **1 al 10** de conducta del
+  estudiante en la asignatura (`PeriodGrade.conductValueHundredths`), igual que la conducta
+  institucional de adscripción. Se carga y muestra como número en la libreta, los boletines y las
+  exportaciones; no se reemplaza por juicios como «Buena» o «Mala». **R** es el rendimiento, con la escala
   del nivel, y lo pone el docente en su libreta (`PeriodGrade.meetingValueHundredths`). **La nota
   oficial es siempre R** (`officialPeriodValue`): la usan el boletín, el promedio de la reunión, la
   ficha académica y los indicadores. Mientras no haya R, la materia figura pendiente.

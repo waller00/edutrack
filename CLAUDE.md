@@ -194,6 +194,11 @@ calculadas con la hora del cliente: no confiar en un `canEdit` viejo.
 > `resolveSubstitutionOccurrence` en `Substitution.date`. Si difieren, el suplente recibe un 403
 > silencioso. Nunca `new Date(ymd)`.
 
+> **Un día cubierto, la lista es del suplente.** Si hay `Substitution` ese día, el responsable es
+> sólo el suplente: le llegan los avisos, figura en "Listas sin pasar" (también por el filtro de
+> docente) y queda como `takenBy`. El titular ve la planilla pero no la pasa
+> (`COVERED_BY_SUBSTITUTE` en `resolveRollCallPermissions`); administración sí.
+
 Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 bis
 
 ---
@@ -225,6 +230,15 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > **El menú de la libreta depende de quién mira** (`sectionsFor`, `lib/libreta/menu.ts`). El
 > docente tiene "Mensajes del director"; quien supervisa tiene "Visado y seguimiento". Visar no es
 > del docente.
+
+> **El suplente tiene un acceso provisorio y ve sólo lo suyo** (`services/gradebook/access.ts`).
+> Entra desde su primera clase cubierta hasta `SUBSTITUTE_ACCESS_DAYS_AFTER` (7) días después de la
+> última; después la libreta desaparece de su lista. Ve la lista del grupo y **sólo las notas que
+> cargó él** (`ownWorkOnly`): ni las del titular, ni planificación, desarrollo, C, R, cierre,
+> mensajes, historia ni exportaciones. Las rutas de `routes/gradebook.ts` se le **cierran por
+> defecto** en `loadContext`: una ruta nueva sólo se abre al suplente declarando
+> `{ substitute: true }`, y si muestra evaluaciones las filtra con `ownWorkFilter`. El titular ve las
+> notas del suplente marcadas "Suplente: Nombre" (`author.isSubstitute`) y las puede corregir.
 
 > **Exportar libretas y boletines es `gradebook.export`, no `exports.create`.** `exports.create`
 > con alcance `all` abre también `/exports`: asistencia del personal y novedades de sueldos. Sólo

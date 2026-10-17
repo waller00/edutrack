@@ -5,7 +5,13 @@ import { attachmentDisposition } from '../services/exports/content-disposition.j
 import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { canResolveRoster, loadRosterForScope } from '../services/student-attendance/roster.js'
-import { resolveGradeBookAccess, type GradeBookAccess } from '../services/gradebook/access.js'
+import {
+  isSubstituteAccessOpen,
+  resolveGradeBookAccess,
+  substituteAccessUntil,
+  substitutionScopeWhere,
+  type GradeBookAccess,
+} from '../services/gradebook/access.js'
 import { photoETag } from '../services/student-photo.js'
 import {
   basicCycleDays,
@@ -178,10 +184,16 @@ async function scopesOf(req: any) {
  * Se derivan con `resolveMoodleAcademicScope`, la misma función que produjo el `scopeKey` al
  * crear la libreta, así que la correspondencia es exacta por construcción.
  */
-async function coveredScopeKeys(userId: string, schoolYearId: string): Promise<string[]> {
+/**
+ * Libretas que quien pide cubre como suplente con el acceso todavía abierto, con la fecha en que se
+ * le cierra. El acceso es provisional (`isSubstituteAccessOpen`): una suplencia vencida o futura no
+ * pone la libreta en su lista.
+ */
+async function coveredScopeKeys(userId: string, schoolYearId: string, now = new Date()): Promise<Map<string, Date>> {
   const substitutions = await prisma.substitution.findMany({
     where: { substituteUserId: userId, event: { schoolYearId } },
     select: {
+      date: true,
       event: {
         select: {
           schoolYearId: true,
@@ -194,12 +206,23 @@ async function coveredScopeKeys(userId: string, schoolYearId: string): Promise<s
     },
   })
 
-  const keys = new Set<string>()
+  const spans = new Map<string, { first: Date; last: Date }>()
   for (const row of substitutions) {
     const scope = resolveMoodleAcademicScope(row.event)
-    if (scope) keys.add(scope.key)
+    if (!scope) continue
+    const span = spans.get(scope.key)
+    if (!span) spans.set(scope.key, { first: row.date, last: row.date })
+    else {
+      if (row.date < span.first) span.first = row.date
+      if (row.date > span.last) span.last = row.date
+    }
   }
-  return [...keys]
+
+  const open = new Map<string, Date>()
+  for (const [key, span] of spans) {
+    if (isSubstituteAccessOpen(span, now)) open.set(key, substituteAccessUntil(span))
+  }
+  return open
 }
 
 /**
@@ -218,12 +241,13 @@ r.get('/mine', requirePermission('gradebook.read'), async (req: any, res) => {
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
 
     const where: Record<string, unknown> = { schoolYearId }
+    let covered = new Map<string, Date>()
     if (readScope !== 'all') {
       // Las libretas suplidas se resuelven por `scopeKey` y no por (oferta, asignatura): esos dos
       // campos solos ignoran la orientación, y un suplente de "Matemática – 3.º Cs. de la Vida"
       // vería también las de las otras orientaciones de ese curso.
-      const coveredKeys = await coveredScopeKeys(userId, schoolYearId)
-      where.OR = [{ teacherUserId: userId }, { scopeKey: { in: coveredKeys } }]
+      covered = await coveredScopeKeys(userId, schoolYearId)
+      where.OR = [{ teacherUserId: userId }, { scopeKey: { in: [...covered.keys()] } }]
     }
 
     const rows = await prisma.gradeBook.findMany({
@@ -232,7 +256,17 @@ r.get('/mine', requirePermission('gradebook.read'), async (req: any, res) => {
       orderBy: [{ courseOffering: { course: { sortOrder: 'asc' } } }, { subject: { name: 'asc' } }],
     })
 
-    return res.json({ schoolYearId, data: rows.map(serializeHeader) })
+    return res.json({
+      schoolYearId,
+      data: rows.map((row) => {
+        // Una libreta propia nunca se muestra como suplencia, aunque también haya cubierto clases.
+        const until = row.teacherUserId === userId ? undefined : covered.get(row.scopeKey)
+        return {
+          ...serializeHeader(row),
+          ...(until ? { substitution: { until: until.toISOString() } } : {}),
+        }
+      }),
+    })
   } catch (error) {
     console.error('[gradebook] mine:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -245,7 +279,18 @@ const idParamSchema = z.object({ id: z.string().uuid('Identificador de libreta i
  * Carga la libreta, resuelve autorización y responde el error por su cuenta.
  * Devuelve `null` para que el handler sea `const ctx = await loadContext(...); if (!ctx) return`.
  */
-async function loadContext(req: any, res: any): Promise<{ row: NonNullable<GradeBookRow>; access: GradeBookAccess } | null> {
+/** Lo que responde una ruta de la libreta que no es para el suplente. */
+const SUBSTITUTE_OWN_WORK_MESSAGE = 'Como suplente ves y cargás sólo tus notas: lo demás de la libreta es del titular.'
+
+async function loadContext(
+  req: any,
+  res: any,
+  /**
+   * `substitute: true` abre la ruta al suplente. Por defecto queda cerrada: el suplente ve y carga
+   * sólo sus notas, y una ruta nueva no tiene que mostrarle lo del titular por olvido.
+   */
+  opts: { substitute?: boolean } = {},
+): Promise<{ row: NonNullable<GradeBookRow>; access: GradeBookAccess } | null> {
   const params = idParamSchema.safeParse(req.params)
   if (!params.success) {
     res.status(400).json({ message: 'Datos inválidos', errors: params.error.errors })
@@ -258,16 +303,12 @@ async function loadContext(req: any, res: any): Promise<{ row: NonNullable<Grade
     return null
   }
 
-  const [{ userId, readScope, gradeScope, planScope }, { editWindowDays }] = await Promise.all([
-    scopesOf(req),
-    getGradeBookSettings(),
-  ])
+  const { userId, readScope, gradeScope, planScope } = await scopesOf(req)
   const access = await resolveGradeBookAccess({
     userId,
     readScope,
     gradeScope,
     planScope,
-    editWindowDays,
     gradeBook: {
       teacherUserId: row.teacherUserId,
       schoolYearId: row.schoolYearId,
@@ -283,13 +324,17 @@ async function loadContext(req: any, res: any): Promise<{ row: NonNullable<Grade
     res.status(403).json({ message: 'No tenés acceso a esta libreta.', code: 'NOT_ASSIGNED' })
     return null
   }
+  if (access.ownWorkOnly && !opts.substitute) {
+    res.status(403).json({ message: SUBSTITUTE_OWN_WORK_MESSAGE, code: 'SUBSTITUTE_OWN_WORK_ONLY' })
+    return null
+  }
   return { row, access }
 }
 
 /** Encabezado + lista del grupo (RF-021 y RF-030). */
 r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
   try {
-    const ctx = await loadContext(req, res)
+    const ctx = await loadContext(req, res, { substitute: true })
     if (!ctx) return
 
     const { row, access } = ctx
@@ -363,7 +408,13 @@ r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
     return res.json({
       ...serializeHeader(row),
       // `canPlan` aparte de `canGrade`: planificar y calificar son permisos distintos.
-      access: { level: access.level, canGrade: access.canGrade, canPlan: access.canPlan },
+      access: {
+        level: access.level,
+        canGrade: access.canGrade,
+        canPlan: access.canPlan,
+        ownWorkOnly: access.ownWorkOnly,
+        substituteUntil: access.substituteUntil ? access.substituteUntil.toISOString() : null,
+      },
       studentCount: students.length,
       students: students.map((student) => {
         const totals = absencesByStudent.get(student.studentId)
@@ -653,7 +704,7 @@ r.put('/:id/absences/day', requirePermission('gradebook.grade'), async (req: any
  */
 r.get('/:id/students/:studentId', requirePermission('gradebook.read'), async (req: any, res) => {
   try {
-    const ctx = await loadContext(req, res)
+    const ctx = await loadContext(req, res, { substitute: true })
     if (!ctx) return
 
     const roster = await loadRosterForScope({
@@ -986,7 +1037,7 @@ r.get('/:id/students/:studentId/absences', requirePermission('gradebook.read'), 
  */
 r.get('/:id/students/:studentId/photo', requirePermission('gradebook.read'), async (req: any, res) => {
   try {
-    const ctx = await loadContext(req, res)
+    const ctx = await loadContext(req, res, { substitute: true })
     if (!ctx) return
 
     const roster = await loadRosterForScope({
@@ -1107,12 +1158,17 @@ const ASSESSMENT_INCLUDE = {
 /** Evaluaciones de la libreta, opcionalmente filtradas por período. */
 r.get('/:id/assessments', requirePermission('gradebook.read'), async (req: any, res) => {
   try {
-    const ctx = await loadContext(req, res)
+    const ctx = await loadContext(req, res, { substitute: true })
     if (!ctx) return
 
     const periodId = typeof req.query.periodId === 'string' ? req.query.periodId : undefined
     const rows = await prisma.assessment.findMany({
-      where: { gradeBookId: ctx.row.id, deletedAt: null, ...(periodId ? { periodId } : {}) },
+      where: {
+        gradeBookId: ctx.row.id,
+        deletedAt: null,
+        ...(periodId ? { periodId } : {}),
+        ...ownWorkFilter(ctx.access, req),
+      },
       include: ASSESSMENT_INCLUDE,
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     })
@@ -1123,25 +1179,53 @@ r.get('/:id/assessments', requirePermission('gradebook.read'), async (req: any, 
   }
 })
 
+/** Para el suplente, sólo las evaluaciones que creó él. Para el resto, ningún filtro. */
+function ownWorkFilter(access: GradeBookAccess, req: any): { createdByUserId?: string } {
+  return access.ownWorkOnly ? { createdByUserId: req.user?.id ?? req.user?.sub } : {}
+}
+
+/**
+ * Quiénes cubrieron clases de esta libreta: las notas que cargaron se marcan "Suplente" en la vista
+ * del titular.
+ */
+async function substituteIdsOf(row: NonNullable<GradeBookRow>): Promise<Set<string>> {
+  const rows = await prisma.substitution.findMany({
+    where: { event: substitutionScopeWhere(row) },
+    select: { substituteUserId: true },
+    distinct: ['substituteUserId'],
+  })
+  return new Set(rows.map((r) => r.substituteUserId))
+}
+
+function personName(user: { name: string | null; firstName: string | null; lastName: string | null } | null): string | null {
+  if (!user) return null
+  return user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || null
+}
+
 /**
  * Tablero alumno-first de Evaluaciones: todas las calificaciones de la libreta con tipo
  * de actividad, para armar las cartas por estudiante sin N+1 al cliente.
+ *
+ * Al suplente le llegan sólo sus evaluaciones y nada de C, R ni juicios: lo del titular no se le
+ * muestra. Al titular, cada evaluación dice quién la cargó y si fue un suplente.
  */
 r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any, res) => {
   try {
-    const ctx = await loadContext(req, res)
+    const ctx = await loadContext(req, res, { substitute: true })
     if (!ctx) return
 
+    const ownOnly = ownWorkFilter(ctx.access, req)
     const level = (ctx.row as any).courseOffering?.course?.level ?? null
-    const [assessments, grades, periods, states] = await Promise.all([
+    const [assessments, grades, periods, states, substituteIds] = await Promise.all([
       prisma.assessment.findMany({
-        where: { gradeBookId: ctx.row.id, deletedAt: null },
+        where: { gradeBookId: ctx.row.id, deletedAt: null, ...ownOnly },
         select: {
           id: true,
           periodId: true,
           date: true,
           title: true,
           scope: true,
+          createdBy: { select: { id: true, name: true, firstName: true, lastName: true } },
           activityType: { select: { id: true, code: true, name: true, category: true } },
           gradingScale: {
             select: { id: true, name: true, kind: true, decimals: true, minValueHundredths: true, maxValueHundredths: true },
@@ -1151,7 +1235,7 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
         orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
       }),
       prisma.assessmentGrade.findMany({
-        where: { assessment: { gradeBookId: ctx.row.id, deletedAt: null } },
+        where: { assessment: { gradeBookId: ctx.row.id, deletedAt: null, ...ownOnly } },
         select: {
           assessmentId: true,
           studentId: true,
@@ -1184,6 +1268,7 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
           },
         },
       }),
+      ctx.access.ownWorkOnly ? Promise.resolve(new Set<string>()) : substituteIdsOf(ctx.row),
     ])
 
     const todayYmd = todayUruguayYmd()
@@ -1204,9 +1289,10 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
           }),
         }
       }),
-      periodGrades: states.flatMap((state) =>
-        state.grades.map((grade) => ({ periodId: state.periodId, ...grade })),
-      ),
+      // C, R y juicios son del titular: al suplente no se le mandan.
+      periodGrades: ctx.access.ownWorkOnly
+        ? []
+        : states.flatMap((state) => state.grades.map((grade) => ({ periodId: state.periodId, ...grade }))),
       assessments: assessments.map((row) => ({
         id: row.id,
         periodId: row.periodId,
@@ -1216,6 +1302,14 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
         scope: row.scope,
         activityType: row.activityType,
         gradingScale: row.gradingScale,
+        author: row.createdBy
+          ? {
+              id: row.createdBy.id,
+              name: personName(row.createdBy),
+              // Lo cargó alguien que no es el titular y cubrió clases de esta libreta.
+              isSubstitute: row.createdBy.id !== ctx.row.teacherUserId && substituteIds.has(row.createdBy.id),
+            }
+          : null,
       })),
       grades: grades.map((row) => ({
         assessmentId: row.assessmentId,
@@ -1267,7 +1361,8 @@ r.post('/:id/assessments', requirePermission('gradebook.grade'), async (req: any
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
 
   try {
-    const ctx = await loadContext(req, res)
+    // El suplente agrega sus notas: la evaluación queda a su nombre (`createdByUserId`).
+    const ctx = await loadContext(req, res, { substitute: true })
     if (!ctx) return
     if (!ctx.access.canGrade) {
       return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
@@ -1313,11 +1408,12 @@ r.post('/:id/assessments', requirePermission('gradebook.grade'), async (req: any
  * Responde el error por su cuenta y devuelve `null`.
  */
 async function loadAssessmentContext(req: any, res: any) {
-  const ctx = await loadContext(req, res)
+  const ctx = await loadContext(req, res, { substitute: true })
   if (!ctx) return null
 
+  // Para el suplente, una evaluación del titular no existe: ni la ve ni la toca.
   const assessment = await prisma.assessment.findFirst({
-    where: { id: req.params.assessmentId, gradeBookId: ctx.row.id, deletedAt: null },
+    where: { id: req.params.assessmentId, gradeBookId: ctx.row.id, deletedAt: null, ...ownWorkFilter(ctx.access, req) },
     include: ASSESSMENT_INCLUDE,
   })
   if (!assessment) {
@@ -1642,7 +1738,7 @@ r.put('/:id/assessments/:assessmentId/grades', requirePermission('gradebook.grad
  */
 r.get('/:id/options', requirePermission('gradebook.read'), async (req: any, res) => {
   try {
-    const ctx = await loadContext(req, res)
+    const ctx = await loadContext(req, res, { substitute: true })
     if (!ctx) return
 
     const level = (ctx.row as any).courseOffering?.course?.level ?? null
@@ -1863,7 +1959,7 @@ async function conductValuesOutOfScale(
   const levels = scale?.levels ?? []
   return values.every((value) => isConductValue(value, levels))
     ? null
-    : 'La conducta tiene que ser uno de los valores de la escala de conducta.'
+    : 'La conducta tiene que ser una nota entera del 1 al 10.'
 }
 
 /** C o R fuera de la escala: devuelve el mensaje, o null si todo está en rango. */

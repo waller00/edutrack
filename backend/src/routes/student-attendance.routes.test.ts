@@ -154,6 +154,42 @@ describe("student-attendance routes", () => {
     expect(res.body.students).toHaveLength(2);
   });
 
+  it("en un día cubierto, el titular ve la planilla pero no la pasa: la lista es del suplente", async () => {
+    prismaMock.substitution.findUnique.mockResolvedValue({
+      substituteUserId: "suplente-1",
+      substitute: { id: "suplente-1", name: "Juan Gómez" },
+    });
+
+    const get = await request(app())
+      .get(`/student-attendance/sessions/${EVENT_ID}/${YMD}`)
+      .set("Authorization", `Bearer ${tok()}`);
+    expect(get.status).toBe(200);
+    expect(get.body.rollCall).toMatchObject({ canEdit: false, blockedReason: "COVERED_BY_SUBSTITUTE" });
+
+    const put = await request(app())
+      .put(`/student-attendance/sessions/${EVENT_ID}/${YMD}`)
+      .set("Authorization", `Bearer ${tok()}`)
+      .send(body([{ studentId: STUDENT_A, status: "PRESENT" }, { studentId: STUDENT_B, status: "PRESENT" }]));
+    expect(put.status).toBe(409);
+    expect(put.body.code).toBe("COVERED_BY_SUBSTITUTE");
+    expect(prismaMock.studentAttendanceSession.upsert).not.toHaveBeenCalled();
+  });
+
+  it("el suplente pasa la lista del día que cubre y queda a su nombre", async () => {
+    prismaMock.event.findUnique.mockResolvedValue(classEvent({ assignedUserId: "titular-1" }));
+    prismaMock.substitution.findUnique.mockResolvedValue({
+      substituteUserId: TEACHER_ID,
+      substitute: { id: TEACHER_ID, name: "Ana Suplente" },
+    });
+
+    const put = await request(app())
+      .put(`/student-attendance/sessions/${EVENT_ID}/${YMD}`)
+      .set("Authorization", `Bearer ${tok()}`)
+      .send(body([{ studentId: STUDENT_A, status: "PRESENT" }, { studentId: STUDENT_B, status: "PRESENT" }]));
+    expect(put.status).toBe(200);
+    expect(prismaMock.studentAttendanceSession.upsert.mock.calls[0][0].create.takenByUserId).toBe(TEACHER_ID);
+  });
+
   it("409 si la clase no se dicta ese día", async () => {
     const res = await request(app())
       .get(`/student-attendance/sessions/${EVENT_ID}/2026-05-12`)

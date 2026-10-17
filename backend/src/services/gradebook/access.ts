@@ -3,9 +3,14 @@ import { prisma as defaultPrisma } from '../../db/prisma.js'
 /**
  * Quién puede ver y escribir una libreta.
  *
- * Espeja `isResponsibleTeacher` del pase de lista: titular **o** suplente oficial de alguno de sus
- * eventos. Un suplente que cubrió una clase tiene que poder cargar la nota de ese día sin que
- * administración lo habilite a mano.
+ * - El **titular** la trabaja entera.
+ * - El **suplente** oficial de alguno de sus eventos tiene un acceso **provisional**: desde su primera
+ *   clase cubierta hasta `SUBSTITUTE_ACCESS_DAYS_AFTER` días después de la última. En ese tiempo ve la
+ *   lista del grupo y **sólo lo que él cargó**, y puede agregar notas; nada de lo del titular (sus
+ *   notas, planificación, desarrollo, conducta, rendimiento, cierre, mensajes). Eso lo marca
+ *   `ownWorkOnly`, y las rutas lo cierran por defecto (`loadContext` en `routes/gradebook.ts`).
+ *   Pasado el plazo, la libreta deja de ser suya: ni la lee.
+ * - **Supervisión** (alcance `all`) la lee, y escribe sólo con el permiso de escribir en `all`.
  */
 
 export type GradeBookAccessLevel = 'OWNER' | 'SUBSTITUTE' | 'SUPERVISION' | 'NONE'
@@ -13,7 +18,10 @@ export type GradeBookAccessLevel = 'OWNER' | 'SUBSTITUTE' | 'SUPERVISION' | 'NON
 export type GradeBookAccess = {
   level: GradeBookAccessLevel
   canRead: boolean
-  /** Evaluaciones, notas parciales, notas de período y juicios conceptuales. */
+  /**
+   * Evaluaciones, notas parciales, notas de período y juicios conceptuales. Para el suplente es
+   * sólo agregar (y corregir) sus propias notas: lo demás se lo cierra `ownWorkOnly`.
+   */
   canGrade: boolean
   /**
    * Planificación y desarrollo del curso.
@@ -22,9 +30,20 @@ export type GradeBookAccess = {
    * **salvo** las calificaciones y los juicios. Con un solo booleano no se puede expresar esa mitad.
    */
   canPlan: boolean
+  /** Ve y toca sólo lo que cargó él (el suplente). */
+  ownWorkOnly: boolean
+  /** Último instante del acceso provisional del suplente; null para el resto. */
+  substituteUntil: Date | null
 }
 
-const NO_ACCESS: GradeBookAccess = { level: 'NONE', canRead: false, canGrade: false, canPlan: false }
+const NO_ACCESS: GradeBookAccess = {
+  level: 'NONE',
+  canRead: false,
+  canGrade: false,
+  canPlan: false,
+  ownWorkOnly: false,
+  substituteUntil: null,
+}
 
 type GradeBookScope = {
   schoolYearId: string
@@ -37,6 +56,22 @@ type GradeBookScope = {
 /** Primera y última clase que quien pide cubrió como suplente en esta libreta. */
 export type SubstitutionSpan = { first: Date; last: Date }
 
+/** Días después de la última clase cubierta en que el suplente todavía entra a la libreta. */
+export const SUBSTITUTE_ACCESS_DAYS_AFTER = 7
+
+const DAY_MS = 86_400_000
+
+/** Filtro de suplencias por el alcance de una libreta (la libreta es la unidad, no el evento). */
+export function substitutionScopeWhere(gradeBook: GradeBookScope) {
+  return {
+    schoolYearId: gradeBook.schoolYearId,
+    courseOfferingId: gradeBook.courseOfferingId,
+    subjectId: gradeBook.subjectId,
+    orientationId: gradeBook.orientationId,
+    courseOrientationId: gradeBook.courseOrientationId,
+  }
+}
+
 /**
  * ¿Quien pide fue suplente en alguna clase de esta libreta? Devuelve el rango de sus suplencias.
  *
@@ -45,16 +80,7 @@ export type SubstitutionSpan = { first: Date; last: Date }
  */
 async function substitutionSpan(db: PrismaClient, gradeBook: GradeBookScope, userId: string): Promise<SubstitutionSpan | null> {
   const span = await db.substitution.aggregate({
-    where: {
-      substituteUserId: userId,
-      event: {
-        schoolYearId: gradeBook.schoolYearId,
-        courseOfferingId: gradeBook.courseOfferingId,
-        subjectId: gradeBook.subjectId,
-        orientationId: gradeBook.orientationId,
-        courseOrientationId: gradeBook.courseOrientationId,
-      },
-    },
+    where: { substituteUserId: userId, event: substitutionScopeWhere(gradeBook) },
     _min: { date: true },
     _max: { date: true },
   })
@@ -62,18 +88,21 @@ async function substitutionSpan(db: PrismaClient, gradeBook: GradeBookScope, use
   return { first: span._min.date, last: span._max.date }
 }
 
-const DAY_MS = 86_400_000
+/**
+ * Último instante del acceso del suplente: el fin del día de su última clase cubierta más
+ * `SUBSTITUTE_ACCESS_DAYS_AFTER` días. `Substitution.date` es la medianoche civil del día.
+ */
+export function substituteAccessUntil(span: SubstitutionSpan): Date {
+  return new Date(span.last.getTime() + DAY_MS + SUBSTITUTE_ACCESS_DAYS_AFTER * DAY_MS - 1)
+}
 
 /**
- * ¿El suplente todavía puede escribir? Leer, lee la libreta entera siempre; escribir, sólo desde su
- * primera clase hasta el día después de la última más la ventana de edición de notas (la misma que
- * tiene el titular para una evaluación). Antes la escritura no tenía límite: quien cubrió un día de
- * marzo podía calificar, poner C y R y cerrar períodos todo el año.
+ * ¿El suplente todavía entra? Desde su primera clase cubierta (no antes: una suplencia futura no
+ * abre la libreta) hasta `substituteAccessUntil`. Antes el suplente leía la libreta entera para
+ * siempre: quien cubrió un día de marzo seguía viendo las notas del titular en noviembre.
  */
-export function isSubstitutionWriteOpen(span: SubstitutionSpan, windowDays: number, now = new Date()): boolean {
-  const opensAt = span.first.getTime()
-  const closesAt = span.last.getTime() + DAY_MS + windowDays * DAY_MS
-  return now.getTime() >= opensAt && now.getTime() <= closesAt
+export function isSubstituteAccessOpen(span: SubstitutionSpan, now = new Date()): boolean {
+  return now.getTime() >= span.first.getTime() && now.getTime() <= substituteAccessUntil(span).getTime()
 }
 
 /**
@@ -95,17 +124,10 @@ export async function resolveGradeBookAccess(
     gradeScope: 'own' | 'all' | null
     /** Alcance de `gradebook.plan`; null si no lo tiene. */
     planScope: 'own' | 'all' | null
-    gradeBook: {
+    gradeBook: GradeBookScope & {
       teacherUserId: string | null
-      schoolYearId: string
-      courseOfferingId: string
-      subjectId: string
-      orientationId: string | null
-      courseOrientationId: string | null
       status: 'ACTIVE' | 'ARCHIVED'
     }
-    /** Ventana de edición de notas en días (`getGradeBookSettings().editWindowDays`). Acota al suplente. */
-    editWindowDays: number
     now?: Date
   },
   db: PrismaClient = defaultPrisma,
@@ -115,32 +137,29 @@ export async function resolveGradeBookAccess(
   // Un ciclo cerrado es de sólo lectura para todos, incluida administración (RF-110/111).
   const writable = gradeBook.status === 'ACTIVE'
 
-  // Titular y suplente escriben por vínculo: les alcanza con tener el permiso en cualquier alcance.
-  const ownWrite = {
-    canRead: params.readScope !== null,
-    canGrade: writable && params.gradeScope !== null,
-    canPlan: writable && params.planScope !== null,
-  }
-
   if (isOwner) {
-    return { level: 'OWNER', ...ownWrite }
+    return {
+      level: 'OWNER',
+      canRead: params.readScope !== null,
+      canGrade: writable && params.gradeScope !== null,
+      canPlan: writable && params.planScope !== null,
+      ownWorkOnly: false,
+      substituteUntil: null,
+    }
   }
 
-  // Sólo se busca suplencia cuando podría cambiar la respuesta: con todos los alcances en `all`,
-  // la rama de supervisión de abajo ya concede lo mismo y la consulta sería al pedo. Con un
-  // permiso en `own`, en cambio, ser suplente es la única forma de escribir esta libreta.
-  const substitutionCouldHelp =
-    params.readScope === 'own' || params.gradeScope === 'own' || params.planScope === 'own'
-
-  const span = substitutionCouldHelp ? await substitutionSpan(db, gradeBook, params.userId) : null
-  if (span) {
-    if (isSubstitutionWriteOpen(span, params.editWindowDays, params.now)) {
-      return { level: 'SUBSTITUTE', ...ownWrite }
-    }
-    // Fuera de su ventana el suplente sigue leyendo, pero no escribe. Si además supervisa, que
-    // decida la rama de supervisión.
-    if (params.readScope !== 'all') {
-      return { level: 'SUBSTITUTE', canRead: params.readScope !== null, canGrade: false, canPlan: false }
+  // Sólo se busca suplencia cuando podría cambiar la respuesta: con lectura en `all`, la rama de
+  // supervisión ve más que un suplente y la consulta sería al pedo.
+  const span = params.readScope === 'own' ? await substitutionSpan(db, gradeBook, params.userId) : null
+  if (span && isSubstituteAccessOpen(span, params.now)) {
+    return {
+      level: 'SUBSTITUTE',
+      canRead: true,
+      // Agregar sus notas; C, R, cierre y planificación se los cierra `ownWorkOnly`.
+      canGrade: writable && params.gradeScope !== null,
+      canPlan: false,
+      ownWorkOnly: true,
+      substituteUntil: substituteAccessUntil(span),
     }
   }
 
@@ -151,6 +170,8 @@ export async function resolveGradeBookAccess(
       canRead: true,
       canGrade: writable && params.gradeScope === 'all',
       canPlan: writable && params.planScope === 'all',
+      ownWorkOnly: false,
+      substituteUntil: null,
     }
   }
 

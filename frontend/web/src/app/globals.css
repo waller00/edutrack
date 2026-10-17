@@ -202,7 +202,9 @@ body {
     min-width: 0;
   }
 
-  .responsive-page :is(.overflow-x-auto, .overflow-y-auto) {
+  /* Los paneles de los modales quedan afuera: esta regla (más específica que `max-w-*`) les
+     anulaba el ancho máximo y un modal abierto dentro de una página ocupaba toda la pantalla. */
+  .responsive-page :is(.overflow-x-auto, .overflow-y-auto):not(.responsive-modal-panel) {
     max-width: 100%;
     -webkit-overflow-scrolling: touch;
   }

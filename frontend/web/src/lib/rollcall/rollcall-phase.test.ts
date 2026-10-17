@@ -58,6 +58,13 @@ describe('rollCallPhase', () => {
     expect(rollCallPhase({ ...timing, blockedReason: 'NOT_ASSIGNED' }, at('2026-10-08T13:10:00.000Z'))).toBe('NOT_ASSIGNED')
   })
 
+  it('al titular de un día cubierto se le dice que la lista la pasa el suplente', () => {
+    const phase = rollCallPhase({ ...timing, blockedReason: 'COVERED_BY_SUBSTITUTE' }, at('2026-10-08T13:10:00.000Z'))
+    expect(phase).toBe('COVERED')
+    expect(isRollCallDue(phase)).toBe(false)
+    expect(rollCallPhaseLabel(phase, timing)).toBe('La pasa el suplente')
+  })
+
   it('sólo "abierta" y "sin pasar" piden pasar la lista', () => {
     expect(isRollCallDue('OPEN')).toBe(true)
     expect(isRollCallDue('OVERDUE')).toBe(true)

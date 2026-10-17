@@ -90,6 +90,8 @@ type OccurrenceContext = {
   endAt: Date
   scope: 'own' | 'all'
   isAssigned: boolean
+  /** Es el titular y ese día lo cubrió un suplente: ve la lista, no la pasa. */
+  coveredBySubstitute: boolean
   substitute: { id: string; name: string } | null
 }
 
@@ -142,9 +144,12 @@ async function loadOccurrenceContext(req: any, res: any): Promise<OccurrenceCont
   const user = req.user
   const scope = (await userPermissionScope(user.sub, 'student-attendance.take', user.role)) ?? 'own'
   const substitution = await findDaySubstitution(event.id, ymd)
-  // Responsable: el titular, o el suplente oficial ese día.
-  const isAssigned = event.assignedUserId === user.sub || substitution?.substituteUserId === user.sub
-  if (scope !== 'all' && !isAssigned) {
+  // Responsable de la lista: el suplente si ese día hay suplencia; si no, el titular. El titular de
+  // un día cubierto ve la planilla, pero no la pasa (`coveredBySubstitute`).
+  const isTitular = event.assignedUserId === user.sub
+  const isAssigned = substitution ? substitution.substituteUserId === user.sub : isTitular
+  const coveredBySubstitute = Boolean(substitution) && isTitular && !isAssigned
+  if (scope !== 'all' && !isAssigned && !coveredBySubstitute) {
     res.status(403).json({ message: 'No sos el docente de esta clase.' })
     return null
   }
@@ -156,6 +161,7 @@ async function loadOccurrenceContext(req: any, res: any): Promise<OccurrenceCont
     endAt: occurrence.endAt,
     scope,
     isAssigned,
+    coveredBySubstitute,
     substitute: personRef(substitution?.substitute),
   }
 }
@@ -194,6 +200,7 @@ async function buildSheetResponse(ctx: OccurrenceContext) {
   const permissions = resolveRollCallPermissions({
     scope: ctx.scope,
     isAssignedTeacher: ctx.isAssigned,
+    coveredBySubstitute: ctx.coveredBySubstitute,
     occurrenceStartAt: ctx.startAt,
     occurrenceEndAt: ctx.endAt,
     takenAt: session?.takenAt ?? null,
@@ -297,6 +304,7 @@ r.put('/sessions/:eventId/:ymd', requirePermission('student-attendance.take'), a
     const permissions = resolveRollCallPermissions({
       scope: ctx.scope,
       isAssignedTeacher: ctx.isAssigned,
+      coveredBySubstitute: ctx.coveredBySubstitute,
       occurrenceStartAt: ctx.startAt,
       occurrenceEndAt: ctx.endAt,
       takenAt: session?.takenAt ?? null,

@@ -94,7 +94,7 @@ export type ExportClosureRow = {
   lastName: string
   firstName: string
   documentId: string | null
-  /** C: la conducta, con el texto de su escala. */
+  /** C: la conducta, como nota del 1 al 10. */
   conductLabel: string | null
   /** R: el rendimiento, la nota oficial. */
   meetingValueHundredths: number | null
@@ -109,10 +109,10 @@ function hundredthsCell(value: number | null): number | null {
 
 export type ConductLevelLabel = { minValueHundredths: number; maxValueHundredths: number; label: string }
 
-/** C es la conducta: se exporta con su texto de la escala ("Muy buena"), no como número. */
-export function conductLabel(value: number | null | undefined, levels: readonly ConductLevelLabel[]): string {
+/** C es la conducta: se exporta como nota numérica. */
+export function conductLabel(value: number | null | undefined, _levels: readonly ConductLevelLabel[]): string {
   if (value == null) return ''
-  return levels.find((l) => value >= l.minValueHundredths && value <= l.maxValueHundredths)?.label ?? ''
+  return String(value / 100).replace('.', ',')
 }
 
 /** Excel de cierre: C (conducta), R (rendimiento), descriptor de R y el texto del período (RF-120). */

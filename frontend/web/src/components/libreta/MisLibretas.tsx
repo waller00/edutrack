@@ -8,6 +8,7 @@ import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import { gradeBookTitle } from '@/lib/gradebook/labels'
 import type { GradeBookHeader } from '@/lib/gradebook/types'
+import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
 
 const PAGE_SIZES = [12, 24, 50]
 const EMPTY_FILTERS = { libreta: '', asignatura: '', docente: '', search: '', course: '', status: 'ALL' }
@@ -76,6 +77,11 @@ function LibretaCard({ book }: { book: GradeBookHeader }) {
       <div className="mt-auto space-y-3">
         {book.status === 'ARCHIVED' && (
           <p className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">Ciclo cerrado · sólo lectura</p>
+        )}
+        {book.substitution && (
+          <p className="rounded-md bg-sky-50 px-2 py-1 text-xs font-medium text-sky-800 ring-1 ring-sky-200">
+            Suplencia · cargás tus notas hasta el {formatDateInUruguay(book.substitution.until)}
+          </p>
         )}
         <span className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-medium text-emerald-700">
           Abrir libreta <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" aria-hidden />

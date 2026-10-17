@@ -23,16 +23,27 @@ export type RollCallTiming = {
  * - `CLOSED`: pasada, ya fuera de plazo;
  * - `EXPIRED`: sin pasar, fuera de plazo;
  * - `LOCKED`: cerrada por administración;
- * - `NOT_ASSIGNED`: no es una clase de quien mira.
+ * - `NOT_ASSIGNED`: no es una clase de quien mira;
+ * - `COVERED`: es del titular, pero ese día la cubrió un suplente, que es quien pasa la lista.
  *
  * Se calcula con la hora del cliente y no con `canEdit`: el servidor responde una vez y la pantalla
  * queda abierta, así que "todavía no abrió" tiene que pasar solo a "abierta".
  */
-export type RollCallPhase = 'UPCOMING' | 'OPEN' | 'OVERDUE' | 'TAKEN' | 'CLOSED' | 'EXPIRED' | 'LOCKED' | 'NOT_ASSIGNED'
+export type RollCallPhase =
+  | 'UPCOMING'
+  | 'OPEN'
+  | 'OVERDUE'
+  | 'TAKEN'
+  | 'CLOSED'
+  | 'EXPIRED'
+  | 'LOCKED'
+  | 'NOT_ASSIGNED'
+  | 'COVERED'
 
 export function rollCallPhase(timing: RollCallTiming, now = new Date()): RollCallPhase {
   if (timing.blockedReason === 'LOCKED') return 'LOCKED'
   if (timing.blockedReason === 'NOT_ASSIGNED') return 'NOT_ASSIGNED'
+  if (timing.blockedReason === 'COVERED_BY_SUBSTITUTE') return 'COVERED'
   const at = now.getTime()
   const inWindow = !timing.editableUntil || at <= new Date(timing.editableUntil).getTime()
   if (timing.status === 'TAKEN') return inWindow ? 'TAKEN' : 'CLOSED'
@@ -63,6 +74,8 @@ export function rollCallPhaseLabel(phase: RollCallPhase, timing: Pick<RollCallTi
       return 'Fuera de plazo'
     case 'LOCKED':
       return 'Cerrada por administración'
+    case 'COVERED':
+      return 'La pasa el suplente'
     default:
       return 'No es tu clase'
   }

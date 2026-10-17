@@ -12,9 +12,8 @@ import { formatAbsenceUnits } from '../../student-attendance/absence-weight.js'
  * recorre todas las asignaturas del grupo.
  */
 
-/** La etiqueta viene resuelta con la escala `CONDUCTA`; sin ella, el número. */
-function conductText(label: string | null | undefined, value: number | null): string {
-  if (label) return label
+/** La conducta siempre se imprime como nota numérica. */
+function conductText(_label: string | null | undefined, value: number | null): string {
   return value == null ? '—' : String(value / 100).replace('.', ',')
 }
 

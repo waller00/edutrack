@@ -112,9 +112,12 @@ export async function loadClassesForDay(params: {
       const session = sessionByEvent.get(event.id) ?? null
       const substitution = substitutionByEvent.get(event.id) ?? null
       const isSubstitution = event.assignedUserId !== userId && substitution?.substituteUserId === userId
+      // Con suplencia, la lista de ese día es del suplente; el titular la ve, pero no la pasa.
+      const isTitular = event.assignedUserId === userId
       const permissions = resolveRollCallPermissions({
         scope,
-        isAssignedTeacher: event.assignedUserId === userId || isSubstitution,
+        isAssignedTeacher: substitution ? substitution.substituteUserId === userId : isTitular,
+        coveredBySubstitute: Boolean(substitution) && isTitular && substitution?.substituteUserId !== userId,
         occurrenceStartAt: startAt,
         occurrenceEndAt: endAt,
         takenAt: session?.takenAt ?? null,

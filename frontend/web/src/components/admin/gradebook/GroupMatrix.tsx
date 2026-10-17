@@ -15,6 +15,9 @@ import { levelStyle } from '@/lib/academic-config/level-tokens'
 import { formatAbsenceUnits } from '@/lib/libreta/absences'
 import MeetingDecisions from './MeetingDecisions'
 import ScrollRegion from '@/components/common/ScrollRegion'
+import ConductSelect, { conductText, type ConductOption } from '@/components/gradebook/ConductSelect'
+
+export { conductText } from '@/components/gradebook/ConductSelect'
 
 type Group = {
   courseOfferingId: string
@@ -63,8 +66,6 @@ type Row = {
   atRisk: boolean
 }
 
-type ConductOption = { valueHundredths: number; label: string }
-
 type Matrix = {
   group: { courseName: string; schoolYear: { id?: string; label: string } }
   subjects: Array<{ gradeBookId: string; name: string; teacher: string | null; periodStatus: string | null }>
@@ -89,12 +90,6 @@ function groupLabel(g: Group) {
 /** Reunión de boletín: pide C y juicio. Es la que tiene boletín para la familia. */
 export function isReportCardPeriod(p: Period | undefined): boolean {
   return Boolean(p?.isMeeting && p.requiresGeneralGrade && p.requiresConceptualJudgement)
-}
-
-/** Texto de la conducta con la escala; nunca sólo un número suelto ni un color. */
-export function conductText(value: number | null | undefined, levels: readonly ConductOption[]): string {
-  if (value == null) return '—'
-  return levels.find((l) => l.valueHundredths === value)?.label ?? String(value / 100).replace('.', ',')
 }
 
 export function reportCardsPath(group: Group, periodId: string): string {
@@ -147,21 +142,15 @@ function ConductCell({
   editable: boolean
   onChange: (value: number | null) => void
 }) {
-  if (!editable || levels.length === 0) return <>{conductText(row.conductValueHundredths, levels)}</>
+  if (!editable) return <>{conductText(row.conductValueHundredths, levels)}</>
   return (
-    <select
+    <ConductSelect
       aria-label={`Conducta de ${row.lastName}, ${row.firstName}`}
-      value={row.conductValueHundredths ?? ''}
-      onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+      value={row.conductValueHundredths == null ? '' : String(row.conductValueHundredths)}
+      options={levels}
+      onChange={(value) => onChange(value === '' ? null : Number(value))}
       className="rounded border border-gray-300 px-1 py-0.5 text-xs"
-    >
-      <option value="">—</option>
-      {levels.map((level) => (
-        <option key={level.valueHundredths} value={level.valueHundredths}>
-          {level.label}
-        </option>
-      ))}
-    </select>
+    />
   )
 }
 

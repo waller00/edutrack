@@ -132,10 +132,13 @@ function NewAssessmentForm({
 export default function AssessmentsPanel({
   gradeBookId,
   canGrade,
+  allowCreate = true,
   onChanged,
 }: {
   gradeBookId: string
   canGrade: boolean
+  /** Mostrar el alta acá. Calificaciones la hace con "Calificar a todo el grupo". */
+  allowCreate?: boolean
   /** Se creó una evaluación o se guardaron notas: las cartas tienen que recargarse. */
   onChanged?: () => void
 }) {
@@ -206,7 +209,7 @@ export default function AssessmentsPanel({
         </p>
       )}
 
-      {canGrade && options && <NewAssessmentForm options={options} onCreate={create} busy={busy} />}
+      {canGrade && allowCreate && options && <NewAssessmentForm options={options} onCreate={create} busy={busy} />}
 
       {assessments.length === 0 ? (
         <p className="rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm text-gray-500">

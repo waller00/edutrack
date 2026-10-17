@@ -23,8 +23,8 @@ function grade(over: Partial<BlockGrade>): BlockGrade {
 }
 
 const CONDUCT = [
-  { valueHundredths: 600, label: 'Buena' },
-  { valueHundredths: 800, label: 'Muy buena' },
+  { valueHundredths: 600, label: '6' },
+  { valueHundredths: 800, label: '8' },
 ]
 
 const TRAMO = { id: 'p1', code: 'MAYO_JUNIO', name: 'Mayo – Junio', kind: 'TRAMO' as const }
@@ -36,6 +36,33 @@ const ENTREGA = {
   requiresConceptualJudgement: true,
   judgementLabel: 'Informe de actuación',
 }
+
+describe('<PeriodBlock /> del suplente', () => {
+  it('en un tramo muestra sólo sus notas: sin conducta ni rendimiento del titular', () => {
+    render(
+      <PeriodBlock
+        period={TRAMO}
+        grades={[grade({ valueHundredths: 700 })]}
+        saved={{ valueHundredths: null, meetingValueHundredths: 900, conductValueHundredths: null, conceptualJudgement: 'Bien' }}
+        levels={LEVELS}
+        decimals={0}
+        editable
+        ownGradesOnly
+      />,
+    )
+    expect(screen.getByLabelText(/^7, Logrado\. /)).toBeInTheDocument()
+    expect(screen.queryByText('R')).not.toBeInTheDocument()
+    expect(screen.queryByText('C')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/rendimiento/)).not.toBeInTheDocument()
+  })
+
+  it('una entrega no se muestra: sólo tiene lo del titular', () => {
+    const { container } = render(
+      <PeriodBlock period={ENTREGA} grades={[]} saved={null} levels={LEVELS} decimals={0} editable={false} ownGradesOnly />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+})
 
 describe('<PeriodBlock /> tramo', () => {
   it('muestra cada nota suelta, sin promediar, en las columnas de la planilla', () => {
@@ -92,7 +119,7 @@ describe('<PeriodBlock /> tramo', () => {
     )
     await userEvent.selectOptions(screen.getByLabelText('R: rendimiento de Mayo – Junio'), '8')
     expect(onSave).toHaveBeenCalledWith({ meetingValueHundredths: 800 })
-    await userEvent.selectOptions(screen.getByLabelText('C: conducta en Mayo – Junio'), 'Muy buena')
+    await userEvent.selectOptions(screen.getByLabelText('C: conducta en Mayo – Junio'), '8')
     expect(onSave).toHaveBeenCalledWith({ conductValueHundredths: 800 })
   })
 
@@ -108,7 +135,7 @@ describe('<PeriodBlock /> tramo', () => {
         editable={false}
       />,
     )
-    expect(screen.getByText('Buena')).toBeInTheDocument()
+    expect(screen.getByText('6')).toBeInTheDocument()
   })
 
   it('el + de una columna abre la carga con esa categoría', async () => {
@@ -143,7 +170,7 @@ describe('<PeriodBlock /> entrega', () => {
       />,
     )
     expect(screen.getByRole('button', { name: /Informe de actuación: falta/ })).toBeInTheDocument()
-    expect(screen.getByText('Muy buena')).toBeInTheDocument()
+    expect(screen.getAllByText('8')).toHaveLength(2)
     expect(screen.getByLabelText('8, Muy bueno')).toBeInTheDocument()
     expect(screen.queryByText('Or')).not.toBeInTheDocument()
   })

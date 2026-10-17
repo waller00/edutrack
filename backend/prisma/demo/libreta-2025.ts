@@ -55,7 +55,7 @@ const JUICIOS = [
   'Buen nivel de comprensión; falta prolijidad en la presentación.',
 ] as const
 
-const CONDUCTA = [300, 300, 400, 400, 200] as const
+const CONDUCTA = [800, 800, 1000, 1000, 600] as const
 
 type Periodo = {
   id: string

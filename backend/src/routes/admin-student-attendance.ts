@@ -96,6 +96,16 @@ r.get('/pending', async (req: any, res) => {
     })
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
 
+    // Las suplencias del rango: un día cubierto, la lista es del suplente (no del titular).
+    const substitutionRange = { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T23:59:59.999Z`) }
+    const teacherUserId = parsed.data.teacherUserId
+    const coveredByTeacher = teacherUserId
+      ? await prisma.substitution.findMany({
+          where: { substituteUserId: teacherUserId, date: substitutionRange },
+          select: { eventId: true },
+        })
+      : []
+
     const where: Record<string, unknown> = {
       type: 'CLASE',
       status: { not: 'CANCELLED' },
@@ -103,7 +113,10 @@ r.get('/pending', async (req: any, res) => {
       schoolYearId,
       ...(parsed.data.courseOfferingId ? { courseOfferingId: parsed.data.courseOfferingId } : {}),
       ...(parsed.data.subjectId ? { subjectId: parsed.data.subjectId } : {}),
-      ...(parsed.data.teacherUserId ? { assignedUserId: parsed.data.teacherUserId } : {}),
+      // Las del docente como titular y las que cubrió como suplente.
+      ...(teacherUserId
+        ? { OR: [{ assignedUserId: teacherUserId }, { id: { in: coveredByTeacher.map((row) => row.eventId) } }] }
+        : {}),
     }
     applyEventStartDateFilter(where, from, to)
 
@@ -120,24 +133,39 @@ r.get('/pending', async (req: any, res) => {
       orderBy: { startTime: 'asc' },
     })
 
-    const occurrences: ExpandedOccurrence[] = events.flatMap((event: any) =>
-      (expandRecurringEvent(event, from, to) as any[]).map((occ) => {
-        const startAt = new Date(occ.startTime ?? occ.startDate)
-        return {
-          eventId: event.id,
-          ymd: occurrenceYmdOf(startAt),
-          startAt,
-          endAt: new Date(occ.endTime ?? occ.startDate),
-          title: event.title,
-          subject: event.subject?.name ?? null,
-          course: event.courseOffering?.course?.name ?? null,
-          orientation: event.courseOrientation?.orientation?.name ?? event.orientation?.name ?? null,
-          teacher: event.assignedUser
-            ? { id: event.assignedUser.id, name: event.assignedUser.name, username: event.assignedUser.username }
-            : null,
-        }
-      }),
+    const substitutions = events.length
+      ? await prisma.substitution.findMany({
+          where: { eventId: { in: events.map((e) => e.id) }, date: substitutionRange },
+          select: { eventId: true, date: true, substitute: { select: { id: true, name: true, username: true } } },
+        })
+      : []
+    const substituteByOccurrence = new Map(
+      substitutions.map((row) => [sessionKey(row.eventId, occurrenceYmdOf(row.date)), row.substitute]),
     )
+
+    const occurrences: ExpandedOccurrence[] = events
+      .flatMap((event: any) =>
+        (expandRecurringEvent(event, from, to) as any[]).map((occ) => {
+          const startAt = new Date(occ.startTime ?? occ.startDate)
+          const ymd = occurrenceYmdOf(startAt)
+          // Responsable de la lista: el suplente del día, si lo hubo; si no, el titular.
+          const responsible = substituteByOccurrence.get(sessionKey(event.id, ymd)) ?? event.assignedUser
+          return {
+            eventId: event.id,
+            ymd,
+            startAt,
+            endAt: new Date(occ.endTime ?? occ.startDate),
+            title: event.title,
+            subject: event.subject?.name ?? null,
+            course: event.courseOffering?.course?.name ?? null,
+            orientation: event.courseOrientation?.orientation?.name ?? event.orientation?.name ?? null,
+            teacher: responsible ? { id: responsible.id, name: responsible.name, username: responsible.username } : null,
+            covered: substituteByOccurrence.has(sessionKey(event.id, ymd)),
+          }
+        }),
+      )
+      // Con filtro por docente, sólo las listas de las que es responsable: no las que cubrió otro.
+      .filter((occurrence) => !teacherUserId || occurrence.teacher?.id === teacherUserId)
 
     const [nonWorkingRows, sessionRows] = await Promise.all([
       (prisma as any).nonWorkingDay.findMany({

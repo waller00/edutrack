@@ -12,6 +12,8 @@ export type GradeBookHeader = {
   orientation: string | null
   subject: { id: string; name: string; code: string | null }
   teacher: { id: string; name: string | null; username: string | null } | null
+  /** Quien pide la cubre como suplente: su acceso es provisorio, hasta `until`. */
+  substitution?: { until: string }
 }
 
 export type RosterStudent = {
@@ -42,7 +44,15 @@ export type RosterStudent = {
 
 export type GradeBookDetail = GradeBookHeader & {
   /** `canPlan` va aparte de `canGrade`: planificar y calificar son permisos distintos. */
-  access: { level: GradeBookAccessLevel; canGrade: boolean; canPlan?: boolean }
+  access: {
+    level: GradeBookAccessLevel
+    canGrade: boolean
+    canPlan?: boolean
+    /** Suplente: ve y carga sólo sus notas; lo del titular no se le muestra. */
+    ownWorkOnly?: boolean
+    /** Hasta cuándo dura el acceso del suplente (ISO). */
+    substituteUntil?: string | null
+  }
   studentCount: number
   students: RosterStudent[]
 }

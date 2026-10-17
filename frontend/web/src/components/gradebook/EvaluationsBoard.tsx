@@ -13,6 +13,7 @@ import {
   Plus,
   Printer,
   Trash2,
+  Users,
   X,
 } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -138,6 +139,13 @@ type BoardAssessment = {
   scope?: 'GROUP' | 'INDIVIDUAL'
   activityType: { id: string; code: string; name: string; category?: string | null } | null
   gradingScale: (Partial<GradeRange> & { id: string; name: string; kind: string; decimals: number }) | null
+  /** Quién la cargó; `isSubstitute` si fue un suplente de esta libreta. */
+  author?: { id: string; name: string | null; isSubstitute: boolean } | null
+}
+
+/** Nombre del suplente que cargó la evaluación, o null si la cargó el titular (u otro). */
+function substituteNameOf(assessment: Pick<BoardAssessment, 'author'>): string | null {
+  return assessment.author?.isSubstitute ? assessment.author.name ?? 'suplente' : null
 }
 
 type BoardGrade = {
@@ -374,6 +382,261 @@ function AddGradeForm({
   )
 }
 
+type GroupCell = { grade: string; absent: boolean }
+
+/**
+ * Una actividad para todo el grupo, con la nota de cada alumno en la misma pantalla.
+ *
+ * Es el mismo formulario que "Nueva calificación" de la carta (qué se califica, período, fecha),
+ * pero la evaluación es del grupo y abajo está la lista entera: se pone la nota de uno por uno y
+ * se guarda todo junto, en vez de abrir la carta de cada alumno.
+ */
+function GroupGradeForm({
+  gradeBookId,
+  students,
+  courseLabel,
+  options,
+  onCancel,
+  onSaved,
+}: {
+  gradeBookId: string
+  students: readonly RosterStudent[]
+  courseLabel: string
+  options: Options
+  onCancel: () => void
+  onSaved: () => Promise<void>
+}) {
+  const scale = levelScaleOf(options)
+  const gradingScaleId = scale?.id ?? ''
+  const tramos = gradablePeriods(options.periods)
+  const [activityTypeId, setActivityTypeId] = useState(() => firstTypeOf(options.activityTypes, undefined))
+  const [periodId, setPeriodId] = useState(() => tramoForDate(options.periods, todayYmd())?.id ?? tramos[0]?.id ?? '')
+  const [date, setDate] = useState(todayYmd)
+  const [title, setTitle] = useState('')
+  const [cells, setCells] = useState<Record<string, GroupCell>>({})
+  // Si la evaluación se creó y fallaron las notas, el reintento no la vuelve a crear.
+  const [createdId, setCreatedId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const firstFieldRef = useRef<HTMLSelectElement>(null)
+
+  const activity = options.activityTypes.find((t) => t.id === activityTypeId)
+  const cellOf = (studentId: string): GroupCell => cells[studentId] ?? { grade: '', absent: false }
+  const done = students.filter((s) => cellOf(s.studentId).absent || cellOf(s.studentId).grade !== '').length
+  const canSubmit = Boolean(activityTypeId && periodId && gradingScaleId && date) && !saving
+
+  useEffect(() => {
+    firstFieldRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented && !saving) onCancel()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onCancel, saving])
+
+  function patch(studentId: string, change: Partial<GroupCell>) {
+    setCells((prev) => ({ ...prev, [studentId]: { ...cellOf(studentId), ...prev[studentId], ...change } }))
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!canSubmit) return
+    setSaving(true)
+    setError(null)
+    try {
+      let assessmentId = createdId
+      if (!assessmentId) {
+        const created = await api<{ data: { id: string } }>(`/gradebook/${gradeBookId}/assessments`, {
+          method: 'POST',
+          body: JSON.stringify({
+            title: title.trim() || `${activity?.name ?? 'Evaluación'} — ${date}`,
+            date,
+            periodId,
+            gradingScaleId,
+            // Del grupo: el control de libretas pide nota (o "no rindió") de todos.
+            scope: 'GROUP',
+            ...(activityTypeId ? { activityTypeId } : {}),
+          }),
+        })
+        assessmentId = created.data.id
+        setCreatedId(assessmentId)
+      }
+      const entries = students.flatMap((student) => {
+        const cell = cellOf(student.studentId)
+        if (cell.absent) return [{ studentId: student.studentId, valueHundredths: null, isAbsent: true, comment: null }]
+        if (cell.grade === '') return []
+        return [
+          {
+            studentId: student.studentId,
+            valueHundredths: gradeSelectToHundredths(cell.grade),
+            isAbsent: false,
+            comment: null,
+          },
+        ]
+      })
+      if (entries.length > 0) {
+        await api(`/gradebook/${gradeBookId}/assessments/${assessmentId}/grades`, {
+          method: 'PUT',
+          body: JSON.stringify({ entries }),
+        })
+      }
+      await onSaved()
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'No se pudo guardar'
+      setError(createdId ? `La actividad ya está creada, pero no se guardaron las notas: ${reason}` : reason)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return createPortal(
+    <div
+      className="responsive-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="group-grade-title"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !saving) onCancel()
+      }}
+    >
+      <form className="responsive-modal-panel max-w-2xl space-y-4" onSubmit={(e) => void handleSubmit(e)}>
+        <header className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 id="group-grade-title" className="text-lg font-semibold text-gray-900">
+              Calificar a todo el grupo
+            </h2>
+            <p className="mt-0.5 truncate text-sm text-gray-600">
+              Una actividad para todos{courseLabel ? ` · ${courseLabel}` : ''}. Poné la nota de cada uno y guardá todo junto.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-full p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" aria-hidden />
+          </button>
+        </header>
+
+        <fieldset disabled={Boolean(createdId)} className="grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1 text-sm sm:col-span-2">
+            <span className="font-medium text-gray-700">
+              Calificar <span className="text-red-600" aria-hidden>*</span>
+            </span>
+            <select
+              ref={firstFieldRef}
+              required
+              value={activityTypeId}
+              onChange={(e) => setActivityTypeId(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+            >
+              <ActivityTypeOptions activityTypes={options.activityTypes} />
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="font-medium text-gray-700">
+              Período <span className="text-red-600" aria-hidden>*</span>
+            </span>
+            <select
+              required
+              value={periodId}
+              onChange={(e) => setPeriodId(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+            >
+              {tramos.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="font-medium text-gray-700">
+              Fecha <span className="text-red-600" aria-hidden>*</span>
+            </span>
+            <input
+              type="date"
+              required
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
+          <label className="grid gap-1 text-sm sm:col-span-2">
+            <span className="font-medium text-gray-700">Título</span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+              placeholder="Opcional. Por ejemplo: Escrito 1 – Célula"
+            />
+          </label>
+        </fieldset>
+
+        <section aria-labelledby="group-grade-list" className="space-y-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 id="group-grade-list" className="text-sm font-semibold text-gray-900">Notas del grupo</h3>
+            <p className="text-xs tabular-nums text-gray-500" aria-live="polite">
+              {done} de {students.length} con nota o &quot;no rindió&quot;
+            </p>
+          </div>
+          {students.length === 0 ? (
+            <p className="rounded-lg border border-gray-200 px-3 py-4 text-sm text-gray-500">
+              El grupo no tiene estudiantes matriculados.
+            </p>
+          ) : (
+            <ul className="divide-y divide-gray-100 rounded-xl border border-gray-200">
+              {students.map((student, index) => {
+                const cell = cellOf(student.studentId)
+                const name = studentFullName(student)
+                return (
+                  <li key={student.studentId} className="flex flex-wrap items-center gap-3 px-3 py-2">
+                    <span className="w-6 text-right text-xs tabular-nums text-gray-400">{index + 1}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-gray-900">{name}</span>
+                    <GradeSelect
+                      value={cell.grade}
+                      scale={scale}
+                      onChange={(grade) => patch(student.studentId, { grade })}
+                      disabled={saving || cell.absent}
+                      aria-label={`Nota de ${name}`}
+                      className="w-24 rounded-lg border border-gray-300 bg-amber-50 px-2 py-1.5 text-sm font-semibold tabular-nums disabled:opacity-50"
+                    />
+                    <AbsentCheck
+                      checked={cell.absent}
+                      onChange={(absent) => patch(student.studentId, { absent })}
+                      disabled={saving}
+                    />
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          <p className="text-xs text-gray-500">
+            Los que dejes sin nota quedan pendientes: después los completás desde &quot;Evaluaciones del grupo&quot; o
+            desde su carta.
+          </p>
+        </section>
+
+        {error && (
+          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
+        )}
+
+        <footer className="flex justify-end gap-2 border-t border-gray-100 pt-3">
+          <button type="button" onClick={onCancel} className="btn-secondary text-sm">
+            Cancelar
+          </button>
+          <button type="submit" disabled={!canSubmit} className="btn-primary text-sm">
+            {saving ? 'Guardando…' : 'Guardar'}
+          </button>
+        </footer>
+      </form>
+    </div>,
+    document.body,
+  )
+}
+
 function EditGradeForm({
   gradeBookId,
   student,
@@ -519,6 +782,7 @@ function StudentDetailPanel({
   canGrade,
   options,
   onSaved,
+  ownWorkOnly = false,
 }: {
   gradeBookId: string
   student: RosterStudent
@@ -527,6 +791,8 @@ function StudentDetailPanel({
   canGrade: boolean
   options: Options | null
   onSaved: () => Promise<void>
+  /** Suplente: sin el historial de cambios, que es de la libreta del titular. */
+  ownWorkOnly?: boolean
 }) {
   const [typeDraft, setTypeDraft] = useState('')
   const [commentDraft, setCommentDraft] = useState('')
@@ -689,6 +955,11 @@ function StudentDetailPanel({
                     <td className="whitespace-nowrap px-3 py-1.5 tabular-nums text-slate-700">{row.assessment.date}</td>
                     <td className="px-3 py-1.5 text-slate-700">
                       {row.assessment.activityType?.name || row.assessment.title}
+                      {substituteNameOf(row.assessment) && (
+                        <span className="ml-2 whitespace-nowrap rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-800 ring-1 ring-sky-200">
+                          Suplente: {substituteNameOf(row.assessment)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-1.5 tabular-nums text-slate-900">
                       {row.isAbsent
@@ -707,7 +978,7 @@ function StudentDetailPanel({
         )}
       </ScrollRegion>
 
-      <StudentHistory gradeBookId={gradeBookId} studentId={student.studentId} />
+      {!ownWorkOnly && <StudentHistory gradeBookId={gradeBookId} studentId={student.studentId} />}
     </div>
   )
 }
@@ -782,8 +1053,10 @@ function StudentCard({
 }) {
   const [exportBusy, setExportBusy] = useState<'print' | 'xlsx' | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  // El suplente ve sólo sus notas: ni imprime ni exporta la carta, que es del titular.
+  const ownWorkOnly = Boolean(detail.access.ownWorkOnly)
   // El Excel sale del servidor y pide `gradebook.export` (inspección no lo tiene); imprimir es local.
-  const canExport = hasPermission(useOptionalAuth()?.me, 'gradebook.export')
+  const canExport = hasPermission(useOptionalAuth()?.me, 'gradebook.export') && !ownWorkOnly
   const photoUrl = useStudentPhoto(gradeBookId, student.studentId, student.hasPhoto)
 
   async function handlePrint() {
@@ -890,16 +1163,18 @@ function StudentCard({
                 <Plus className="h-4 w-4" />
               </button>
             )}
-            <button
-              type="button"
-              disabled={exportBusy !== null}
-              onClick={() => void handlePrint()}
-              className="inline-flex h-8 w-8 items-center justify-center rounded text-sky-700 hover:bg-sky-50 disabled:opacity-40"
-              aria-label="Imprimir evaluaciones del alumno"
-              title="Imprimir"
-            >
-              {exportBusy === 'print' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
-            </button>
+            {!ownWorkOnly && (
+              <button
+                type="button"
+                disabled={exportBusy !== null}
+                onClick={() => void handlePrint()}
+                className="inline-flex h-8 w-8 items-center justify-center rounded text-sky-700 hover:bg-sky-50 disabled:opacity-40"
+                aria-label="Imprimir evaluaciones del alumno"
+                title="Imprimir"
+              >
+                {exportBusy === 'print' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+              </button>
+            )}
             {canExport && (
               <button
                 type="button"
@@ -937,6 +1212,7 @@ function StudentCard({
                       date: r.assessment.date,
                       title: r.assessment.title,
                       comment: r.comment,
+                      substituteName: substituteNameOf(r.assessment),
                     }))}
                   saved={periodGrades.find((g) => g.periodId === period.id) ?? null}
                   levels={levels}
@@ -947,6 +1223,7 @@ function StudentCard({
                   editable={canGrade && (state?.canEdit ?? false)}
                   onSave={(patch) => onSavePeriodGrade(period.id, patch)}
                   onAddGrade={(category) => onToggleAdd({ periodId: period.id, category })}
+                  ownGradesOnly={ownWorkOnly}
                 />
               )
             })}
@@ -991,6 +1268,7 @@ function StudentCard({
           canGrade={canGrade}
           options={options}
           onSaved={onSaved}
+          ownWorkOnly={ownWorkOnly}
         />
       )}
     </li>
@@ -1017,6 +1295,9 @@ export default function EvaluationsBoard({
   const [adding, setAdding] = useState<{ studentId: string; preset: AddPreset } | null>(null)
   const [detailStudentIds, setDetailStudentIds] = useState<Set<string>>(() => new Set())
   const [showGroupSheet, setShowGroupSheet] = useState(false)
+  const [groupFormOpen, setGroupFormOpen] = useState(false)
+  // Vuelve a montar la lista de evaluaciones del grupo después de crear una desde arriba.
+  const [groupPanelKey, setGroupPanelKey] = useState(0)
   const [sheetStudent, setSheetStudent] = useState<{
     studentId: string
     focus: StudentBadgeFocus
@@ -1158,15 +1439,48 @@ export default function EvaluationsBoard({
     <section className="space-y-3">
       <header className="flex flex-wrap items-end justify-between gap-2 border-b border-slate-200 pb-2">
         <div>
-          <h2 className="text-base font-bold uppercase tracking-wide text-teal-800">
-            Calificaciones · Or · Otras · Ev · C · R
-          </h2>
-          <p className="text-xs text-slate-500">
-            C es la conducta; R, el rendimiento, la nota que va al boletín.
-          </p>
+          {detail.access.ownWorkOnly ? (
+            <>
+              <h2 className="text-base font-bold uppercase tracking-wide text-teal-800">Tus notas de suplencia</h2>
+              <p className="text-xs text-slate-500">
+                Ves y cargás sólo las notas que pusiste vos. Las del titular, la conducta y el rendimiento no se
+                muestran.
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-base font-bold uppercase tracking-wide text-teal-800">
+                Calificaciones · Or · Otras · Ev · C · R
+              </h2>
+              <p className="text-xs text-slate-500">
+                C es la conducta; R, el rendimiento, la nota que va al boletín.
+              </p>
+            </>
+          )}
           <p className="text-sm text-slate-600">{title}</p>
         </div>
+        {detail.access.canGrade && options && students.length > 0 && (
+          <button type="button" onClick={() => setGroupFormOpen(true)} className="btn-primary text-sm">
+            <Users className="h-4 w-4" aria-hidden />
+            Calificar a todo el grupo
+          </button>
+        )}
       </header>
+
+      {groupFormOpen && options && (
+        <GroupGradeForm
+          gradeBookId={gradeBookId}
+          students={students}
+          courseLabel={courseLabel}
+          options={options}
+          onCancel={() => setGroupFormOpen(false)}
+          onSaved={async () => {
+            setGroupFormOpen(false)
+            setGroupPanelKey((key) => key + 1)
+            await load()
+          }}
+        />
+      )}
 
       {error && (
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
@@ -1249,16 +1563,18 @@ export default function EvaluationsBoard({
         onToggle={(e) => setShowGroupSheet((e.target as HTMLDetailsElement).open)}
       >
         <summary className="cursor-pointer text-sm font-semibold text-teal-800">
-          Evaluación del grupo: escrito, prueba o trabajo para todos
+          Evaluaciones del grupo: ver y completar las notas de cada una
         </summary>
         <p className="mt-1 text-xs text-slate-500">
-          Creala una vez y cargá la nota de cada alumno en la planilla, con el teclado. El control de
-          libretas exige nota (o &quot;no rindió&quot;) de todo el grupo en estas evaluaciones.
+          Las actividades que creaste con &quot;Calificar a todo el grupo&quot;. Abrí una para completar las notas
+          pendientes con el teclado. El control de libretas exige nota (o &quot;no rindió&quot;) de todo el grupo.
         </p>
         <div className="mt-3">
           <AssessmentsPanel
+            key={groupPanelKey}
             gradeBookId={gradeBookId}
             canGrade={detail.access.canGrade}
+            allowCreate={false}
             onChanged={() => void load()}
           />
         </div>
@@ -1323,7 +1639,7 @@ export default function EvaluationsBoard({
         />
       )}
 
-      {detail.access.canGrade && options && (
+      {detail.access.canGrade && !detail.access.ownWorkOnly && options && (
         <details className="rounded-lg border border-slate-200 bg-white p-3">
           <summary className="cursor-pointer text-sm font-medium text-slate-700">
             Importar desde Moodle

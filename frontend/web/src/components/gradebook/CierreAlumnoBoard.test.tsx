@@ -125,7 +125,7 @@ describe('<CierreAlumnoBoard />', () => {
   })
 
   it('en bachillerato ofrece 11 y 12, y una R de 11 no se borra al guardar otra cosa', async () => {
-    const CONDUCT = [{ valueHundredths: 300, label: 'Buena' }]
+    const CONDUCT = [{ valueHundredths: 300, label: '3' }]
     apiMock.mockImplementation(async (path: string) => {
       if (String(path).includes('/mine')) return { data: [] }
       if (String(path).includes('/grades-board')) return { assessments: [], grades: [] }
@@ -159,7 +159,7 @@ describe('<CierreAlumnoBoard />', () => {
     await waitFor(() => expect(screen.getByLabelText('R (rendimiento) de 1.ª Entrega')).toHaveValue('11'))
     expect(screen.getAllByRole('option', { name: '12' }).length).toBeGreaterThan(0)
 
-    await user.selectOptions(screen.getByLabelText('C (conducta) de 1.ª Entrega'), 'Buena')
+    await user.selectOptions(screen.getByLabelText('C (conducta) de 1.ª Entrega'), '3')
     await user.click(screen.getByRole('button', { name: /Guardar/i }))
 
     await waitFor(() => {
@@ -209,8 +209,8 @@ describe('<CierreAlumnoBoard />', () => {
           student: detail().students[0],
           canGrade: true,
           conduct: [
-            { valueHundredths: 300, label: 'Buena' },
-            { valueHundredths: 400, label: 'Muy buena' },
+            { valueHundredths: 300, label: '3' },
+            { valueHundredths: 400, label: '4' },
           ],
           periods: [
             {
@@ -237,7 +237,7 @@ describe('<CierreAlumnoBoard />', () => {
     render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
     await waitFor(() => expect(screen.getByLabelText('C (conducta) de 1.ª Entrega')).toBeInTheDocument())
 
-    await user.selectOptions(screen.getByLabelText('C (conducta) de 1.ª Entrega'), 'Buena')
+    await user.selectOptions(screen.getByLabelText('C (conducta) de 1.ª Entrega'), '3')
     await user.click(screen.getByRole('button', { name: /Guardar/i }))
 
     await waitFor(() => {

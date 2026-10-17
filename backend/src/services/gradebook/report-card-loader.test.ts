@@ -77,10 +77,10 @@ describe('loadReportCards', () => {
     // Tronco común más su orientación, en el orden de la planilla; la de otra orientación no entra.
     expect(card.subjects.map((s) => s.subjectName)).toEqual(['Matemática', 'Historia'])
     // Va R, no C: Matemática tiene C 9 y R 5.
-    expect(card.subjects[0]).toMatchObject({ valueHundredths: 500, descriptor: 'Insuficiente', conductLabel: 'Muy buena' })
+    expect(card.subjects[0]).toMatchObject({ valueHundredths: 500, descriptor: 'Insuficiente', conductLabel: '4' })
     // Sin R la materia queda pendiente aunque haya C.
     expect(card.subjects[1]).toMatchObject({ valueHundredths: null, descriptor: null })
-    expect(card.conductLabel).toBe('Buena')
+    expect(card.conductLabel).toBe('3')
     expect(card.attendance).toEqual({ absenceHundredths: 150, justifiedCount: 1 })
     expect(card.averageHundredths).toBe(500)
     expect(card.pendingCount).toBe(1)

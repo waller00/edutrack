@@ -7,7 +7,7 @@ import { signAccessToken } from "../test-utils/bearer-token.js";
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     event: { findMany: vi.fn(), findUnique: vi.fn() },
-    substitution: { findUnique: vi.fn() },
+    substitution: { findUnique: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     nonWorkingDay: { findMany: vi.fn() },
     studentAttendanceSession: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     studentAttendanceEntry: { findUnique: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn(), findMany: vi.fn() },
@@ -53,6 +53,7 @@ describe("admin student-attendance routes", () => {
     prismaMock.auditLog.create.mockResolvedValue({});
     prismaMock.event.findMany.mockResolvedValue([]);
     prismaMock.nonWorkingDay.findMany.mockResolvedValue([]);
+    prismaMock.substitution.findMany.mockResolvedValue([]);
     prismaMock.studentAttendanceSession.findMany.mockResolvedValue([]);
     prismaMock.studentAttendanceJustification.create.mockResolvedValue({ id: "just-1" });
   });
@@ -75,6 +76,61 @@ describe("admin student-attendance routes", () => {
       .set("Authorization", `Bearer ${tok()}`);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ total: 0, data: [] });
+  });
+
+  describe("un día cubierto por un suplente", () => {
+    const coveredClass = {
+      id: "ev-1",
+      title: "Matemática",
+      type: "CLASE",
+      status: "SCHEDULED",
+      parentEventId: null,
+      isRecurring: false,
+      recurrenceType: "NONE",
+      startDate: new Date("2026-05-11T11:00:00.000Z"),
+      startTime: new Date("2026-05-11T11:00:00.000Z"),
+      endTime: new Date("2026-05-11T12:00:00.000Z"),
+      subject: { name: "Matemática" },
+      orientation: null,
+      courseOrientation: null,
+      courseOffering: { course: { name: "3.º A" } },
+      assignedUser: { id: "titular-1", name: "Ana Titular", username: "ana" },
+      childEvents: [],
+    };
+
+    beforeEach(() => {
+      prismaMock.event.findMany.mockResolvedValue([coveredClass]);
+      prismaMock.substitution.findMany.mockImplementation(async (args: any) =>
+        args.where.substituteUserId
+          ? args.where.substituteUserId === "suplente-1" ? [{ eventId: "ev-1" }] : []
+          : [{ eventId: "ev-1", date: new Date("2026-05-11T03:00:00.000Z"), substitute: { id: "suplente-1", name: "Bruno Suplente", username: "bruno" } }],
+      );
+    });
+
+    it("la lista sin pasar es responsabilidad del suplente, no del titular", async () => {
+      const res = await request(app())
+        .get("/admin/student-attendance/pending?from=2026-05-11&to=2026-05-11")
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0]).toMatchObject({ teacher: { id: "suplente-1", name: "Bruno Suplente" }, covered: true });
+    });
+
+    it("el filtro por docente encuentra al suplente y no le cuenta esa lista al titular", async () => {
+      const bySubstitute = await request(app())
+        .get("/admin/student-attendance/pending?from=2026-05-11&to=2026-05-11&teacherUserId=suplente-1")
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(bySubstitute.body.data).toHaveLength(1);
+      expect(prismaMock.event.findMany.mock.calls[0][0].where.OR).toEqual([
+        { assignedUserId: "suplente-1" },
+        { id: { in: ["ev-1"] } },
+      ]);
+
+      const byTitular = await request(app())
+        .get("/admin/student-attendance/pending?from=2026-05-11&to=2026-05-11&teacherUserId=titular-1")
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(byTitular.body.data).toHaveLength(0);
+    });
   });
 
   it("400 si el rango está invertido", async () => {

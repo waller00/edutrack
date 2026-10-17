@@ -1,6 +1,13 @@
 import { formatDateTimeInUruguay, formatTimeInUruguay } from '@/lib/forms/datetime-uy'
 
-export type BlockedReason = 'LOCKED' | 'WINDOW_EXPIRED' | 'NOT_ASSIGNED' | 'NOT_STARTED' | null
+export type BlockedReason =
+  | 'LOCKED'
+  | 'WINDOW_EXPIRED'
+  | 'NOT_ASSIGNED'
+  | 'NOT_STARTED'
+  /** El titular, en un día que cubrió un suplente: la lista de ese día es del suplente. */
+  | 'COVERED_BY_SUBSTITUTE'
+  | null
 
 /** El servidor manda `editableUntil`; el cliente solo lo formatea o compara. */
 export function isEditableNow(editableUntil: string | null, canEdit: boolean, now = new Date()): boolean {
@@ -31,6 +38,8 @@ export function editWindowNotice(params: {
         return 'Venció el plazo: la lista se puede pasar hasta una semana después de la clase. Pedile el cambio a secretaría.'
       case 'NOT_ASSIGNED':
         return 'No sos el docente de esta clase.'
+      case 'COVERED_BY_SUBSTITUTE':
+        return 'Esta clase la cubrió un suplente: la lista de ese día la pasa él.'
       case 'NOT_STARTED':
         return notStartedNotice(params.opensAt)
       default:

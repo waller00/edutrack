@@ -48,6 +48,8 @@ export type BlockGrade = {
   date: string
   title: string
   comment: string | null
+  /** La cargó un suplente (nombre), para marcarla en la vista del titular. */
+  substituteName?: string | null
 }
 
 export type PeriodGradePatch = Partial<PeriodGradeValues>
@@ -62,13 +64,18 @@ type BlockProps = {
   decimals: number
   /** Escala del nivel: el rango que ofrece R (1–12 en bachillerato). */
   scale?: GradeRange | null
-  /** Escala de conducta: las opciones de C ("Buena", "Muy buena"…). */
+  /** Opciones numéricas de C, del 1 al 10. */
   conduct?: readonly ConductOption[]
   /** El docente puede escribir: tiene la libreta y el período está abierto y habilitado. */
   editable: boolean
   status?: Status
   onSave?: (patch: PeriodGradePatch) => Promise<void>
   onAddGrade?: (category: ActivityCategory) => void
+  /**
+   * Vista del suplente: sólo las columnas de notas. Conducta, rendimiento y juicio son del titular,
+   * y una entrega o el diagnóstico (que no tienen notas sueltas) no se muestran.
+   */
+  ownGradesOnly?: boolean
 }
 
 /**
@@ -316,7 +323,7 @@ function BlockHeader({ period, status }: { period: LibretaPeriod; status?: Statu
   )
 }
 
-/** C: la conducta, con las etiquetas de la escala (siempre texto, nunca sólo un color). */
+/** C: la nota numérica de conducta, del 1 al 10. */
 function ConductCell({
   title,
   value,
@@ -401,6 +408,8 @@ function CAndR({
 }
 
 const TRAMO_GRID: Record<number, string> = {
+  3: 'grid-cols-3',
+  4: 'grid-cols-4',
   5: 'grid-cols-5',
   6: 'grid-cols-6',
 }
@@ -409,10 +418,11 @@ function TramoBlock(props: BlockProps & { save: (patch: PeriodGradePatch) => Pro
   const { period, grades, levels, decimals, editable, onAddGrade } = props
   const categories = blockCategories(grades)
   const buckets = gradesByCategory(grades)
-  const hasText = Boolean(period.judgementLabel)
+  const ownOnly = Boolean(props.ownGradesOnly)
+  const hasText = Boolean(period.judgementLabel) && !ownOnly
   return (
     <>
-      <div className={`grid ${TRAMO_GRID[categories.length + 2]} divide-x divide-amber-100 border-t border-amber-200`}>
+      <div className={`grid ${TRAMO_GRID[categories.length + (ownOnly ? 0 : 2)]} divide-x divide-amber-100 border-t border-amber-200`}>
         {categories.map((category) => (
           <div key={category} className="px-1 py-1.5 text-center">
             <p className="whitespace-nowrap font-medium text-slate-600" title={ACTIVITY_CATEGORY_TITLE[category]}>
@@ -432,7 +442,7 @@ function TramoBlock(props: BlockProps & { save: (patch: PeriodGradePatch) => Pro
             )}
           </div>
         ))}
-        <CAndR {...props} />
+        {!ownOnly && <CAndR {...props} />}
       </div>
       {hasText && (
         <div className="border-t border-amber-100">
@@ -482,7 +492,10 @@ export default function PeriodBlock(props: BlockProps) {
     }
   }
 
-  const width = kind === 'TRAMO' ? 'w-[21rem]' : 'w-[15rem]'
+  // El suplente no ve entregas ni diagnóstico: ahí sólo hay conducta, rendimiento y juicio del titular.
+  if (props.ownGradesOnly && kind !== 'TRAMO') return null
+
+  const width = kind === 'TRAMO' ? (props.ownGradesOnly ? 'w-[15rem]' : 'w-[21rem]') : 'w-[15rem]'
   return (
     <div className={`${width} shrink-0 overflow-hidden rounded border border-amber-200 bg-white text-xs`}>
       <BlockHeader period={props.period} status={props.status} />

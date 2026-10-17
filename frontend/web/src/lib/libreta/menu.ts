@@ -51,13 +51,28 @@ const ENDORSEMENT_SECTION: LibretaSection = {
 /** Todas las secciones, para resolver una por id sin importar quién mira. */
 export const LIBRETA_SECTIONS: readonly LibretaSection[] = [...WORK_SECTIONS, MESSAGES_SECTION, ENDORSEMENT_SECTION]
 
+/**
+ * Lo único que ve el suplente: sus notas. Planificación, desarrollo, conducta, rendimiento, cierre
+ * y mensajes son del titular, y el suplente tiene un acceso provisorio (hasta una semana después
+ * de su última clase cubierta).
+ */
+const SUBSTITUTE_SECTION: LibretaSection = {
+  id: 'evaluaciones',
+  label: 'Tus notas (suplencia)',
+  abbr: 'Not',
+  hint: 'Las notas que cargás mientras cubrís al titular. Lo que cargó el titular no se muestra.',
+}
+
 export type LibretaViewer = {
   /** Supervisa la libreta (observa o visa): Dirección, adscripción, inspección. */
   supervises: boolean
+  /** La cubre como suplente: ve y carga sólo sus notas. */
+  substitute?: boolean
 }
 
 /** Las secciones que ve quien mira la libreta, en orden. */
 export function sectionsFor(viewer: LibretaViewer): readonly LibretaSection[] {
+  if (viewer.substitute) return [SUBSTITUTE_SECTION]
   return viewer.supervises ? [...WORK_SECTIONS, ENDORSEMENT_SECTION] : [...WORK_SECTIONS, MESSAGES_SECTION]
 }
 

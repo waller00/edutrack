@@ -9,7 +9,10 @@ export type ExpandedOccurrence = {
   subject: string | null
   course: string | null
   orientation: string | null
+  /** Responsable de la lista: el suplente si ese día hubo suplencia, si no el titular. */
   teacher: { id: string; name: string | null; username: string | null } | null
+  /** Ese día lo cubrió un suplente: la lista es suya. */
+  covered?: boolean
 }
 
 export type PendingRow = ExpandedOccurrence & { daysLate: number; sessionId: string | null }

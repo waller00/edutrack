@@ -82,7 +82,7 @@ type ClosureSheet = {
   canGrade: boolean
   /** Escala del nivel: rango de C y R y tramos para el color. */
   scale?: (GradeRange & { decimals: number; levels: BlockLevel[] }) | null
-  /** Opciones de la escala de conducta, una por tramo. */
+  /** Opciones numéricas de conducta, del 1 al 10. */
   conduct?: ConductOption[]
   periods: ClosurePeriod[]
 }
@@ -188,7 +188,7 @@ function draftPatch(period: ClosurePeriod, d: Draft[string] | undefined) {
 }
 
 /**
- * C: la conducta en la asignatura, con las etiquetas de la escala. Va en todo período con notas
+ * C: la nota numérica de conducta en la asignatura. Va en todo período con notas
  * (tramos y entregas), igual que en la carta; con el período cerrado se lee.
  */
 function ConductCell({

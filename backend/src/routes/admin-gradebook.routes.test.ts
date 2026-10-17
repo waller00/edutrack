@@ -328,7 +328,7 @@ describe('GET /students/:studentId', () => {
     expect(year.absences).toEqual({ absenceHundredths: 200, justified: 1 })
     // En orden de la planilla y sólo los del año.
     expect(year.conduct.map((c: any) => c.periodName)).toEqual(['1.er semestre', '2.º semestre'])
-    expect(year.conduct[0].label).toBe('Insuficiente')
+    expect(year.conduct[0].label).toBe('3')
     // Boletín sólo de las reuniones de boletín de su nivel: sin febrero ni las de EBI.
     expect(year.reportCardPeriods).toEqual([{ id: 'p-1', name: '1.er semestre' }])
     expect(res.body.decisions[0]).toMatchObject({ decision: 'Se cita a la familia.', periodName: '1.er semestre', createdByName: 'Laura' })
@@ -817,6 +817,17 @@ describe('conducta institucional', () => {
       .set('Authorization', `Bearer ${tok()}`)
       .send({ schoolYearId: SY_ID, periodId: P_ID, entries: [{ studentId: S_ID, valueHundredths: null }] })
     expect(res.status).toBe(200)
+  })
+
+  it('acepta 10 y rechaza 11 aunque falte la escala de conducta', async () => {
+    prismaMock.gradingScale.findFirst.mockResolvedValue(null)
+    for (const [valueHundredths, status] of [[1000, 200], [1100, 400], [0, 400], [250, 400]]) {
+      const res = await request(app())
+        .put('/admin/gradebook/conduct')
+        .set('Authorization', `Bearer ${tok()}`)
+        .send({ schoolYearId: SY_ID, periodId: P_ID, entries: [{ studentId: S_ID, valueHundredths }] })
+      expect(res.status).toBe(status)
+    }
   })
 
   it('rechaza un cuerpo sin estudiantes', async () => {

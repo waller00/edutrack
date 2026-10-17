@@ -118,6 +118,14 @@ describe('resolveRollCallPermissions', () => {
     expect(result).toMatchObject({ canEdit: false, blockedReason: 'NOT_STARTED' })
   })
 
+  it('el titular de un día cubierto por un suplente no la pasa: es del suplente; administración sí', () => {
+    const titular = resolveRollCallPermissions({ ...base, scope: 'own', isAssignedTeacher: false, coveredBySubstitute: true })
+    expect(titular).toMatchObject({ canEdit: false, blockedReason: 'COVERED_BY_SUBSTITUTE' })
+    expect(rollCallBlockedMessage(titular)).toMatch(/suplente/)
+    const admin = resolveRollCallPermissions({ ...base, scope: 'all', isAssignedTeacher: false, coveredBySubstitute: true })
+    expect(admin.canEdit).toBe(true)
+  })
+
   it('a quien no es docente de la clase se le dice eso, aunque no haya abierto', () => {
     const result = resolveRollCallPermissions({
       ...base,

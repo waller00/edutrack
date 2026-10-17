@@ -27,9 +27,12 @@ export function gradeTooltipLine(row: {
   date: string
   comment: string | null
   title: string
+  /** La cargó un suplente: el titular la ve marcada. */
+  substituteName?: string | null
 }): string {
   const label = (row.comment || row.title || '').trim() || 'Sin comentario'
-  return `${formatYmdShort(row.date)} - ${label}`
+  const author = row.substituteName ? ` · Suplente: ${row.substituteName}` : ''
+  return `${formatYmdShort(row.date)} - ${label}${author}`
 }
 
 export async function downloadStudentEvaluationsXlsx(

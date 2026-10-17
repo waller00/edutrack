@@ -86,6 +86,14 @@ describe('academic-config-dges · escala 1 a 10', () => {
   })
 })
 
+describe('academic-config-dges · conducta', () => {
+  it('es numérica, del 1 al 10 y sin juicios de valor', () => {
+    const scale = GRADING_SCALES.find((scale) => scale.code === 'CONDUCTA')!
+    expect(scale).toMatchObject({ kind: 'NUMERIC', minValueHundredths: 100, maxValueHundredths: 1000, decimals: 0 })
+    expect(scale.levels.map((level) => level.label)).toEqual(Array.from({ length: 10 }, (_, i) => String(i + 1)))
+  })
+})
+
 describe('academic-config-dges · tipos de actividad', () => {
   it('ubica cada tipo en una columna de la planilla', () => {
     const byCode = Object.fromEntries(GLOBAL_ACTIVITY_TYPES.map((t) => [t.code, t.category]))

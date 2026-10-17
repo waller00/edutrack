@@ -16,7 +16,7 @@ export type ReportCardSubject = {
   descriptor: string | null
   conceptualJudgement: string | null
   conductValueHundredths: number | null
-  /** Texto de la conducta según la escala `CONDUCTA`. */
+  /** Nota numérica de conducta, del 1 al 10, como texto. */
   conductLabel?: string | null
 }
 

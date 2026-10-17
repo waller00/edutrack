@@ -34,8 +34,8 @@ const PERIODS = {
   ],
 }
 const CONDUCT_LEVELS = [
-  { valueHundredths: 300, label: 'Buena' },
-  { valueHundredths: 400, label: 'Muy buena' },
+  { valueHundredths: 300, label: '3' },
+  { valueHundredths: 400, label: '4' },
 ]
 
 function matrix(over: Record<string, unknown> = {}) {
@@ -115,7 +115,7 @@ describe('<GroupMatrix />', () => {
 
   it('sin permiso de control, la conducta se lee con el texto de la escala', async () => {
     await openMatrix()
-    expect(screen.getByText('Buena')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
     expect(screen.queryByLabelText('Conducta de Díaz, Ana')).toBeNull()
   })
 
@@ -176,7 +176,7 @@ describe('auxiliares de la matriz', () => {
   })
 
   it('rotula la conducta con la escala o con el número', () => {
-    expect(conductText(400, CONDUCT_LEVELS)).toBe('Muy buena')
+    expect(conductText(400, CONDUCT_LEVELS)).toBe('4')
     expect(conductText(null, CONDUCT_LEVELS)).toBe('—')
     expect(conductText(250, CONDUCT_LEVELS)).toBe('2,5')
   })

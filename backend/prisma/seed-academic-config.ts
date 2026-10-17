@@ -93,10 +93,21 @@ async function upsertScales(db: Db) {
         description: scale.description,
         sortOrder: scale.sortOrder,
       },
-      update: { name: scale.name, description: scale.description, sortOrder: scale.sortOrder },
+      update: {
+        name: scale.name, description: scale.description, sortOrder: scale.sortOrder,
+        ...(scale.code === 'CONDUCTA' ? {
+          kind: scale.kind, minValueHundredths: scale.minValueHundredths,
+          maxValueHundredths: scale.maxValueHundredths, decimals: scale.decimals,
+        } : {}),
+      },
       select: { id: true },
     });
 
+    if (scale.code === 'CONDUCTA') {
+      await db.gradingScaleLevel.deleteMany({
+        where: { scaleId: row.id, code: { notIn: scale.levels.map((level) => level.code) } },
+      });
+    }
     for (const level of scale.levels) {
       await db.gradingScaleLevel.upsert({
         where: { scaleId_code: { scaleId: row.id, code: level.code } },

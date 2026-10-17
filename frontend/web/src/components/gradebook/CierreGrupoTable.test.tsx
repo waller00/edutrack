@@ -37,8 +37,8 @@ function respond(canEdit = true, groupReport: { body: string | null; updatedAt: 
         periods: [ENTREGA, { ...ENTREGA, id: 'p-e2', code: 'ENTREGA_2', name: '2.ª Entrega', startsOn: '2026-06-01', endsOn: '2026-08-31' }],
         periodScale: { minValueHundredths: 100, maxValueHundredths: 1200 },
         conduct: [
-          { valueHundredths: 300, label: 'Buena' },
-          { valueHundredths: 400, label: 'Muy buena' },
+          { valueHundredths: 300, label: '3' },
+          { valueHundredths: 400, label: '4' },
         ],
       }
     }
@@ -62,7 +62,7 @@ describe('<CierreGrupoTable />', () => {
     expect(screen.getByLabelText('R (rendimiento) de Benítez, Ana')).toHaveValue('8')
 
     await user.selectOptions(screen.getByLabelText('R (rendimiento) de Cabrera, Luis'), '11')
-    await user.selectOptions(screen.getByLabelText('C (conducta) de Cabrera, Luis'), 'Muy buena')
+    await user.selectOptions(screen.getByLabelText('C (conducta) de Cabrera, Luis'), '4')
     await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() => {
