@@ -2,13 +2,25 @@
 
 ## Estado y alcance
 
+### Avance confirmado al 17/10/2026
+
+- La ejecucion de **Verify production SSH through Tailscale** desde `main`
+  (`4ac360d`) conecto el runner, alcanzo `100.92.202.72:22` y completo la
+  autenticacion SSH. Mostro `Private SSH authentication OK` y finalizo sin
+  despliegue ni cambios de firewall. El servidor tambien reporto `4ac360d`.
+- El administrador confirmo `PRODUCTION_SSH_TAILSCALE=true` en el environment
+  `production`. El proximo despliegue usara el transporte privado.
+- Sigue pendiente comprobar un despliegue completo por Tailscale, la
+  recuperacion y el acceso privado de los tres administradores. El puerto
+  publico 22 debe permanecer abierto hasta completar esas verificaciones.
+
 Los workflows de produccion pueden conectarse a Tailscale antes del SSH usando
 la accion local `.github/actions/production-ssh`. Se conserva OpenSSH en TCP 22,
 usuario `root` y `SSH_PRIVATE_KEY`. No se activa el producto Tailscale SSH, no se
 cambian `authorized_keys`, `sshd_config` ni UFW. El puerto 22 publico permanece
 abierto hasta completar pruebas con los tres administradores y los runners.
 
-Por defecto `PRODUCTION_SSH_TAILSCALE` no esta definida: los despliegues conservan
+Si `PRODUCTION_SSH_TAILSCALE` no esta definida o vale `false`, los despliegues usan
 el destino publico `SSH_HOST`. La prueba privada se puede ejecutar sin activar
 la migracion. Con el interruptor en `true`, cualquier error de identidad, ACL,
 conexion TCP o autenticacion SSH detiene el workflow, sin fallback publico.
@@ -17,7 +29,7 @@ Incluye deploy automatico/manual de produccion, recuperacion y los snapshots SSH
 de `performance-production-baseline.yml`. Testing queda sin cambios: es otro
 servidor y no se verifico su incorporacion a Tailscale.
 
-## 1. Permisos de Tailscale (configuracion externa pendiente)
+## 1. Permisos de Tailscale
 
 Agregar a la politica existente, sin reemplazar sus reglas:
 
@@ -55,11 +67,17 @@ la clave privada del runner ni ampliar permisos de la consola Keycloak por esto.
 Crear una identidad federada de GitHub Actions en Tailscale, separada de la de
 metricas, autorizada a emitir nodos efimeros con `tag:github-deploy`.
 Restringirla al repositorio actual **waller00/edutrack** y al environment
-**production**. El subject OIDC esperado para estos jobs es:
+**production**. El subject recibido por Tailscale en la ejecucion revisada es:
 
 ```text
-repo:waller00/edutrack:environment:production
+repo:waller00@242244337/edutrack@1183698688:environment:production
 ```
+
+El valor anterior sin identificadores numericos no coincidia con el recibido y
+provocaba un 403 durante el intercambio del JWT. Tras corregir el subject, la
+prueba completo la conexion. Para esta identidad, conservar la coincidencia
+exacta con el subject recibido; no ampliar la confianza con comodines para
+resolver un rechazo. No publicar el JWT ni las credenciales en los logs.
 
 Todos los jobs SSH de produccion ahora usan ese environment (incluida la prueba).
 Configurar en GitHub las protecciones/ramas permitidas de `production`; revisar
@@ -79,7 +97,8 @@ oculten accidentalmente los del repositorio. No copiar credenciales en el YAML.
 En variables del environment `production`:
 
 - `PRODUCTION_SSH_TAILSCALE_HOST`: `100.92.202.72` (valor predeterminado del codigo).
-- `PRODUCTION_SSH_TAILSCALE`: mantener `false` o sin definir hasta terminar la prueba.
+- `PRODUCTION_SSH_TAILSCALE`: `true` tras la prueba privada exitosa. Para una
+  instalacion nueva, mantener `false` o sin definir hasta completar esa prueba.
 
 La huella ECDSA de produccion se verifico por una conexion SSH previamente
 confiable y con drone-ssh 1.8.0 (el cliente de la accion). Se fija en los workflows
@@ -116,6 +135,13 @@ cierra el puerto publico ni cambia las claves. Validar un despliegue controlado
 y programar una prueba de recuperacion en una ventana apropiada: recuperacion
 SI recrea servicios, a diferencia del smoke test.
 
+Cambiar el transporte no cambia los comandos de despliegue: se sigue usando
+OpenSSH, ahora sobre la red privada. Un push a `main`, incluso de documentacion,
+dispara el despliegue completo salvo que se omita CI. Puede recrear servicios y
+ejecutar configuracion de base de datos y Keycloak; no equivale a la prueba de
+conexion de solo lectura. El workflow Recover recrea servicios con los archivos
+e imagenes disponibles: no restaura automaticamente una version o base anterior.
+
 Antes de cerrar SSH publico, completar:
 
 - prueba privada del runner verde;
@@ -126,6 +152,23 @@ Antes de cerrar SSH publico, completar:
 - cada uno de los tres administradores conecta en una sesion nueva por la IP
   Tailscale y verifica los tuneles que use, por ejemplo Grafana;
 - consola de recuperacion DigitalOcean disponible.
+
+## Operativa diaria del equipo
+
+Los commits, pulls, pushes y la ejecucion o aprobacion de Actions no requieren
+que el equipo personal este conectado a Tailscale. El runner establece su propia
+conexion mediante la identidad federada y utiliza `SSH_PRIVATE_KEY` para SSH.
+
+Para entrar directamente al servidor por su IP privada, cada administrador
+necesita Tailscale conectado, permiso TCP 22 y su propia clave SSH autorizada.
+Aunque se conserve el usuario `root`, las claves personales deben ser distintas;
+la clave del runner debe ser exclusiva de automatizacion y no compartirse entre
+personas. Verificar cada acceso desde una sesion nueva antes de cerrar el puerto
+publico:
+
+```bash
+ssh root@100.92.202.72
+```
 
 ## Reversion durante las pruebas
 
