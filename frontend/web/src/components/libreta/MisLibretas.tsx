@@ -48,18 +48,18 @@ function LibretaCard({ book }: { book: GradeBookHeader }) {
     <Link
       href={`/libreta/${book.id}`}
       aria-label={`Abrir libreta de ${gradeBookTitle(book)} (${book.schoolYear.code})`}
-      className="group flex h-full min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-4 transition hover:border-emerald-400 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+      className="group relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 transition duration-200 hover:border-emerald-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
     >
       <div className="flex min-w-0 items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 transition-colors group-hover:bg-emerald-100">
           <BookMarked className="h-5 w-5" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="break-words font-semibold text-slate-900">{book.subject.name}</h2>
+          <h2 className="break-words text-lg font-semibold tracking-tight text-slate-900">{book.subject.name}</h2>
           <p className="mt-0.5 text-xs text-slate-500">Ciclo {book.schoolYear.code}</p>
         </div>
       </div>
-      <dl className="my-4 space-y-2 text-sm text-slate-600">
+      <dl className="my-5 space-y-3 text-sm text-slate-600">
         <div className="flex items-start gap-2">
           <GraduationCap className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
           <dt className="sr-only">Curso y orientación</dt>
@@ -83,7 +83,7 @@ function LibretaCard({ book }: { book: GradeBookHeader }) {
             Suplencia · cargás tus notas hasta el {formatDateInUruguay(book.substitution.until)}
           </p>
         )}
-        <span className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-medium text-emerald-700">
+        <span className="flex min-h-11 items-center justify-between border-t border-slate-100 pt-4 text-sm font-semibold text-emerald-700">
           Abrir libreta <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" aria-hidden />
         </span>
       </div>

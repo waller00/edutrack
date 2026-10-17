@@ -112,7 +112,7 @@ function GradeValue({
   const tip = hint ? `${level.label} · ${hint}` : undefined
   return (
     <span
-      className={`inline-flex items-center gap-0.5 rounded border px-1 tabular-nums ${style.badgeClass} ${tip ? 'focus-tip' : ''}`}
+      className={`inline-flex min-h-6 items-center gap-0.5 rounded-md border px-1.5 font-medium tabular-nums ${style.badgeClass} ${tip ? 'focus-tip' : ''}`}
       title={tip ? undefined : level.label}
       aria-label={`${display}, ${level.label}`}
       {...focusTipProps(`${display}, ${level.label}`, hint)}
@@ -135,7 +135,7 @@ function GradeChips({
 }) {
   if (grades.length === 0) return <span className="text-slate-400">—</span>
   return (
-    <span className="flex flex-wrap justify-center gap-0.5">
+    <span className="flex flex-wrap justify-center gap-1">
       {grades.map((grade) =>
         grade.isAbsent ? (
           <span
@@ -193,12 +193,12 @@ function PeriodGradeCell({
   }
 
   return (
-    <div className="px-1 py-1.5 text-center">
-      <p className="font-bold text-amber-900" title={title}>
+    <div className="px-1.5 py-2.5 text-center">
+      <p className="font-semibold text-slate-600" title={title}>
         {label}
       </p>
       {editable ? (
-        <span className="inline-flex items-center gap-0.5">
+        <span className="inline-flex w-full items-center justify-center gap-0.5">
           <GradeSelect
             value={gradeSelectFromHundredths(value)}
             scale={scale}
@@ -206,14 +206,12 @@ function PeriodGradeCell({
             onChange={(next) => void handleChange(next)}
             aria-label={title}
             title={level?.label}
-            className={`w-12 rounded border px-0.5 py-0.5 text-center tabular-nums disabled:opacity-50 ${
-              style?.badgeClass ?? 'border-amber-200 bg-amber-50'
+            className={`min-h-9 w-full max-w-14 rounded-lg border px-0.5 py-1 text-center tabular-nums disabled:opacity-50 ${
+              style?.badgeClass ?? 'border-slate-200 bg-white'
             }`}
           />
-          {busy ? (
+          {busy && (
             <Loader2 className="h-3 w-3 animate-spin text-slate-400" aria-hidden />
-          ) : (
-            style && <span aria-hidden>{style.symbol}</span>
           )}
         </span>
       ) : (
@@ -284,7 +282,7 @@ function JudgementField({
                 rows={4}
                 maxLength={2000}
                 aria-label={label}
-                className="w-full rounded border border-amber-200 px-1.5 py-1 text-xs"
+                className="w-full rounded border border-slate-200 px-1.5 py-1 text-xs"
               />
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setOpen(false)} className="text-xs text-slate-600 hover:underline">
@@ -311,7 +309,7 @@ function JudgementField({
 
 function BlockHeader({ period, status }: { period: LibretaPeriod; status?: Status }) {
   return (
-    <p className="flex items-center justify-center gap-1 bg-amber-100 px-2 py-1.5 text-center font-semibold leading-snug text-amber-950">
+    <p className="flex min-h-10 items-center justify-between gap-2 rounded-t-xl bg-slate-50 px-3 py-2 text-left text-xs font-semibold leading-snug text-slate-700">
       {period.name}
       {status === 'CLOSED' && (
         <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-slate-600">
@@ -349,24 +347,24 @@ function ConductCell({
   }
 
   return (
-    <div className="px-1 py-1.5 text-center">
-      <p className="font-bold text-amber-900" title={title}>
+    <div className="px-1.5 py-2.5 text-center">
+      <p className="font-semibold text-slate-600" title={title}>
         C
       </p>
       {editable ? (
-        <span className="inline-flex items-center gap-0.5">
+        <span className="inline-flex w-full items-center justify-center gap-0.5">
           <ConductSelect
             value={value == null ? '' : String(value)}
             options={options}
             disabled={busy}
             onChange={(next) => void handleChange(next)}
             aria-label={title}
-            className="max-w-[6.5rem] rounded border border-amber-200 bg-amber-50 px-0.5 py-0.5 text-center text-xs disabled:opacity-50"
+            className="min-h-9 w-full max-w-14 rounded-lg border border-slate-200 bg-white px-0.5 py-1 text-center text-sm tabular-nums disabled:opacity-50"
           />
           {busy && <Loader2 className="h-3 w-3 animate-spin text-slate-400" aria-hidden />}
         </span>
       ) : (
-        <span className="text-xs text-slate-700">{conductText(value, options)}</span>
+        <span className="text-sm font-semibold tabular-nums text-slate-700">{conductText(value, options)}</span>
       )}
     </div>
   )
@@ -411,7 +409,7 @@ const TRAMO_GRID: Record<number, string> = {
   3: 'grid-cols-3',
   4: 'grid-cols-4',
   5: 'grid-cols-5',
-  6: 'grid-cols-6',
+  6: 'grid-cols-3 min-[480px]:grid-cols-6',
 }
 
 function TramoBlock(props: BlockProps & { save: (patch: PeriodGradePatch) => Promise<void> }) {
@@ -422,10 +420,10 @@ function TramoBlock(props: BlockProps & { save: (patch: PeriodGradePatch) => Pro
   const hasText = Boolean(period.judgementLabel) && !ownOnly
   return (
     <>
-      <div className={`grid ${TRAMO_GRID[categories.length + (ownOnly ? 0 : 2)]} divide-x divide-amber-100 border-t border-amber-200`}>
+      <div className={`grid ${TRAMO_GRID[categories.length + (ownOnly ? 0 : 2)]} divide-x divide-slate-100 border-t border-slate-200`}>
         {categories.map((category) => (
-          <div key={category} className="px-1 py-1.5 text-center">
-            <p className="whitespace-nowrap font-medium text-slate-600" title={ACTIVITY_CATEGORY_TITLE[category]}>
+          <div key={category} className="px-1.5 py-2.5 text-center">
+            <p className="mb-1 whitespace-nowrap text-[11px] font-medium text-slate-500" title={ACTIVITY_CATEGORY_TITLE[category]}>
               {ACTIVITY_CATEGORY_LABEL[category]}
             </p>
             <GradeChips grades={buckets[category]} levels={levels} decimals={decimals} />
@@ -433,7 +431,7 @@ function TramoBlock(props: BlockProps & { save: (patch: PeriodGradePatch) => Pro
               <button
                 type="button"
                 onClick={() => onAddGrade(category)}
-                className="mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-teal-700 hover:bg-teal-50"
+                className="mt-1 inline-flex h-7 w-7 items-center justify-center rounded-lg border border-dashed border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                 aria-label={`Agregar nota de ${ACTIVITY_CATEGORY_TITLE[category]} en ${period.name}`}
                 title={`Agregar ${ACTIVITY_CATEGORY_TITLE[category].toLowerCase()}`}
               >
@@ -445,7 +443,7 @@ function TramoBlock(props: BlockProps & { save: (patch: PeriodGradePatch) => Pro
         {!ownOnly && <CAndR {...props} />}
       </div>
       {hasText && (
-        <div className="border-t border-amber-100">
+        <div className="border-t border-slate-100">
           <JudgementField
             label={judgementLabelOf(period)}
             value={props.saved?.conceptualJudgement ?? null}
@@ -463,10 +461,10 @@ function EntregaBlock(props: BlockProps & { save: (patch: PeriodGradePatch) => P
   const { period, saved, editable, save } = props
   return (
     <>
-      <div className="grid grid-cols-2 divide-x divide-amber-100 border-t border-amber-200">
+      <div className="grid grid-cols-2 divide-x divide-slate-100 border-t border-slate-200">
         <CAndR {...props} />
       </div>
-      <div className="border-t border-amber-100">
+      <div className="border-t border-slate-100">
         <JudgementField
           label={judgementLabelOf(period)}
           value={saved?.conceptualJudgement ?? null}
@@ -495,14 +493,13 @@ export default function PeriodBlock(props: BlockProps) {
   // El suplente no ve entregas ni diagnóstico: ahí sólo hay conducta, rendimiento y juicio del titular.
   if (props.ownGradesOnly && kind !== 'TRAMO') return null
 
-  const width = kind === 'TRAMO' ? (props.ownGradesOnly ? 'w-[15rem]' : 'w-[21rem]') : 'w-[15rem]'
   return (
-    <div className={`${width} shrink-0 overflow-hidden rounded border border-amber-200 bg-white text-xs`}>
+    <div className="min-w-0 rounded-xl border border-slate-200 bg-white text-xs">
       <BlockHeader period={props.period} status={props.status} />
       {kind === 'TRAMO' && <TramoBlock {...props} save={save} />}
       {kind === 'ENTREGA' && <EntregaBlock {...props} save={save} />}
       {kind === 'DIAGNOSTICO' && (
-        <div className="border-t border-amber-200">
+        <div className="border-t border-slate-200">
           <JudgementField
             label={judgementLabelOf(props.period)}
             value={props.saved?.conceptualJudgement ?? null}

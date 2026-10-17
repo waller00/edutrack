@@ -62,9 +62,10 @@ describe('<LibretaShell />', () => {
 
     renderShell()
 
-    expect(await screen.findByRole('heading', { name: /Libreta: 1-EMS · FÍSICA/ })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Física' })).toBeInTheDocument()
     expect(screen.getByText(/tronco común/)).toBeInTheDocument()
     expect(screen.getByText(/22 estudiantes/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Lista del grupo' })).toHaveAttribute('href', '/libreta/gb-1')
   })
 
   it('al suplente le muestra sólo sus notas y hasta cuándo dura la suplencia', async () => {
@@ -77,7 +78,7 @@ describe('<LibretaShell />', () => {
     renderShell()
 
     const nav = await screen.findByRole('navigation', { name: 'Secciones de la libreta' })
-    expect(within(nav).getAllByRole('link')).toHaveLength(1)
+    expect(within(nav).getAllByRole('link')).toHaveLength(2)
     expect(within(nav).getByRole('link', { name: /Tus notas \(suplencia\)/ })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent(/Suplencia\..*hasta el 12\/06\/2026.*titular no se muestra/)
   })
@@ -136,7 +137,7 @@ describe('<LibretaShell />', () => {
 
     renderShell()
 
-    await screen.findByRole('heading', { name: /Libreta:/ })
+    await screen.findByRole('heading', { name: 'Física' })
     expect(replace).toHaveBeenCalledWith('/libreta/gb-1')
     expect(screen.queryByText('contenido de la sección')).not.toBeInTheDocument()
   })
@@ -163,7 +164,7 @@ describe('<LibretaShell />', () => {
     mockedApi.mockResolvedValue(DETAIL)
 
     renderShell()
-    await screen.findByRole('heading', { name: /Libreta:/ })
+    await screen.findByRole('heading', { name: 'Física' })
 
     expect(screen.queryByText(/Ciclo lectivo cerrado/)).not.toBeInTheDocument()
   })

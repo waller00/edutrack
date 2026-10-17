@@ -99,6 +99,29 @@ describe('<EvaluationsBoard />', () => {
     })
   })
 
+  it('filtra los bloques por período y permite volver a verlos todos', async () => {
+    respond()
+    const original = apiMock.getMockImplementation()!
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      const response = await original(path, init)
+      if (path.endsWith('/options')) return {
+        ...response,
+        periods: [...response.periods, { id: 'p2', code: 'JULIO', name: 'Julio', kind: 'TRAMO' }],
+      }
+      return response
+    })
+    const user = userEvent.setup()
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={detail()} />)
+    const filter = await screen.findByRole('combobox', { name: 'Filtrar por período' })
+    expect(screen.getByTitle('C: conducta en Marzo – Abril')).toBeInTheDocument()
+    expect(screen.getByTitle('C: conducta en Julio')).toBeInTheDocument()
+    await user.selectOptions(filter, 'p2')
+    expect(screen.queryByTitle('C: conducta en Marzo – Abril')).not.toBeInTheDocument()
+    expect(screen.getByTitle('C: conducta en Julio')).toBeInTheDocument()
+    await user.selectOptions(filter, '')
+    expect(screen.getByTitle('C: conducta en Marzo – Abril')).toBeInTheDocument()
+  })
+
   it('el "+" abre una ventana emergente, con el foco adentro, que Escape cierra', async () => {
     respond()
     const user = userEvent.setup()

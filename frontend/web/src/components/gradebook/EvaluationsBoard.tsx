@@ -16,7 +16,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api/client'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
@@ -31,18 +31,19 @@ import {
 import {
   gradablePeriods,
   mergePeriodGrade,
+  periodKind,
   tramoForDate,
   type LibretaPeriod,
   type StoredPeriodGrade,
 } from '@/lib/gradebook/period-blocks'
-import { gradeBookTitle, studentFullName } from '@/lib/gradebook/labels'
+import { studentFullName } from '@/lib/gradebook/labels'
 import { gradeSelectFromHundredths, gradeSelectToHundredths, type GradeRange } from '@/lib/gradebook/grade-scale'
 import { todayYmdUruguay as todayYmd } from '@/lib/libreta/absence-day'
 import {
   downloadStudentEvaluationsXlsx,
   printStudentEvaluations,
 } from '@/lib/gradebook/student-evaluation-export'
-import type { GradeBookDetail, GradeBookHeader, RosterStudent } from '@/lib/gradebook/types'
+import type { GradeBookDetail, RosterStudent } from '@/lib/gradebook/types'
 import { libretaCode } from '@/components/libreta/MisLibretas'
 import StudentBadges, { type StudentBadgeFocus } from '@/components/libreta/StudentBadges'
 import StudentSheet from '@/components/libreta/StudentSheet'
@@ -984,13 +985,13 @@ function StudentDetailPanel({
 }
 
 /** La foto de la tarjeta; la misma URL sirve para imprimir, así se pide una sola vez. */
-function StudentPhoto({ url }: { url: string | null }) {
+function StudentPhoto({ url, initials }: { url: string | null; initials: string }) {
   if (!url) {
     return (
       <div
         aria-hidden
-        className="h-20 w-16 shrink-0 rounded border border-dashed border-slate-300 bg-slate-50"
-      />
+        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-sm font-semibold text-slate-600"
+      >{initials}</div>
     )
   }
   return (
@@ -998,7 +999,7 @@ function StudentPhoto({ url }: { url: string | null }) {
     <img
       src={url}
       alt=""
-      className="h-20 w-16 shrink-0 rounded border border-slate-200 object-cover"
+      className="h-12 w-12 shrink-0 rounded-xl border border-slate-200 object-cover"
     />
   )
 }
@@ -1115,12 +1116,10 @@ function StudentCard({
   }
 
   return (
-    <li className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-      {/* En pantallas anchas, los datos del alumno a la izquierda y los períodos a la derecha:
-          apilados, la carta quedaba apaisada con todo el costado derecho vacío. */}
-      <div className="grid gap-3 lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)] lg:items-start">
+    <li className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="space-y-4">
         <div className="flex items-start gap-3">
-          <StudentPhoto url={photoUrl} />
+          <StudentPhoto url={photoUrl} initials={`${student.lastName[0] ?? ''}${student.firstName[0] ?? ''}`.toUpperCase()} />
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -1131,32 +1130,19 @@ function StudentCard({
                 onSelect={(_code, focus) => onOpenSheet(focus)}
               />
             </div>
-            <dl className="mt-1 grid gap-x-4 gap-y-0.5 text-sm sm:grid-cols-2 lg:grid-cols-1">
-              <div>
-                <dt className="inline text-xs text-slate-500">Apellidos: </dt>
-                <dd className="inline font-semibold text-sky-900">{student.lastName}</dd>
-              </div>
-              <div>
-                <dt className="inline text-xs text-slate-500">Nombres: </dt>
-                <dd className="inline font-semibold text-sky-900">{student.firstName}</dd>
-              </div>
-              <div>
-                <dt className="inline text-xs text-slate-500">Documento: </dt>
-                <dd className="inline font-mono text-sky-900">{student.documentId || '—'}</dd>
-              </div>
-              <div>
-                <dt className="inline text-xs text-slate-500">Curso/Asig: </dt>
-                <dd className="inline font-semibold text-sky-900">{courseLabel}</dd>
-              </div>
-            </dl>
+            <h3 className="mt-1 text-base font-semibold tracking-tight text-slate-900 sm:text-lg">{studentFullName(student)}</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              {student.documentId && <span className="mr-3 font-mono">{student.documentId}</span>}
+              {courseLabel}
+            </p>
           </div>
 
-          <div className="flex shrink-0 flex-col gap-1">
+          <div className="flex shrink-0 flex-col gap-1 sm:flex-row">
             {canGrade && (
               <button
                 type="button"
                 onClick={() => onToggleAdd()}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-teal-600 text-teal-700 hover:bg-teal-50"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600 text-white transition-colors hover:bg-emerald-700"
                 aria-label={`Agregar calificación a ${studentFullName(student)}`}
                 title="Agregar calificación"
               >
@@ -1168,7 +1154,7 @@ function StudentCard({
                 type="button"
                 disabled={exportBusy !== null}
                 onClick={() => void handlePrint()}
-                className="inline-flex h-8 w-8 items-center justify-center rounded text-sky-700 hover:bg-sky-50 disabled:opacity-40"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
                 aria-label="Imprimir evaluaciones del alumno"
                 title="Imprimir"
               >
@@ -1180,7 +1166,7 @@ function StudentCard({
                 type="button"
                 disabled={exportBusy !== null}
                 onClick={() => void handleExcel()}
-                className="inline-flex h-8 w-8 items-center justify-center rounded text-teal-700 hover:bg-teal-50 disabled:opacity-40"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
                 aria-label="Exportar Excel del alumno"
                 title="Exportar a Excel"
               >
@@ -1195,7 +1181,7 @@ function StudentCard({
         </div>
 
         {periods.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))] items-start gap-3 border-t border-slate-100 pt-4">
             {periods.map((period) => {
               const state = periodStates.get(period.id)
               return (
@@ -1235,11 +1221,12 @@ function StudentCard({
         <p role="alert" className="mt-2 text-sm text-red-700">{exportError}</p>
       )}
 
-      <div className="mt-2">
+      <div className="mt-4 border-t border-slate-100 pt-3">
         <button
           type="button"
           onClick={onToggleDetail}
-          className="inline-flex items-center gap-1 text-xs font-medium text-sky-800 hover:underline"
+          className="inline-flex min-h-8 items-center gap-1.5 rounded-md text-xs font-medium text-slate-600 hover:text-emerald-700"
+          aria-expanded={detailOpen}
         >
           {detailOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
           {detailOpen ? 'Ocultar detalle' : 'Mostrar detalle'}
@@ -1282,16 +1269,16 @@ export default function EvaluationsBoard({
   gradeBookId: string
   detail: GradeBookDetail
 }) {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const alumnoParam = searchParams.get('alumno')
   const [board, setBoard] = useState<BoardResponse | null>(null)
   const [options, setOptions] = useState<Options | null>(null)
-  const [mine, setMine] = useState<GradeBookHeader[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [focusIndex, setFocusIndex] = useState(0)
   const [showAll, setShowAll] = useState(() => !alumnoParam)
+  const [periodFilter, setPeriodFilter] = useState('')
+  useEffect(() => { setPeriodFilter('') }, [gradeBookId])
   const [adding, setAdding] = useState<{ studentId: string; preset: AddPreset } | null>(null)
   const [detailStudentIds, setDetailStudentIds] = useState<Set<string>>(() => new Set())
   const [showGroupSheet, setShowGroupSheet] = useState(false)
@@ -1307,20 +1294,17 @@ export default function EvaluationsBoard({
     () => `${detail.course.name} · ${detail.subject.name}`,
     [detail.course.name, detail.subject.name],
   )
-  const title = useMemo(() => gradeBookTitle(detail), [detail])
   const libretaLabel = useMemo(() => libretaCode(detail), [detail])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [boardRes, opts, mineRes] = await Promise.all([
+      const [boardRes, opts] = await Promise.all([
         api<BoardResponse>(`/gradebook/${gradeBookId}/grades-board`),
         api<Options>(`/gradebook/${gradeBookId}/options`),
-        api<{ data: GradeBookHeader[] }>('/gradebook/mine'),
       ])
       setBoard(boardRes)
       setOptions(opts)
-      setMine(mineRes.data)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudieron cargar las evaluaciones')
@@ -1436,12 +1420,12 @@ export default function EvaluationsBoard({
   }
 
   return (
-    <section className="space-y-3">
-      <header className="flex flex-wrap items-end justify-between gap-2 border-b border-slate-200 pb-2">
+    <section className="space-y-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           {detail.access.ownWorkOnly ? (
             <>
-              <h2 className="text-base font-bold uppercase tracking-wide text-teal-800">Tus notas de suplencia</h2>
+              <h2 className="text-xl font-semibold tracking-tight text-slate-900">Tus notas de suplencia</h2>
               <p className="text-xs text-slate-500">
                 Ves y cargás sólo las notas que pusiste vos. Las del titular, la conducta y el rendimiento no se
                 muestran.
@@ -1449,15 +1433,14 @@ export default function EvaluationsBoard({
             </>
           ) : (
             <>
-              <h2 className="text-base font-bold uppercase tracking-wide text-teal-800">
-                Calificaciones · Or · Otras · Ev · C · R
+              <h2 className="text-xl font-semibold tracking-tight text-slate-900">
+                Calificaciones
               </h2>
-              <p className="text-xs text-slate-500">
-                C es la conducta; R, el rendimiento, la nota que va al boletín.
+              <p className="mt-1 text-sm text-slate-500">
+                C es la conducta (1 al 10); R, el rendimiento que va al boletín.
               </p>
             </>
           )}
-          <p className="text-sm text-slate-600">{title}</p>
         </div>
         {detail.access.canGrade && options && students.length > 0 && (
           <button type="button" onClick={() => setGroupFormOpen(true)} className="btn-primary text-sm">
@@ -1486,22 +1469,7 @@ export default function EvaluationsBoard({
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-slate-100/80 px-3 py-2 text-sm">
-        <span className="font-medium text-slate-700">Libreta</span>
-        <select
-          value={gradeBookId}
-          onChange={(e) => {
-            const next = e.target.value
-            if (next && next !== gradeBookId) router.push(`/libreta/${next}/evaluaciones`)
-          }}
-          className="min-w-[12rem] rounded border border-slate-300 bg-white px-2 py-1.5"
-          aria-label="Seleccionar libreta"
-        >
-          {(mine.length ? mine : [detail]).map((book) => (
-            <option key={book.id} value={book.id}>{libretaCode(book)}</option>
-          ))}
-        </select>
-
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm sm:flex sm:flex-wrap">
         {/* "Todos los alumnos" es una opción más del buscador, no un filtro aparte. */}
         <StudentCombobox
           students={students}
@@ -1509,9 +1477,8 @@ export default function EvaluationsBoard({
           allLabel="Todos los alumnos"
           numbered
           label="Alumno"
-          hideLabel
           disabled={students.length === 0}
-          className="min-w-[16rem] flex-1"
+          className="col-span-2 w-full min-w-0 flex-1 sm:min-w-[12rem] [&_input]:min-h-11 [&_input]:rounded-lg [&_input]:border-slate-200 [&_input]:bg-slate-50 [&_label]:mb-1.5"
           onChange={(studentId) => {
             if (studentId === null) {
               setShowAll(true)
@@ -1526,39 +1493,49 @@ export default function EvaluationsBoard({
           }}
         />
 
-        <button
-          type="button"
-          disabled={students.length === 0 || (!showAll && focusIndex === 0)}
-          onClick={() => {
-            if (!showAll) setFocusIndex((i) => Math.max(0, i - 1))
-            setShowAll(false)
-          }}
-          className="rounded border border-slate-300 bg-white px-2 py-1.5 text-slate-700 hover:bg-white disabled:opacity-40"
-          aria-label="Alumno anterior"
-          title="Alumno anterior"
-        >
-          <ChevronLeft className="h-4 w-4" aria-hidden />
-        </button>
-        <button
-          type="button"
-          disabled={students.length === 0 || (!showAll && focusIndex >= students.length - 1)}
-          onClick={() => {
-            // Desde "todos", el primero; si no, el que sigue.
-            if (!showAll) setFocusIndex((i) => Math.min(students.length - 1, i + 1))
-            setShowAll(false)
-          }}
-          className="rounded border border-slate-300 bg-white px-2 py-1.5 text-slate-700 hover:bg-white disabled:opacity-40"
-          aria-label="Alumno siguiente"
-          title="Alumno siguiente"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
+        <label className="min-w-0 flex-1 sm:max-w-[13rem]">
+          <span className="mb-1.5 block text-xs font-medium text-slate-500">Período</span>
+          <select aria-label="Filtrar por período" value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)} className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            <option value="">Todos los períodos</option>
+            {periods.filter((period) => !detail.access.ownWorkOnly || periodKind(period) === 'TRAMO').map((period) => <option key={period.id} value={period.id}>{period.name}</option>)}
+          </select>
+        </label>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            disabled={students.length === 0 || (!showAll && focusIndex === 0)}
+            onClick={() => {
+              if (!showAll) setFocusIndex((i) => Math.max(0, i - 1))
+              setShowAll(false)
+            }}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            aria-label="Alumno anterior"
+            title="Alumno anterior"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+          </button>
+          <button
+            type="button"
+            disabled={students.length === 0 || (!showAll && focusIndex >= students.length - 1)}
+            onClick={() => {
+              // Desde "todos", el primero; si no, el que sigue.
+              if (!showAll) setFocusIndex((i) => Math.min(students.length - 1, i + 1))
+              setShowAll(false)
+            }}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            aria-label="Alumno siguiente"
+            title="Alumno siguiente"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Un escrito o una prueba se carga para todo el grupo en una planilla; la carta queda para
           las notas sueltas de cada alumno. Antes esta planilla estaba al final, como "avanzada". */}
       <details
-        className="rounded-lg border border-teal-200 bg-white p-3"
+        className="rounded-xl border border-slate-200 bg-white p-4"
         open={showGroupSheet}
         onToggle={(e) => setShowGroupSheet((e.target as HTMLDetailsElement).open)}
       >
@@ -1580,20 +1557,25 @@ export default function EvaluationsBoard({
         </div>
       </details>
 
-      <button
-        type="button"
-        onClick={toggleDetailAll}
-        className="text-xs font-medium text-sky-800 hover:underline"
-      >
-        Mostrar / ocultar detalle (todos)
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-slate-500">
+          {showAll ? `${students.length} estudiantes` : students.length > 0 ? `Estudiante ${focusIndex + 1} de ${students.length}` : 'Sin estudiantes'}
+        </p>
+        <button
+          type="button"
+          onClick={toggleDetailAll}
+          className="inline-flex min-h-9 items-center rounded-lg text-xs font-medium text-slate-600 hover:text-emerald-700"
+        >
+          Mostrar / ocultar detalle (todos)
+        </button>
+      </div>
 
       {students.length === 0 ? (
         <p className="rounded-lg border border-gray-200 bg-white px-4 py-8 text-center text-sm text-gray-500">
           No hay estudiantes para mostrar.
         </p>
       ) : (
-        <ul className="space-y-3">
+        <ul className="space-y-5">
           {visibleStudents.map((student) => {
             const index = detail.students.findIndex((s) => s.studentId === student.studentId)
             return (
@@ -1604,7 +1586,7 @@ export default function EvaluationsBoard({
                 courseLabel={courseLabel}
                 libretaLabel={libretaLabel}
                 detail={detail}
-                periods={periods}
+                periods={periodFilter ? periods.filter((period) => period.id === periodFilter) : periods}
                 rows={rowsByStudent.get(student.studentId) ?? []}
                 periodGrades={(board?.periodGrades ?? []).filter((g) => g.studentId === student.studentId)}
                 periodStates={periodStates}

@@ -613,7 +613,7 @@ export default function CierreAlumnoBoard({
                   </div>
 
                   {isFocus && periods.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))] items-start gap-3">
                       {periods.map((period) => (
                         <PeriodBlock
                           key={period.periodId}

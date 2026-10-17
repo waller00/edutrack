@@ -27,7 +27,7 @@ const WORK_SECTIONS: readonly LibretaSection[] = [
   { id: 'desarrollo', label: 'Desarrollo del curso', abbr: 'Des', hint: 'Registro clase a clase: qué se trabajó y cuántas horas se dictaron.' },
   {
     id: 'evaluaciones',
-    label: 'Calificaciones (Or · Otras · Ev · C · R)',
+    label: 'Calificaciones',
     abbr: 'Cal',
     hint: 'Carta por alumno como la planilla: notas sueltas por tramo, C (conducta) y R (rendimiento), e informe de cada entrega.',
   },

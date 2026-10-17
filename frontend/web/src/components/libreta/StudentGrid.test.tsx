@@ -64,6 +64,26 @@ describe('<StudentGrid />', () => {
     )
   })
 
+  it('busca sin acentos, conserva la numeración y permite limpiar una búsqueda sin resultados', async () => {
+    const user = userEvent.setup()
+    render(<StudentGrid gradeBookId="gb-1" students={[
+      student(), student({ studentId: 's2', firstName: 'Lucía', lastName: 'Díaz', documentId: '4.222.333-4' }),
+    ]} />)
+    const search = screen.getByRole('searchbox', { name: 'Buscar estudiante' })
+    await user.type(search, 'diaz')
+    expect(screen.getByText('Díaz, Lucía')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.queryByText('Benítez, Ana')).not.toBeInTheDocument()
+    await user.clear(search)
+    await user.type(search, '4222')
+    expect(screen.getAllByRole('link', { name: 'Evaluaciones' })).toHaveLength(1)
+    await user.clear(search)
+    await user.type(search, 'Sin coincidencias')
+    expect(screen.getByText(/No hay estudiantes que coincidan/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Limpiar búsqueda' }))
+    expect(screen.getAllByRole('link', { name: 'Evaluaciones' })).toHaveLength(2)
+  })
+
   it('escribe siempre el número de faltas, no sólo el color', () => {
     // RNF 7.2: el color es refuerzo; el conteo tiene que poder leerse.
     render(

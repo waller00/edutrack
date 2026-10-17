@@ -3,17 +3,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight, Loader2, UserRoundCheck } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, BookOpen, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, FilePenLine, GraduationCap, LayoutList, Loader2, MessageSquare, NotebookPen, UserRoundCheck, Users } from 'lucide-react'
 import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
 import { useLibreta } from '@/contexts/LibretaContext'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasAnyPermission } from '@/lib/auth/permissions'
 import { sectionById, sectionHref, sectionsFor, type LibretaSectionId } from '@/lib/libreta/menu'
 import type { GradeBookAccessLevel } from '@/lib/gradebook/types'
-import { libretaCode } from './MisLibretas'
 import GroupSwitcher from './GroupSwitcher'
 
 const MENU_COLLAPSED_KEY = 'edutrack.libreta.menuCollapsed'
+const SECTION_ICONS = {
+  planificacion: NotebookPen,
+  desarrollo: FilePenLine,
+  evaluaciones: ClipboardList,
+  cierre: CalendarDays,
+  mensajes: MessageSquare,
+  visado: CheckCheck,
+}
 
 /**
  * ¿Mira la libreta como supervisor? El titular y el suplente la trabajan; quien entra con alcance
@@ -101,25 +108,35 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
   const substituteUntil = detail.access.substituteUntil ? formatDateInUruguay(detail.access.substituteUntil) : null
 
   return (
-    <div className="space-y-4">
-      <header className="border-b border-gray-200 pb-2">
-        <p className="text-xs text-gray-500">
-          <Link href="/libreta" className="text-emerald-700 hover:underline">Libretas</Link>
-          {' / '}Libro del Profesor
-        </p>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="text-lg font-bold uppercase tracking-wide text-slate-700">
-            Libreta: {libretaCode(detail)}
-          </h1>
-          <GroupSwitcher gradeBookId={gradeBookId} section={openSection} />
+    <div className="libreta-workspace space-y-5">
+      <header className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+        <Link href="/libreta" className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 transition-colors hover:text-emerald-700">
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden />Todas las libretas
+        </Link>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3 sm:gap-4">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 sm:h-14 sm:w-14">
+              <BookOpen className="h-6 w-6" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-slate-500">Libro del Profesor</p>
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{detail.subject.name}</h1>
+              <p className="mt-1 text-sm text-slate-500">{detail.teacher?.name ?? 'Sin titular asignado'}</p>
+            </div>
+          </div>
+          <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${readOnly ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-800'}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${readOnly ? 'bg-slate-400' : 'bg-emerald-500'}`} aria-hidden />
+              {readOnly ? 'Histórico' : 'En curso'}
+            </span>
+            <GroupSwitcher gradeBookId={gradeBookId} section={openSection} />
+          </div>
         </div>
-        <p className="text-sm text-gray-600">
-          {detail.course.name}
-          {detail.orientation ? ` — ${detail.orientation}` : ' — tronco común'}
-          {' · '}Ciclo {detail.schoolYear.label}
-          {detail.teacher?.name ? ` · ${detail.teacher.name}` : ''}
-          {' · '}{detail.studentCount} estudiante{detail.studentCount === 1 ? '' : 's'}
-        </p>
+        <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-4 text-xs text-slate-600 sm:text-sm">
+          <span className="inline-flex items-center gap-2"><GraduationCap className="h-4 w-4 text-slate-400" aria-hidden />{detail.course.name}{detail.orientation ? ` — ${detail.orientation}` : ' — tronco común'}</span>
+          <span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4 text-slate-400" aria-hidden />Ciclo {detail.schoolYear.label}</span>
+          <span className="inline-flex items-center gap-2"><Users className="h-4 w-4 text-slate-400" aria-hidden />{detail.studentCount} estudiante{detail.studentCount === 1 ? '' : 's'}</span>
+        </div>
       </header>
 
       {substitute && (
@@ -142,12 +159,12 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
 
       {/* En el celular, las siete secciones con su explicación empujaban el contenido una pantalla
           entera hacia abajo: un selector ocupa una línea. */}
-      <label className="block lg:hidden">
-        <span className="sr-only">Sección de la libreta</span>
+      <label className="block rounded-xl border border-slate-200 bg-white p-3 lg:hidden">
+        <span className="mb-1.5 block text-xs font-medium text-slate-500">Sección de la libreta</span>
         <select
           value={openSection ?? ''}
           onChange={(e) => router.push(e.target.value ? sectionHref(gradeBookId, e.target.value as LibretaSectionId) : `/libreta/${gradeBookId}`)}
-          className="w-full rounded border border-gray-300 bg-white px-2 py-2 text-sm"
+          className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800"
         >
           <option value="">Lista del grupo</option>
           {sections.map((section) => (
@@ -158,14 +175,14 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
         </select>
       </label>
 
-      <div className="flex flex-col gap-4 lg:flex-row">
+      <div className="flex flex-col items-start gap-5 lg:flex-row">
         <nav
           aria-label="Secciones de la libreta"
-          className={`hidden transition-[width] lg:block ${menuCollapsed ? 'lg:w-12 lg:shrink-0' : 'lg:w-72 lg:shrink-0'}`}
+          className={`hidden rounded-xl border border-slate-200 bg-white p-2 lg:sticky lg:top-20 lg:block lg:shrink-0 ${menuCollapsed ? 'lg:w-16' : 'lg:w-56'}`}
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             {!menuCollapsed && (
-              <p className="text-sm font-semibold text-gray-900">Menú Libro del Profesor</p>
+              <p className="pl-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Menú Libro del Profesor</p>
             )}
             <button
               type="button"
@@ -184,6 +201,17 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
             </button>
           </div>
 
+          <Link
+            href={`/libreta/${gradeBookId}`}
+            aria-current={!openSection ? 'page' : undefined}
+            aria-label="Lista del grupo"
+            title={menuCollapsed ? 'Lista del grupo' : undefined}
+            className={`mb-2 flex min-h-11 items-center gap-2.5 rounded-lg border-b border-slate-100 p-2.5 text-sm font-medium ${menuCollapsed ? 'justify-center' : ''} ${!openSection ? 'bg-emerald-50 text-emerald-800' : 'text-slate-600 hover:bg-slate-50'}`}
+          >
+            <LayoutList className="h-4 w-4 shrink-0" aria-hidden />
+            {!menuCollapsed && 'Lista del grupo'}
+          </Link>
+
           {menuCollapsed && (
             // Contraído no queda vacío: la abreviatura sigue llevando a cada sección.
             <ul id="libreta-menu-sections" className="space-y-0.5">
@@ -198,7 +226,7 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
                       aria-label={section.label}
                       title={section.label}
                       className={`block rounded px-1 py-2 text-center text-[11px] font-semibold ${
-                        active ? 'bg-amber-50 text-amber-900 ring-1 ring-amber-200' : 'text-gray-600 hover:bg-gray-50'
+                        active ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100' : 'text-gray-600 hover:bg-gray-50'
                       }`}
                     >
                       {section.abbr}
@@ -214,19 +242,24 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
               {sections.map((section) => {
                 const href = sectionHref(gradeBookId, section.id)
                 const active = pathname === href
+                const Icon = SECTION_ICONS[section.id]
                 return (
                   <li key={section.id}>
                     <Link
                       href={href}
                       aria-current={active ? 'page' : undefined}
-                      className={`block rounded px-3 py-2 transition ${
+                      title={section.hint}
+                      className={`flex items-start gap-2.5 rounded-lg px-2.5 py-3 transition-colors ${
                         active
-                          ? 'bg-amber-50 font-medium text-amber-900 ring-1 ring-amber-200'
-                          : 'text-gray-700 hover:bg-gray-50'
+                          ? 'bg-emerald-50 font-medium text-emerald-800'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                       }`}
                     >
-                      <span className="block text-sm">{section.label}</span>
-                      <span className="block text-xs leading-snug text-gray-500">{section.hint}</span>
+                      <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{section.label}</span>
+                        <span className={`mt-1 text-xs leading-relaxed text-slate-500 ${active ? 'block' : 'sr-only'}`}>{section.hint}</span>
+                      </span>
                     </Link>
                   </li>
                 )
@@ -235,7 +268,7 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
           )}
         </nav>
 
-        <div className="min-w-0 flex-1">{misplaced ? null : children}</div>
+        <div className="w-full min-w-0 flex-1">{misplaced ? null : children}</div>
       </div>
     </div>
   )

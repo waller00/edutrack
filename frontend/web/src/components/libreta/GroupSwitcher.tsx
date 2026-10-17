@@ -50,11 +50,11 @@ export default function GroupSwitcher({
   if (books.length < 2) return null
 
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <span className="text-gray-600">Grupo:</span>
+    <label className="flex min-w-0 flex-1 items-center gap-2 text-sm sm:flex-initial">
+      <span className="sr-only">Grupo</span>
       <select
         aria-label="Cambiar de grupo"
-        className="select-field max-w-xs"
+        className="min-h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 py-2 pl-3 pr-8 text-sm font-medium text-slate-700 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:max-w-xs"
         value={gradeBookId}
         onChange={(e) => router.push(`/libreta/${e.target.value}${section ? `/${section}` : ''}`)}
       >

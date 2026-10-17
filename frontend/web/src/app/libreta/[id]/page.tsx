@@ -18,12 +18,13 @@ export default function LibretaHomePage() {
 
   return (
     <div className="space-y-4">
-      <section>
-        <h2 className="mb-1 text-sm font-semibold text-gray-900">Lista del grupo</h2>
-        <p className="mb-2 text-xs text-gray-500">
-          Tocá un estudiante o un distintivo (ADEC, Gen…) para ver su hoja: datos, materias que
-          arrastra y adecuaciones a tener en cuenta al calificar.
-        </p>
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight text-slate-900">Lista del grupo</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Abrí la ficha de un estudiante para consultar sus datos y adecuaciones, o entrá a sus evaluaciones.
+          </p>
+        </div>
         <StudentGrid
           gradeBookId={gradeBookId}
           students={detail.students}
