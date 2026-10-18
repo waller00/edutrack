@@ -1,6 +1,9 @@
-# Management APIs remain on container loopback, even on the monitoring network.
+# LAPI stays on container loopback. Metrics are reachable only on Docker networks.
 api:
   server:
     listen_uri: 127.0.0.1:8080
 prometheus:
-  listen_addr: 127.0.0.1
+  enabled: true
+  level: full
+  listen_addr: 0.0.0.0
+  listen_port: 6060

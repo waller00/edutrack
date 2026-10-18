@@ -6,6 +6,11 @@ rule_files:
   - /etc/prometheus/alerts.yml
 
 scrape_configs:
+  # Opt-in CrowdSec: down when the standalone observation stack is stopped.
+  - job_name: crowdsec
+    static_configs:
+      - targets: ["crowdsec:6060"]
+
   - job_name: prometheus
     static_configs:
       - targets: ["prometheus:9090"]

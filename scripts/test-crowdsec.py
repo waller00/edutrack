@@ -136,6 +136,11 @@ services:
         assert not (json.loads(cli('bouncers', 'list', '-o', 'json').stdout) or [])
         # LAPI must not accept connections via the container's network address.
         ip = next(iter(info['NetworkSettings']['Networks'].values()))['IPAddress']
+        # Verify real exported names used by Grafana, not just endpoint availability.
+        metrics = urllib.request.urlopen('http://' + ip + ':6060/metrics', timeout=10).read().decode()
+        for metric in ('cs_lokisource_hits_total', 'cs_parser_hits_ok_total', 'cs_bucket_overflowed_total'):
+            assert metric in metrics, metric
+        print('PASS: private-network metrics endpoint and dashboard metric names', flush=True)
         import socket
         with socket.socket() as sock:
             sock.settimeout(2)
