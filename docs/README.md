@@ -31,6 +31,7 @@
 | [REVERSE_PROXY_CLOUDFLARE.md](REVERSE_PROXY_CLOUDFLARE.md) | Reverse proxy Nginx para Cloudflare antes de activar WAF |
 | [KEYCLOAK_ADMIN_PRIVADO.md](KEYCLOAK_ADMIN_PRIVADO.md) | Propuesta de acceso administrativo por Tailscale, pruebas y reversion |
 | [SSH_PRIVADO_GITHUB_ACTIONS.md](SSH_PRIVADO_GITHUB_ACTIONS.md) | Migracion gradual del SSH de produccion y runners, manteniendo el puerto publico durante pruebas |
+| [CROWDSEC_DETECCION.md](CROWDSEC_DETECCION.md) | CrowdSec opt-in: detección simulada desde Loki, pruebas locales y reversión |
 | [BACKUP_POSTGRES_OFFSITE.md](BACKUP_POSTGRES_OFFSITE.md) | Backup diario de PostgreSQL hacia VPS externa |
 | [TESTING_DB_RESTORE.md](TESTING_DB_RESTORE.md) | Restaurar dumps en el Droplet |
 | [CIBERSEGURIDAD_CONTINUIDAD.md](CIBERSEGURIDAD_CONTINUIDAD.md) | Seguridad, backups, RTO/RPO, incidentes |

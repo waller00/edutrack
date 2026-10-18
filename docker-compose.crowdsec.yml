@@ -1,0 +1,43 @@
+# Opt-in standalone project: never included by the production deploy workflow.
+name: edutrack-crowdsec
+services:
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.8.1@sha256:0f2523fa61ef507f15d953045cface490cc880670c62f2755ced17524107f71a
+    restart: unless-stopped
+    environment:
+      CUSTOM_HOSTNAME: edutrack-observer
+      DISABLE_ONLINE_API: "true"
+      DISABLE_COLLECTIONS: crowdsecurity/sshd crowdsecurity/whitelist-good-actors
+      PARSERS: crowdsecurity/nginx-logs crowdsecurity/http-logs crowdsecurity/dateparse-enrich crowdsecurity/syslog-logs
+      SCENARIOS: crowdsecurity/http-probing
+    volumes:
+      - crowdsec-config:/etc/crowdsec
+      - crowdsec-data:/var/lib/crowdsec/data
+      - ./monitoring/crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
+      - ./monitoring/crowdsec/config.yaml.local:/etc/crowdsec/config.yaml.local:ro
+      - ./monitoring/crowdsec/simulation.yaml:/etc/crowdsec/simulation.yaml:ro
+    networks:
+      - logs
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 0.50
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+networks:
+  logs:
+    external: true
+    name: edutrack-monitoring_monitoring
+volumes:
+  crowdsec-config:
+  crowdsec-data:
