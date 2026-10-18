@@ -7,7 +7,7 @@ discovery.relabel "docker" {
 
 	rule {
 		source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
-		regex         = "edutrack|edutrack-monitoring"
+		regex         = "edutrack|edutrack-monitoring|edutrack-crowdsec"
 		action        = "keep"
 	}
 

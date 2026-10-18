@@ -33,7 +33,8 @@ Cloudflare, SSH, UFW ni Tailscale. No instala bouncers ni AppSec y no bloquea tr
 - Único escenario de detección previsto: `crowdsecurity/http-probing`, que
   correlaciona rutas distintas con respuestas 400/403/404. No detecta todos los
   ataques ni sustituye autorización, rate limits o revisión de código.
-- LAPI y métricas escuchan en loopback del contenedor; ningún puerto publicado.
+- LAPI escucha en loopback del contenedor. Métricas en `6060` accesibles desde
+  la red Docker de monitoring, sin publicar puertos en el host.
 - Sin socket Docker, volúmenes del host de logs ni privilegios de firewall.
 - Límites iniciales: 512 MiB, 0,5 CPU y 128 procesos. Son límites, no mediciones
   de consumo esperado. Logs propios rotados a 3 archivos de 10 MiB.
@@ -115,8 +116,8 @@ ni pruebas de carga contra producción para generar alertas.
 
 5. Observar un período representativo (propuesta: 1–2 semanas), revisando recursos,
    falsos positivos, IPs compartidas, reinicios y recuperación de conexión a Loki.
-   Las alertas se consultan por `cscli`; no se agrega aún dashboard de Grafana ni
-   notificaciones externas. La retención local inicial del motor es la incluida
+   Grafana muestra métricas y logs; el detalle completo de alertas se consulta
+   por `cscli`. No se agregan notificaciones externas. La retención local inicial del motor es la incluida
    en la imagen (7 días / 5.000 elementos); revisar antes de ampliar el alcance.
 
 ## Detener o revertir
@@ -148,3 +149,49 @@ su evaluación propia y no está incluida aquí.
 - https://docs.crowdsec.net/docs/log_processor/scenarios/simulation/
 - https://github.com/crowdsecurity/crowdsec/blob/master/build/docker/README.md
 - https://app.crowdsec.net/hub/author/crowdsecurity/scenarios/http-probing
+
+## Visualización en Grafana
+
+Dashboard provisionado: **EduTrack → CrowdSec — Observación**, UID
+`crowdsec-observation`. Usa las fuentes existentes `prometheus` y `loki`.
+
+- Disponibilidad del endpoint, líneas leídas/procesadas y errores del parser final.
+- Alertas locales por escenario (`cs_alerts`, gauge sujeto a retención) y disparos
+  de escenarios. Ninguna de estas métricas acredita bloqueos aplicados.
+- Logs del proyecto `edutrack-crowdsec` recogidos por Alloy, pasando por las mismas
+  etapas de saneamiento. No cambia la consulta de adquisición de CrowdSec, por
+  lo que sus propios logs no vuelven a alimentar el escenario HTTP.
+- Sin datos no equivale a cero. Algunas series aparecen recién con actividad.
+  Los contadores se reinician con CrowdSec; las tasas usan `rate`/`increase`.
+- No hay tabla completa de IPs/eventos desde la base LAPI ni avisos por correo.
+  Para investigar una alerta: `cscli alerts list` y `cscli alerts inspect ID`.
+- El texto de observación del dashboard no verifica dinámicamente el modo de
+  simulación. Comprobar `cscli simulation status` al activar o modificar el motor.
+
+El endpoint de métricas no requiere autenticación: es accesible a los contenedores
+conectados a monitoring. LAPI permanece en `127.0.0.1:8080`; no se agregan puertos
+publicados, bouncers, reglas de firewall ni cambios en Cloudflare.
+
+### Aplicar después de integrar y actualizar el repositorio del servidor
+
+Los workflows de aplicación no activan automáticamente estos cambios de monitoring.
+Tras guardar las configuraciones anteriores como respaldo, desde `/root/edutrack`:
+
+```bash
+docker compose -f docker-compose.crowdsec.yml config --quiet
+docker compose -f docker-compose.crowdsec.yml restart crowdsec
+docker compose --env-file .env.monitoring -f docker-compose.monitoring.yml restart prometheus alloy
+```
+
+El reinicio permite volver a montar los archivos actualizados por Git. Grafana
+lee el directorio de dashboards cada 30 segundos y no necesita reinicio.
+Hay una interrupción breve en detección/scraping/captura durante esos reinicios;
+la aplicación y su proxy no se reinician.
+
+Comprobar en Grafana que `up{job="crowdsec"}` vale 1, que los contadores aumentan
+con navegación normal y que aparecen logs de CrowdSec. Confirmar simulación y
+lista de bouncers vacía con `cscli`. No generar ataques en producción para probar.
+Para revertir, restaurar los tres archivos de configuración anteriores y retirar
+el dashboard; reiniciar CrowdSec, Prometheus y Alloy. No borrar volúmenes.
+
+Referencia de métricas: https://docs.crowdsec.net/docs/observability/prometheus/
