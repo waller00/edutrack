@@ -195,3 +195,21 @@ Para revertir, restaurar los tres archivos de configuración anteriores y retira
 el dashboard; reiniciar CrowdSec, Prometheus y Alloy. No borrar volúmenes.
 
 Referencia de métricas: https://docs.crowdsec.net/docs/observability/prometheus/
+
+### Verificación de activación — 18/10/2026
+
+Integración aplicada en producción desde el commit
+`167d949c0cd8a55679d5e17a5ba79b07e741b71b` de `feature/add-CrowdSec`.
+El fetch HTTPS del servidor falló por falta de credenciales; se transfirieron por
+SSH privado únicamente los cuatro archivos de monitoring de ese commit.
+Los cambios quedan en el árbol de trabajo del servidor hasta integrar la rama
+con `main`; no se cambió el HEAD ni se desplegó la aplicación.
+
+Backup previo:
+`/root/edutrack-deploy-backups/crowdsec-grafana-20261018T223324Z`.
+Prometheus validó configuración y sus ocho reglas. Se reiniciaron exclusivamente
+CrowdSec, Prometheus y Alloy. Grafana cargó los nueve paneles automáticamente.
+
+Verificado: `up{job="crowdsec"}=1`, logs del proyecto CrowdSec en Loki,
+dashboard consultable por API de Grafana, web HTTP 200, CrowdSec saludable,
+simulación global habilitada, bouncers vacíos y ningún puerto publicado.
