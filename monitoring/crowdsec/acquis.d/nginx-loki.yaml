@@ -1,6 +1,7 @@
 # Read only the public proxy access lines AFTER Alloy sanitization.
 # WAF event/error lines are excluded to avoid counting the same request twice.
 # The first stage excludes biometric endpoints from behavioural detection.
+# JSON-escaped Nginx logs have an empty anonymous username; also accept legacy '-'.
 source: loki
 url: http://loki:3100
 wait_for_ready: 60s
@@ -8,7 +9,7 @@ max_failure_duration: 60s
 limit: 1000
 query: >-
   {compose_project="edutrack",compose_service="reverse-proxy"}
-  |~ `^[0-9a-fA-F:.]+ - [^ ]+ \[`
+  |~ `^[0-9a-fA-F:.]+ - [^ ]* \[`
   !~ `"[A-Z]+ /(?:iclock(?:/|[ ?])|(?:cdata|getrequest|registry|devicecmd)(?:[ ?]))`
 labels:
   type: nginx

@@ -6,6 +6,7 @@ Never connects to production. Cleans only its own generated project and volumes.
 import datetime
 import json
 import pathlib
+import re
 import subprocess
 import tempfile
 import time
@@ -66,18 +67,39 @@ services:
         base = 'http://' + loki_ip + ':3100'
         # Loki's reader starts at now after readiness, so do not push fixtures earlier.
         wait_for(lambda: 'Connecting to http://loki:3100/loki/api/v1/query_range' in (run('docker', 'logs', cid).stdout + run('docker', 'logs', cid).stderr), 90)
+        # Obtain an anonymous access line from the actual Nginx JSON-escaped format.
+        nginx_source = (ROOT / 'nginx/reverse-proxy/nginx.conf').read_text()
+        log_format = re.search(r"  log_format access_safe .*?;", nginx_source).group(0)
+        nginx_config = pathlib.Path(temp) / 'nginx.conf'
+        nginx_config.write_text('events {} http { map $request_uri $log_path { default $uri; }\n'
+                                + log_format + '\naccess_log /dev/stdout access_safe; '
+                                + 'server { listen 8080; location / { return 404; } } }')
+        nginx_id = run('docker', 'run', '-d', '--network', 'none', '-v',
+                       str(nginx_config) + ':/etc/nginx/nginx.conf:ro', 'nginx:1.27-alpine').stdout.strip()
+        try:
+            def request_fixture():
+                return run('docker', 'exec', nginx_id, 'wget', '-q', '-O', '/dev/null',
+                           'http://127.0.0.1:8080/fixture', check=False).returncode != 0 and '/fixture' in run('docker', 'logs', nginx_id).stdout
+            wait_for(request_fixture, 15)
+            sample = next(l for l in run('docker', 'logs', nginx_id).stdout.splitlines() if 'GET /fixture HTTP/' in l)
+        finally:
+            run('docker', 'rm', '-f', nginx_id)
+        assert ' -  [' in sample, sample
         ts = time.time_ns()
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%d/%b/%Y:%H:%M:%S +0000')
 
         def line(ip, path, status=404):
-            return f'{ip} - - [{stamp}] "GET {path} HTTP/1.1" {status} 10 "-" "crowdsec-local-test"'
+            return re.sub(r'^127\.0\.0\.1', ip, sample).replace('/fixture', path).replace(' 404 ', f' {status} ')
+
+        def legacy_line(ip, path):
+            return f'{ip} - - [{stamp}] "GET {path} HTTP/1.1" 404 10 "-" "crowdsec-local-test"'
 
         public = []
         # Generate enough distinct error paths to overflow http-probing's bucket.
         for i in range(15):
             public.extend([
                 line('198.51.100.20', f'/scan-{i}'),
-                line('2001:db8::20', f'/scan-v6-{i}'),
+                legacy_line('2001:db8::20', f'/scan-v6-{i}'),
                 line('198.51.100.21', f'/normal-{i}', 200),
                 line('198.51.100.22', f'/iclock/probe-{i}'),
                 line('198.51.100.23', '/cdata'),

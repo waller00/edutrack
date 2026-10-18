@@ -2,8 +2,17 @@
 
 ## Estado y alcance
 
-Preparación en `feature/add-CrowdSec`. No se activa desde los workflows de
-producción. Este archivo no acredita una instalación en el servidor.
+Instalación en producción verificada el 18/10/2026 en modo observación.
+No se activa desde los workflows de producción.
+
+En la primera comprobación, el filtro descartaba el usuario anónimo vacío de
+Nginx (`escape=json`). Se corrigió `[^ ]+` por `[^ ]*` en la adquisición y se
+reinició únicamente CrowdSec. Una petición normal a la web respondió HTTP 200
+y produjo una línea leída y procesada desde Loki; simulación global habilitada
+y lista de bouncers vacía. Backup previo en el servidor:
+`/root/edutrack-deploy-backups/crowdsec-20261018T214254Z`.
+La corrección también está en la rama local `feature/add-CrowdSec`; debe
+publicarse e integrarse en `main` para conservarla en próximos despliegues.
 
 Validación local completada el 18/10/2026: Compose válido y prueba real con Loki
 3.3.2 + CrowdSec 1.8.1 aprobada. Se comprobaron adquisición, dos alertas simuladas
@@ -67,7 +76,10 @@ python3 scripts/test-crowdsec.py
 ```
 
 La prueba crea un proyecto y red únicos, un Loki temporal y CrowdSec con la misma
-configuración. Inyecta datos sintéticos con el formato de acceso saneado; espera
+configuración. Genera una línea anónima con Nginx y el `log_format access_safe`
+del repositorio, e inyecta datos sintéticos derivados de ella. También comprueba
+el formato anterior con usuario `-`. El campo de usuario vacío que produce
+`escape=json` debe admitirse en el filtro de adquisición. Espera
 alertas simuladas para exploración IPv4/IPv6, sin alertas para navegación 200,
 biometría ni líneas WAF o del proxy privado. Verifica que LAPI no sea alcanzable
 por la IP del contenedor y que no haya bouncers ni puertos publicados. Elimina
