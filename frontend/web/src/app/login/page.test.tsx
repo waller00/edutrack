@@ -153,5 +153,30 @@ describe('LoginPage (Keycloak)', () => {
 
     expect(await screen.findByRole('heading', { name: 'Tu cuenta espera aprobación' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Reenviar/ })).not.toBeInTheDocument()
+    // Ya está registrado: "Registrarse" no le sirve, y no tiene otra cuenta a la que cambiar.
+    expect(screen.queryByRole('link', { name: 'Registrarse' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cerrar sesión' })).toBeInTheDocument()
+  })
+
+  it('una cuenta inhabilitada sí ofrece cambiar de cuenta', async () => {
+    vi.mocked(api).mockRejectedValueOnce(blockedError('ACCOUNT_INACTIVE'))
+    Object.defineProperty(window, 'location', { configurable: true, value: { href: '', search: '' } })
+
+    render(<LoginPage />)
+
+    expect(await screen.findByRole('button', { name: 'Cerrar sesión y cambiar cuenta' })).toBeInTheDocument()
+  })
+
+  it('recién registrado no inicia el login solo ni repite los pasos del alta', async () => {
+    const registeredLocation = { href: '', search: '?registered=1' }
+    Object.defineProperty(window, 'location', { configurable: true, value: registeredLocation })
+
+    render(<LoginPage />)
+
+    expect(await screen.findByRole('heading', { name: 'Registro enviado' })).toBeInTheDocument()
+    expect(screen.getByText(/cuando administración apruebe tu cuenta/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Aprobación de administración/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Registrarse' })).not.toBeInTheDocument()
+    expect(registeredLocation.href).toBe('')
   })
 })

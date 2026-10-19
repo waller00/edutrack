@@ -14,7 +14,13 @@ import {
 } from "../auth/auth-profile-pure.js";
 import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-policy.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
-import { createKeycloakUser, freeKeycloakUsernameIfOrphan, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
+import {
+  createKeycloakUser,
+  freeKeycloakUsernameIfOrphan,
+  logoutKeycloakUserSessions,
+  syncKeycloakUserIdentity,
+  syncRegisteredSsoUser,
+} from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
 import { linkKeycloakAccount } from "../auth/keycloak-provisioning.js";
 import { getSession, newSessionId, saveSession } from "../auth/session-store.js";
@@ -416,6 +422,11 @@ r.post("/register", async (req, res) => {
       });
       await linkKeycloakAccount(user.id, ssoProfile.kcId);
       if (ssoRegistrationToken) await consumeSsoRegistration(ssoRegistrationToken);
+      // La sesión de Google en Keycloak sigue abierta: el próximo login entraría sin preguntar y
+      // mostraría otra vez "espera aprobación". Si no se puede cerrar, el alta vale igual.
+      await logoutKeycloakUserSessions(ssoProfile.kcId).catch((error) =>
+        console.warn("[register] no se pudo cerrar la sesión de Keycloak:", error),
+      );
     } else {
       // Si el username quedó ocupado en Keycloak por una cuenta huérfana (sin usuario en la app),
       // la borramos para usar el nombre limpio (no se crean ni se toleran huérfanos).

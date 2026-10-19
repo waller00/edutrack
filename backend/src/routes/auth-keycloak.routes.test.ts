@@ -50,12 +50,22 @@ const {
   deleteKeycloakUserOtpCredentialsMock,
   exchangeCodeMock,
   provisionUserFromClaimsMock,
+  keycloakUserHasPasswordMock,
+  setInitialKeycloakPasswordMock,
+  recordAuditEventMock,
 } = vi.hoisted(() => ({
   getKeycloakUserIdByEmailMock: vi.fn().mockResolvedValue("kc-1"),
   verifyKeycloakUserOtpCodeMock: vi.fn().mockResolvedValue(true),
   deleteKeycloakUserOtpCredentialsMock: vi.fn().mockResolvedValue(1),
   exchangeCodeMock: vi.fn(),
   provisionUserFromClaimsMock: vi.fn(),
+  keycloakUserHasPasswordMock: vi.fn().mockResolvedValue(false),
+  setInitialKeycloakPasswordMock: vi.fn().mockResolvedValue(undefined),
+  recordAuditEventMock: vi.fn(),
+}));
+
+vi.mock("../services/audit-log.js", () => ({
+  recordAuditEvent: recordAuditEventMock,
 }));
 
 vi.mock("../db/redis.js", () => ({
@@ -89,6 +99,8 @@ vi.mock("../auth/keycloak.js", () => ({
   refreshTokens: vi.fn(),
   triggerKeycloakPasswordReset: vi.fn(),
   verifyKeycloakUserOtpCode: verifyKeycloakUserOtpCodeMock,
+  keycloakUserHasPassword: keycloakUserHasPasswordMock,
+  setInitialKeycloakPassword: setInitialKeycloakPasswordMock,
 }));
 
 vi.mock("../auth/keycloak-provisioning.js", () => ({
@@ -264,6 +276,98 @@ describe("auth-keycloak account routes", () => {
 
     expect(replay.headers.location).toContain("twoFactorDisableError=token");
     expect(deleteKeycloakUserOtpCredentialsMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("auth-keycloak crear contraseña (cuenta de Google)", () => {
+  const session = (createdAt: number) => ({
+    sid: "sid-1",
+    userId: "user-1",
+    kcId: "kc-1",
+    email: "u@example.com",
+    role: "TEACHER",
+    accessToken: "access-1",
+    accessTokenExpiresAt: Date.now() + 60_000,
+    createdAt,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.FRONTEND_URL = "http://localhost:3000";
+    redisMock.set.mockResolvedValue("OK");
+    redisMock.incr.mockResolvedValue(1);
+    getSessionMock.mockResolvedValue(session(Date.now()));
+    keycloakUserHasPasswordMock.mockResolvedValue(false);
+    setInitialKeycloakPasswordMock.mockResolvedValue(undefined);
+  });
+
+  const post = (password: unknown) =>
+    request(app()).post("/auth/account/password").set("Cookie", "sid=sid-1").send({ password });
+
+  it("GET /auth/account/password-status dice si la cuenta tiene contraseña", async () => {
+    const res = await request(app()).get("/auth/account/password-status").set("Cookie", "sid=sid-1");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ hasPassword: false });
+    expect(keycloakUserHasPasswordMock).toHaveBeenCalledWith("kc-1");
+  });
+
+  it("crea la primera contraseña con un ingreso reciente y lo audita", async () => {
+    const res = await post("Segura123!");
+
+    expect(res.status).toBe(200);
+    expect(setInitialKeycloakPasswordMock).toHaveBeenCalledWith("kc-1", "Segura123!");
+    expect(recordAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "AUTH_PASSWORD_CREATED", actorUserId: "user-1", entityId: "user-1" }),
+    );
+  });
+
+  it("rechaza una contraseña débil sin tocar Keycloak", async () => {
+    const res = await post("corta");
+
+    expect(res.status).toBe(400);
+    expect(setInitialKeycloakPasswordMock).not.toHaveBeenCalled();
+  });
+
+  it("con una sesión de hace más de 10 minutos pide volver a ingresar", async () => {
+    getSessionMock.mockResolvedValue(session(Date.now() - 11 * 60 * 1000));
+
+    const res = await post("Segura123!");
+
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe("REAUTH_REQUIRED");
+    expect(setInitialKeycloakPasswordMock).not.toHaveBeenCalled();
+  });
+
+  it("si la cuenta ya tiene contraseña no la pisa: eso es «Cambiar contraseña»", async () => {
+    keycloakUserHasPasswordMock.mockResolvedValue(true);
+
+    const res = await post("Segura123!");
+
+    expect(res.status).toBe(409);
+    expect(setInitialKeycloakPasswordMock).not.toHaveBeenCalled();
+  });
+
+  it("devuelve 400 si la política de Keycloak rechaza la contraseña", async () => {
+    setInitialKeycloakPasswordMock.mockRejectedValue(Object.assign(new Error("Keycloak reset password error 400"), { status: 400 }));
+
+    const res = await post("Segura123!");
+
+    expect(res.status).toBe(400);
+    expect(recordAuditEventMock).not.toHaveBeenCalled();
+  });
+
+  it("GET /auth/account/reauth pide el ingreso de nuevo y vuelve al perfil con el formulario", async () => {
+    const res = await request(app()).get("/auth/account/reauth").set("Cookie", "sid=sid-1");
+
+    expect(res.status).toBe(302);
+    expect(buildLoginUrlMock).toHaveBeenCalledWith(expect.objectContaining({ prompt: "login" }));
+    expect(redisMock.set).toHaveBeenCalledWith(
+      "bff:oauth:state-1",
+      expect.stringContaining('"returnTo":"/profile?crear-contrasena=1"'),
+      "EX",
+      600,
+    );
   });
 });
 

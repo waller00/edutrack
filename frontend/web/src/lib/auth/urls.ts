@@ -29,6 +29,11 @@ export function accountPasswordUrl(): string {
   return `${apiBase()}/auth/account/password`
 }
 
+/** Vuelve a pedir el ingreso y regresa al perfil con "Crear contraseña" abierto. */
+export function accountReauthUrl(): string {
+  return `${apiBase()}/auth/account/reauth`
+}
+
 export function accountTwoFactorUrl(): string {
   return `${apiBase()}/auth/account/2fa`
 }

@@ -347,7 +347,35 @@ async function setKeycloakUserPassword(token: string, kcUserId: string, password
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Keycloak reset password error ${res.status}: ${detail}`);
+    // `status` distingue la contraseña rechazada por la política del realm (400) de una caída.
+    const error = new Error(`Keycloak reset password error ${res.status}: ${detail}`) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
+  }
+}
+
+/**
+ * Primera contraseña de una cuenta que entra sólo con Google. El "Cambiar contraseña" de Keycloak
+ * pide la actual, que esa cuenta no tiene. Quien llama verifica que no tenga ninguna.
+ */
+export async function setInitialKeycloakPassword(kcUserId: string, password: string): Promise<void> {
+  const token = await getAdminToken();
+  await setKeycloakUserPassword(token, kcUserId, password);
+}
+
+/**
+ * Cierra las sesiones de Keycloak del usuario. Tras un alta con Google la sesión del proveedor
+ * quedaba abierta, y el siguiente login entraba sin preguntar a una cuenta que todavía no puede usar.
+ */
+export async function logoutKeycloakUserSessions(kcUserId: string): Promise<void> {
+  const token = await getAdminToken();
+  const res = await kcFetch(`${adminBaseUrl()}/admin/realms/${adminRealm()}/users/${encodeURIComponent(kcUserId)}/logout`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Keycloak logout user error ${res.status}: ${detail}`);
   }
 }
 
@@ -801,6 +829,20 @@ export async function getKeycloakUserOtpStatus(kcUserId: string): Promise<{ enab
   const credentials = (await res.json()) as KeycloakCredential[];
   const secondFactorCredentials = credentials.filter((credential) => credential.type && KEYCLOAK_SECOND_FACTOR_CREDENTIAL_TYPES.has(credential.type));
   return { enabled: secondFactorCredentials.length > 0, count: secondFactorCredentials.length };
+}
+
+/** Si la cuenta tiene contraseña en Keycloak. Quien se registró con Google no tiene. */
+export async function keycloakUserHasPassword(kcUserId: string): Promise<boolean> {
+  const token = await getAdminToken();
+  const res = await kcFetch(`${adminBaseUrl()}/admin/realms/${adminRealm()}/users/${encodeURIComponent(kcUserId)}/credentials`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Keycloak credentials error ${res.status}: ${detail}`);
+  }
+  const credentials = (await res.json()) as KeycloakCredential[];
+  return credentials.some((credential) => credential.type === "password");
 }
 
 export async function verifyKeycloakUserOtpCode(kcUserId: string, code: string): Promise<boolean> {

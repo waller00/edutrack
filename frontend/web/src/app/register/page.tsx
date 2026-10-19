@@ -271,8 +271,10 @@ export default function RegisterPage() {
               />
               {needsEmailVerification && <ResendVerificationEmail email={registeredEmail} justSent />}
             </div>
+            {/* A /login sin auto-ingreso: la cuenta todavía no puede entrar, e ir a "/" la mandaba
+                al login y de vuelta a la pantalla de aprobación, con los mismos pasos que ésta. */}
             <a
-              href="/"
+              href="/login?registered=1"
               className="btn-primary w-full text-center justify-center"
               onClick={() => {
                 // Limpia la marca de auto-login para que /login no muestre el cartel
@@ -284,7 +286,7 @@ export default function RegisterPage() {
                 }
               }}
             >
-              Ir al inicio
+              Volver al ingreso
             </a>
           </div>
         </div>

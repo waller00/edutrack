@@ -82,6 +82,12 @@ body {
   line-height: 1.6;
 }
 
+/* Los campos de contraseña tienen su propio botón mostrar/ocultar: sin esto Edge agrega otro "ojo". */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
 /* Componentes personalizados */
 .btn-primary {
   @apply inline-flex min-h-10 items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
