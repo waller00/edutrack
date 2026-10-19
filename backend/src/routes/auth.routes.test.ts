@@ -445,6 +445,28 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     expect(res.status).toBe(503);
   });
 
+  it("POST /auth/register no deja pedir el perfil de Administrador", async () => {
+    const res = await request(app())
+      .post("/auth/register")
+      .send({ email: "intruso@example.com", password: "Segura123!", firstName: "In", lastName: "Truso", role: "ADMIN" });
+
+    expect(res.status).toBe(400);
+    expect(prismaMock.user.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/register acepta Dirección y Adscripto (quedan pendientes de aprobación)", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "u-dir", email: "dir@example.com", username: "dir.ector" });
+    for (const role of ["DIRECCION", "ADSCRIPTO"]) {
+      const res = await request(app())
+        .post("/auth/register")
+        .send({ email: "dir@example.com", password: "Segura123!", firstName: "Dir", lastName: "Ector", role });
+      expect(res.status, role).toBe(200);
+    }
+    expect(getOrgRoleIdMock).toHaveBeenCalledWith("DIRECCION");
+    expect(getOrgRoleIdMock).toHaveBeenCalledWith("ADSCRIPTO");
+  });
+
   it("POST /auth/register devuelve 409 si Prisma detecta duplicado durante el alta", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
     const duplicate = new Error("Unique constraint failed") as Error & { code?: string };

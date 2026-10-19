@@ -42,6 +42,7 @@ const {
     medicalLeave: { count: vi.fn().mockResolvedValue(0) },
     orgRole: {
       upsert: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       findFirst: vi.fn(),
       findUnique: vi.fn(),
       findMany: vi.fn(),

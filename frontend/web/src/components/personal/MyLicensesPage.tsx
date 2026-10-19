@@ -34,7 +34,7 @@ export default function MyLicensesPage(
   _props: { role?: 'STAFF' | 'TEACHER' } = {},
 ) {
   return (
-    <RoleGuard permission="licenses.read" permissionScope="own">
+    <RoleGuard permission="licenses.read">
       <LicensesContent />
     </RoleGuard>
   )

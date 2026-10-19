@@ -278,14 +278,14 @@ describe('loadProfilePermissionsStore', () => {
     ])
     prismaMock.rolePermission.findMany.mockResolvedValueOnce([
       { label: 'Ver', enabled: true, scope: 'ALL', permission: { code: 'users.read', module: 'Usuarios', action: 'read' }, orgRole: { code: 'ADMIN' } },
-      { label: 'Mis', enabled: true, scope: 'OWN', permission: { code: 'events.read', module: 'Eventos', action: 'read' }, orgRole: { code: 'STAFF' } },
+      { label: 'Mis', enabled: true, scope: 'OWN', permission: { code: 'licenses.read', module: 'Licencias', action: 'read' }, orgRole: { code: 'STAFF' } },
       // rol no listado → se ignora
       { label: 'X', enabled: true, scope: 'OWN', permission: { code: 'x.y', module: 'X', action: 'y' }, orgRole: { code: 'GHOST' } },
     ])
     const store = await loadProfilePermissionsStore()
     expect(store.ADMIN).toHaveLength(1)
     expect(store.ADMIN[0]).toMatchObject({ id: 'users.read', scope: 'all', enabled: true })
-    expect(store.STAFF[0]).toMatchObject({ id: 'events.read', scope: 'own' })
+    expect(store.STAFF[0]).toMatchObject({ id: 'licenses.read', scope: 'own' })
     expect(store.GHOST).toBeUndefined()
   })
 })

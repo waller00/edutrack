@@ -6,6 +6,7 @@ import {
   NAV_GROUP_META,
   NAV_GROUP_ORDER,
   quickAccessModules,
+  visibleModules,
   visibleNavGroups,
   visibleRelated,
 } from './modules'
@@ -103,11 +104,37 @@ describe('qué ve cada uno', () => {
     expect(labels).not.toContain('Asistencia del personal')
   })
 
-  it('un permiso con alcance institucional no muestra la versión "mis…"', () => {
-    expect(canSeeModule(admin, moduleById('staff-attendance'))).toBe(true)
-    expect(canSeeModule(admin, moduleById('my-attendance'))).toBe(false)
+  it('"Mis libretas" es de quien ve sólo lo propio: quien ve todas tiene "Libretas"', () => {
+    const supervisor = { permissions: [{ id: 'gradebook.read', scope: 'all' as const }] }
+    expect(canSeeModule(supervisor, moduleById('my-gradebooks'))).toBe(false)
     expect(canSeeModule(null, moduleById('profile'))).toBe(true)
     expect(canSeeModule(null, moduleById('users'))).toBe(false)
+  })
+
+  it('quien ve la asistencia, agenda y licencias de todos sigue teniendo las suyas', () => {
+    // Dirección y Adscripción ven todo el centro y también marcan, tienen agenda y piden licencias.
+    const direccion = {
+      permissions: [
+        { id: 'attendance.read', scope: 'all' as const },
+        { id: 'events.read', scope: 'all' as const },
+        { id: 'licenses.read', scope: 'all' as const },
+      ],
+    }
+    for (const id of ['my-attendance', 'my-agenda', 'my-licenses', 'staff-attendance'] as const) {
+      expect(canSeeModule(direccion, moduleById(id)), id).toBe(true)
+    }
+  })
+
+  it('Personal ve sólo sus ingresos y sus licencias', () => {
+    const personal = {
+      permissions: [
+        { id: 'attendance.read', scope: 'own' as const },
+        { id: 'licenses.read', scope: 'own' as const },
+        { id: 'notifications.read', scope: 'own' as const },
+      ],
+    }
+    const withPermission = visibleModules(personal).filter((m) => m.permission).map((m) => m.id)
+    expect(withPermission.sort()).toEqual(['my-attendance', 'my-licenses'])
   })
 
   it('acepta la forma vieja de permisos (`permissionIds`, sin alcance) como propia', () => {

@@ -179,7 +179,9 @@ export const APP_MODULES: readonly AppModule[] = [
     icon: CircleHelp,
   },
 
-  // Mi trabajo: lo propio de cada docente o funcionario.
+  // Mi trabajo: lo propio de cada docente o funcionario. Mi agenda, Mis asistencias y Mis licencias
+  // no fijan alcance: Dirección y Adscripción ven las de todos y siguen teniendo las suyas (las
+  // páginas consultan `my-*`, que filtran por quien está en la sesión).
   {
     id: 'my-agenda',
     label: 'Mi agenda',
@@ -188,7 +190,6 @@ export const APP_MODULES: readonly AppModule[] = [
     group: 'mine',
     icon: CalendarDays,
     permission: 'events.read',
-    permissionScope: 'own',
     quickAccess: 1,
   },
   {
@@ -225,7 +226,6 @@ export const APP_MODULES: readonly AppModule[] = [
     group: 'mine',
     icon: UserCheck,
     permission: 'attendance.read',
-    permissionScope: 'own',
     related: [{ id: 'roll-call', text: '¿Buscás las faltas de tus estudiantes?' }],
     quickAccess: 2,
   },
@@ -237,7 +237,6 @@ export const APP_MODULES: readonly AppModule[] = [
     group: 'mine',
     icon: FileText,
     permission: 'licenses.read',
-    permissionScope: 'own',
     quickAccess: 3,
   },
 

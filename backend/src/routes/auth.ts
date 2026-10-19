@@ -73,7 +73,8 @@ const registerSchema = z.object({
   lastName: z.string().min(1).max(80),
   phone: z.string().min(7).max(20).optional(),
   birthdate: z.string().datetime().optional(),
-  role: z.enum(["ADMIN", "STAFF", "TEACHER"]).optional(),
+  // Los perfiles que puede pedir quien se registra solo. Administrador nunca: lo asigna un admin.
+  role: z.enum(["STAFF", "TEACHER", "ADSCRIPTO", "DIRECCION"]).optional(),
   ssoRegistrationToken: z.string().min(20).max(128).optional(),
 });
 

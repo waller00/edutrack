@@ -469,7 +469,7 @@ describe("events routes (prisma mock)", () => {
         _count: { attendances: 0 },
       },
     ]);
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "STAFF" });
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
     const res = await request(app())
       .get("/events/my-events")
       .set("Authorization", `Bearer ${tok}`);
@@ -479,7 +479,7 @@ describe("events routes (prisma mock)", () => {
 
   it("GET /events/my-events aplica filtros de tipo y status", async () => {
     prismaMock.event.findMany.mockResolvedValue([]);
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "STAFF" });
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
     const res = await request(app())
       .get("/events/my-events?type=CLASE&status=SCHEDULED")
       .set("Authorization", `Bearer ${tok}`);
@@ -493,7 +493,7 @@ describe("events routes (prisma mock)", () => {
   it("GET /events/my-events aplica filtro courseId", async () => {
     prismaMock.event.findMany.mockResolvedValue([]);
     const cid = "00000000-0000-4000-8000-0000000000c1";
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "STAFF" });
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
     const res = await request(app())
       .get(`/events/my-events?courseId=${cid}`)
       .set("Authorization", `Bearer ${tok}`);
@@ -538,7 +538,7 @@ describe("events routes (prisma mock)", () => {
   it("GET /events/my-events admite courseId repetido en la query", async () => {
     prismaMock.event.findMany.mockResolvedValue([]);
     const cid = "00000000-0000-4000-8000-0000000000c1";
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "STAFF" });
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
     const res = await request(app())
       .get(`/events/my-events?courseId=${cid}&courseId=${cid}`)
       .set("Authorization", `Bearer ${tok}`);

@@ -78,6 +78,18 @@ describe('RegisterPage', () => {
     expect(screen.getByText(/queda pendiente hasta que administración/i)).toBeInTheDocument()
   })
 
+  it('ofrece los perfiles que se pueden pedir, nunca Administrador', async () => {
+    mockedApi
+      .mockImplementationOnce(() => Promise.reject(new Error('401')))
+      .mockResolvedValue({})
+
+    render(<RegisterPage />)
+
+    await screen.findByText('Crear Cuenta')
+    const options = [...(document.querySelector('#register-role') as HTMLSelectElement).options].map((o) => o.value)
+    expect(options).toEqual(['', 'TEACHER', 'STAFF', 'ADSCRIPTO', 'DIRECCION'])
+  })
+
   it('revela los errores por campo al intentar crear la cuenta con el formulario vacío', async () => {
     mockedApi
       .mockImplementationOnce(() => Promise.reject(new Error('401')))

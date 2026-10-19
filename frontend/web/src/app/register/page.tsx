@@ -509,8 +509,10 @@ export default function RegisterPage() {
                   className={fieldInputClass('select-field', fieldError('role'), fieldValid('role', role))}
                 >
                   <option value="">Seleccioná un perfil</option>
-                  <option value="STAFF">Personal</option>
                   <option value="TEACHER">Docente</option>
+                  <option value="STAFF">Personal</option>
+                  <option value="ADSCRIPTO">Adscripto</option>
+                  <option value="DIRECCION">Dirección</option>
                 </select>
               </FormField>
 
