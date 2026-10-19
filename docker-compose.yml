@@ -184,6 +184,9 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      # Next standalone usa HOSTNAME para atarse; sin esto escucha solo en la IP
+      # del contenedor y el healthcheck a 127.0.0.1 falla.
+      HOSTNAME: "0.0.0.0"
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
       NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
@@ -196,6 +199,12 @@ services:
     depends_on:
       auth:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - appnet
 

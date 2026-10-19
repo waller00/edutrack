@@ -236,9 +236,19 @@ Reglas criticas incluidas:
 - Backend `/health` caido.
 - Backend `/ready` caido.
 - Frontend caido.
+- PostgreSQL sin conexiones (`pg_up == 0`).
+- Keycloak sin `health/ready` (puerto de management 9000).
 - Postgres exporter caido.
 - Metricas del backend no scrapeables.
 - Disco disponible del host por debajo de 8%.
+- CrowdSec: endpoint caido, heartbeat viejo, parseo bajo, pico de detecciones
+  y decisiones activas con simulacion.
+- Watchdog de contenedores: reinicios repetidos, tope alcanzado y watchdog sin
+  reportar.
+
+La auto-remediacion (reinicio acotado de `web`, `auth` y `reverse-proxy`) esta
+documentada en [AUTO_REMEDIACION.md](AUTO_REMEDIACION.md). PostgreSQL y Keycloak
+no se reinician automaticamente: solo alertan.
 
 Despues de actualizar el repo en el servidor, reiniciá Grafana para que lea el
 provisioning:

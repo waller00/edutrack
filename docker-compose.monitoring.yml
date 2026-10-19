@@ -118,10 +118,13 @@ services:
       - "--path.rootfs=/rootfs"
       - "--path.sysfs=/host/sys"
       - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+      # Metricas del watchdog de contenedores (textfile collector).
+      - "--collector.textfile.directory=/var/lib/node_exporter/textfile"
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/rootfs:ro
+      - /var/lib/edutrack-watchdog/textfile:/var/lib/node_exporter/textfile:ro
     networks:
       - monitoring
     security_opt:

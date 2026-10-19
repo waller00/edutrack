@@ -35,6 +35,7 @@
 | [BACKUP_POSTGRES_OFFSITE.md](BACKUP_POSTGRES_OFFSITE.md) | Backup diario de PostgreSQL hacia VPS externa |
 | [TESTING_DB_RESTORE.md](TESTING_DB_RESTORE.md) | Restaurar dumps en el Droplet |
 | [CIBERSEGURIDAD_CONTINUIDAD.md](CIBERSEGURIDAD_CONTINUIDAD.md) | Seguridad, backups, RTO/RPO, incidentes |
+| [AUTO_REMEDIACION.md](AUTO_REMEDIACION.md) | Watchdog de contenedores, dry-run y límites |
 | [BIOMETRICO_F22.md](BIOMETRICO_F22.md) | Reloj ZKTeco F22 (ADMS) |
 
 ## Calidad y datos

@@ -1,0 +1,16 @@
+[Unit]
+Description=EduTrack container watchdog (auto-remediacion acotada)
+Documentation=file:///root/edutrack/docs/AUTO_REMEDIACION.md
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/mkdir -p /var/lib/edutrack-watchdog/state /var/lib/edutrack-watchdog/textfile
+EnvironmentFile=-/etc/edutrack/watchdog.env
+ExecStart=/usr/local/bin/edutrack-container-watchdog.sh
+TimeoutStartSec=120
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

@@ -10,6 +10,7 @@ services:
   pg:
     logging: *default-logging
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-asistencias}
@@ -61,6 +62,13 @@ services:
     # de desarrollo). TLS lo termina Cloudflare/nginx, por eso HTTP queda habilitado detrás del proxy.
     # El primer arranque compila la configuración y tarda un poco más.
     command: ["start", "--import-realm"]
+    # /health/ready vive en el puerto de management (9000), no en el 8080.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; grep -q '200 OK' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
@@ -91,6 +99,7 @@ services:
   auth:
     logging: *default-logging
     build: ./backend
+    restart: unless-stopped
     # Este comando asegura que las tablas se creen antes de iniciar el servidor
     command: ["/app/docker-entrypoint.sh"]
     environment:
@@ -206,8 +215,12 @@ services:
         SENTRY_PROJECT: ${SENTRY_PROJECT:-}
         NEXT_PUBLIC_LOGROCKET_APP_ID: ${NEXT_PUBLIC_LOGROCKET_APP_ID:-}
         NEXT_PUBLIC_LOGROCKET_FORCE: ${NEXT_PUBLIC_LOGROCKET_FORCE:-false}
+    restart: unless-stopped
     # NEXT_PUBLIC_* en runtime no reemplaza lo ya embebido en el bundle de Next al construir la imagen.
     environment:
+      # Next standalone usa HOSTNAME para atarse; sin esto escucha solo en la IP
+      # del contenedor y el healthcheck a 127.0.0.1 falla.
+      HOSTNAME: "0.0.0.0"
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
       NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
@@ -220,6 +233,12 @@ services:
     depends_on:
       auth:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks: [net]
 
 volumes:

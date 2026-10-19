@@ -45,6 +45,7 @@ scrape_configs:
           - http://auth:4000/health
           - http://auth:4000/ready
           - http://web:3000/
+          - http://keycloak:9000/health/ready
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

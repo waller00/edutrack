@@ -802,3 +802,373 @@ groups:
           service: crowdsec
           severity: warning
         isPaused: false
+
+  - orgId: 1
+    name: edutrack-data-and-auth
+    folder: EduTrack Alerts
+    interval: 1m
+    rules:
+      - uid: edutrack-postgres-down
+        title: "EduTrack PostgreSQL down"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: "min(pg_up{job=\"postgres\"})"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "pg_up"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "EduTrack - PostgreSQL no responde"
+          description: "El exporter conecta pero pg_up vale 0, o no hay datos: PostgreSQL no acepta conexiones."
+          impact: "La aplicación pierde lectura y escritura; los inicios de sesión y el pase de lista fallan."
+          action: "NO reiniciar automaticamente. Revisar disco, WAL, locks y logs de pg antes de decidir."
+          runbook: "cd /root/edutrack && docker compose -f docker-compose.cloud.yml exec -T pg pg_isready -U postgres -d asistencias && docker compose -f docker-compose.cloud.yml logs --tail=100 pg && df -h"
+        labels:
+          service: edutrack
+          severity: critical
+        isPaused: false
+
+      - uid: edutrack-keycloak-ready-down
+        title: "EduTrack Keycloak not ready"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: "min(probe_success{job=\"blackbox-http\", instance=\"http://keycloak:9000/health/ready\"})"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "keycloak readiness"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "EduTrack - Keycloak no esta listo"
+          description: "El health/ready de Keycloak (puerto de management 9000) no responde 2xx."
+          impact: "No se pueden iniciar sesiones nuevas ni renovar tokens; los usuarios existentes pueden seguir con su sesion hasta que expire."
+          action: "Revisar logs de keycloak y su base keycloak-db. No reiniciar en medio de un horario de clases sin avisar."
+          runbook: "cd /root/edutrack && docker compose -f docker-compose.cloud.yml logs --tail=100 keycloak && docker compose -f docker-compose.cloud.yml ps keycloak-db"
+        labels:
+          service: edutrack
+          severity: critical
+        isPaused: false
+
+
+  - orgId: 1
+    name: edutrack-container-watchdog
+    folder: EduTrack Alerts
+    interval: 1m
+    rules:
+      - uid: edutrack-container-restarts-repeated
+        title: "EduTrack container restarted repeatedly"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: "sum by (service) (increase(edutrack_container_restarts_total[1h]))"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "reinicios en 1h"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 3
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "EduTrack - Reinicios repetidos del watchdog"
+          description: "El watchdog reinicio el mismo servicio mas de 3 veces en una hora: es un crash loop, no un incidente aislado."
+          impact: "El auto-reinicio esta enmascarando una causa que no se resuelve reiniciando."
+          action: "Cortar el auto-reinicio para ese servicio (WATCHDOG_DRY_RUN=1 o quitar el servicio de WATCHDOG_SERVICES) y revisar logs y causa raiz."
+          runbook: "journalctl -u edutrack-container-watchdog -n 100 --no-pager && cd /root/edutrack && docker compose -f docker-compose.cloud.yml logs --tail=200 web auth reverse-proxy"
+        labels:
+          service: edutrack
+          severity: critical
+        isPaused: false
+
+      - uid: edutrack-container-watchdog-cap-reached
+        title: "EduTrack watchdog gave up"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: "max by (service) (edutrack_container_watchdog_cap_reached)"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "tope alcanzado"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "EduTrack - El watchdog dejo de reiniciar"
+          description: "Se alcanzo el tope de reinicios por ventana y el servicio sigue unhealthy. El sistema ya no intenta recuperarlo."
+          impact: "El servicio permanece caido hasta que intervenga una persona."
+          action: "Revisar la causa raiz antes de reiniciar a mano. Confirmar el estado con docker ps y los logs del servicio."
+          runbook: "journalctl -u edutrack-container-watchdog -n 100 --no-pager && cd /root/edutrack && docker compose -f docker-compose.cloud.yml ps"
+        labels:
+          service: edutrack
+          severity: critical
+        isPaused: false
+      - uid: edutrack-container-watchdog-stale
+        title: "EduTrack watchdog not reporting"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: "time() - max(edutrack_container_watchdog_last_run_timestamp_seconds{job=\"node\"})"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "segundos desde la ultima corrida"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 300
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "EduTrack - El watchdog no reporta"
+          description: "El timer del watchdog no corre o no puede escribir metricas: la auto-remediacion esta apagada sin que se note."
+          impact: "Si un servicio se cuelga, nadie lo reinicia y solo queda la notificacion."
+          action: "Revisar el timer y el servicio; confirmar que node-exporter lee el textfile."
+          runbook: "systemctl status edutrack-container-watchdog.timer --no-pager && journalctl -u edutrack-container-watchdog -n 100 --no-pager"
+        labels:
+          service: edutrack
+          severity: critical
+        isPaused: false
