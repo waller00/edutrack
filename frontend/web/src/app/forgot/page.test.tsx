@@ -12,6 +12,14 @@ const mockedApi = vi.mocked(api)
 describe('ForgotPage', () => {
   beforeEach(() => {
     mockedApi.mockReset()
+    Object.defineProperty(window, 'location', { configurable: true, value: { href: '', search: '' } })
+  })
+
+  it('precarga el correo que ya se escribió en la pantalla de ingreso', async () => {
+    Object.defineProperty(window, 'location', { configurable: true, value: { href: '', search: '?email=ana%40example.com' } })
+    render(<ForgotPage />)
+
+    await waitFor(() => expect(screen.getByLabelText(/correo/i)).toHaveValue('ana@example.com'))
   })
 
   it('envía solicitud de recupero por correo', async () => {

@@ -203,9 +203,9 @@ else
   echo ">> OK. Google IdP clientId = $GAFTER"
 fi
 
-# Correo del realm: "Olvidé mi contraseña", el reset que manda administración y /auth/forgot-password
-# los envía Keycloak con su propio SMTP, no la app con Brevo. DigitalOcean bloquea el 25/465/587:
-# usar el relay SMTP de Brevo en el 2525 (smtp-relay.brevo.com) con su clave SMTP, no la de la API.
+# Correo del realm (opcional). Recuperar contraseña ya lo manda EduTrack por Brevo
+# (auth/password-reset.ts); esto sólo hace falta para correos nativos de Keycloak. DigitalOcean
+# bloquea el 25/465/587: usar el relay SMTP de Brevo en el 2525 con su clave SMTP, no la de la API.
 SMTP_KC_HOST="${KEYCLOAK_SMTP_HOST:-$(env_get KEYCLOAK_SMTP_HOST)}"
 SMTP_KC_PORT="${KEYCLOAK_SMTP_PORT:-$(env_get KEYCLOAK_SMTP_PORT)}"
 SMTP_KC_USER="${KEYCLOAK_SMTP_USER:-$(env_get KEYCLOAK_SMTP_USER)}"
@@ -213,8 +213,7 @@ SMTP_KC_PASS="${KEYCLOAK_SMTP_PASSWORD:-$(env_get KEYCLOAK_SMTP_PASSWORD)}"
 SMTP_KC_FROM="${KEYCLOAK_SMTP_FROM:-$(env_get KEYCLOAK_SMTP_FROM)}"
 SMTP_KC_FROM="${SMTP_KC_FROM:-${SMTP_FROM:-$(env_get SMTP_FROM)}}"
 if [ -z "$SMTP_KC_HOST" ] || [ -z "$SMTP_KC_USER" ] || [ -z "$SMTP_KC_PASS" ] || [ -z "$SMTP_KC_FROM" ]; then
-  echo ">> SMTP del realm: WARN faltan KEYCLOAK_SMTP_HOST/USER/PASSWORD o el remitente; no lo toco."
-  echo "   Sin SMTP en Keycloak no salen los correos de recuperación de contraseña."
+  echo ">> SMTP del realm: sin KEYCLOAK_SMTP_*; no lo toco (recuperar contraseña usa el correo de EduTrack)."
 else
   REALM_NOW="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$KC_URL/admin/realms/$REALM_NAME")"
   REALM_SMTP="$(printf '%s' "$REALM_NOW" | jq \

@@ -39,6 +39,7 @@ enum AuditAction {
   AUTH_LOGOUT
   AUTH_GOOGLE_LOGIN_SUCCESS
   AUTH_PASSWORD_CREATED
+  AUTH_PASSWORD_RESET
   USER_CREATED_BY_ADMIN
   USER_UPDATED_BY_ADMIN
   USER_DELETED_BY_ADMIN
@@ -132,6 +133,7 @@ model User {
   updatedAt                              DateTime                         @updatedAt
   // relations
   emailVerifications                     EmailVerification[]
+  passwordResets                         PasswordReset[]
   attendances                            Attendance[]
   events                                 Event[]
   assignedEvents                         Event[]                          @relation("EventAssignment")
@@ -205,6 +207,20 @@ model TeacherProfile {
 model EmailVerification {
   id        String    @id @default(uuid())
   token     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// Enlace de "Olvidé mi contraseña". Lo manda EduTrack (Brevo), no Keycloak. Guarda el sha256 del
+/// token: con la base no se puede armar un enlace válido. Sirve una vez y vence en una hora.
+model PasswordReset {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime

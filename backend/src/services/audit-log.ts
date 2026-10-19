@@ -13,6 +13,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   AUTH_LOGOUT: "Cierre de sesión",
   AUTH_GOOGLE_LOGIN_SUCCESS: "Inicio de sesión con Google",
   AUTH_PASSWORD_CREATED: "Contraseña creada por el usuario (cuenta de Google)",
+  AUTH_PASSWORD_RESET: "Contraseña restablecida con el enlace del correo",
   USER_CREATED_BY_ADMIN: "Usuario creado por administración",
   USER_UPDATED_BY_ADMIN: "Usuario actualizado por administración",
   USER_DELETED_BY_ADMIN: "Usuario eliminado por administración",

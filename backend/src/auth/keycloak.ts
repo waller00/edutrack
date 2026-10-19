@@ -925,22 +925,14 @@ async function clearPendingTotpRequiredAction(token: string, kcUserId: string): 
   });
 }
 
-/** Envía el email de actualización de contraseña de Keycloak al usuario. */
-export async function triggerKeycloakPasswordReset(email: string): Promise<void> {
+/**
+ * Fija la contraseña elegida con el enlace de "Olvidé mi contraseña". El correo lo manda EduTrack
+ * (`auth/password-reset.ts`): el de Keycloak (`execute-actions-email`) necesita un SMTP que el
+ * droplet no tiene.
+ */
+export async function resetKeycloakPassword(kcUserId: string, password: string): Promise<void> {
   const token = await getAdminToken();
-  const kcId = await findKeycloakUserIdByEmail(token, email);
-  if (!kcId) throw new Error("Usuario no encontrado en Keycloak");
-  const base = adminBaseUrl();
-  const realm = adminRealm();
   // El reset solo debe cambiar la contraseña; nunca encadenar la config de 2FA.
-  await clearPendingTotpRequiredAction(token, kcId);
-  const res = await kcFetch(`${base}/admin/realms/${realm}/users/${kcId}/execute-actions-email`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify(["UPDATE_PASSWORD"]),
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`Keycloak password reset error ${res.status}: ${detail}`);
-  }
+  await clearPendingTotpRequiredAction(token, kcUserId);
+  await setKeycloakUserPassword(token, kcUserId, password);
 }

@@ -1021,11 +1021,16 @@ r.post('/users/:id/password/reset', requirePermission('users.security', 'all'), 
     return res.status(403).json({ message: 'No se puede restablecer la contraseña del administrador desde esta pantalla.' })
   }
   try {
-    const { triggerKeycloakPasswordReset } = await import('../auth/keycloak.js')
-    await triggerKeycloakPasswordReset(u.email)
+    // El correo lo manda EduTrack (Brevo): el de Keycloak necesita un SMTP que el droplet no tiene.
+    const { requestPasswordReset } = await import('../auth/password-reset.js')
+    if (!(await requestPasswordReset(u.email))) {
+      return res.status(409).json({
+        message: 'No se envió: ya se mandó un correo hace menos de un minuto, o la cuenta está inactiva o sin acceso.',
+      })
+    }
   } catch (e) {
-    console.error('[admin] keycloak password reset:', e)
-    return res.status(502).json({ message: 'No se pudo enviar el restablecimiento de contraseña.' })
+    console.error('[admin] password reset email:', e)
+    return res.status(503).json({ message: 'No se pudo enviar el restablecimiento de contraseña.' })
   }
   // Forzar re-login: invalidamos sesiones BFF activas del usuario.
   void deleteSessionsForUser(id)
@@ -1035,7 +1040,7 @@ r.post('/users/:id/password/reset', requirePermission('users.security', 'all'), 
     req,
     entityType: 'User',
     entityId: id,
-    metadata: { via: 'keycloak' },
+    metadata: { via: 'email' },
   })
   res.json({ ok: true, message: 'Se envió un correo de restablecimiento de contraseña.' })
 })

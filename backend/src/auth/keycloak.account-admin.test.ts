@@ -79,6 +79,22 @@ describe("helpers de cuenta (Admin API de Keycloak)", () => {
     await expect(kc.setInitialKeycloakPassword("kc-1", "Segura123!")).rejects.toMatchObject({ status: 400 });
   });
 
+  it("resetKeycloakPassword: saca el 2FA pendiente y fija la contraseña", async () => {
+    const calls = stubFetch({
+      [`GET ${USER}`]: { status: 200, body: { id: "kc-1", requiredActions: ["CONFIGURE_TOTP", "VERIFY_EMAIL"] } },
+      [`PUT ${USER}`]: { status: 204 },
+      [`PUT ${USER}/reset-password`]: { status: 204 },
+    });
+    const kc = await loadModule();
+
+    await kc.resetKeycloakPassword("kc-1", "Segura123!");
+
+    const actions = calls.find((c) => c.key === `PUT ${USER}`);
+    expect(JSON.parse(actions?.body ?? "{}")).toEqual({ requiredActions: ["VERIFY_EMAIL"] });
+    const put = calls.find((c) => c.key === `PUT ${USER}/reset-password`);
+    expect(JSON.parse(put?.body ?? "{}")).toMatchObject({ value: "Segura123!", temporary: false });
+  });
+
   it("logoutKeycloakUserSessions: cierra las sesiones del usuario", async () => {
     const calls = stubFetch({ [`POST ${USER}/logout`]: { status: 204 } });
     const kc = await loadModule();

@@ -14,9 +14,9 @@ import {
   redirectUri,
   refreshTokens,
   setInitialKeycloakPassword,
-  triggerKeycloakPasswordReset,
   verifyKeycloakUserOtpCode,
 } from "../auth/keycloak.js";
+import { completePasswordReset, PasswordResetTokenError, requestPasswordReset } from "../auth/password-reset.js";
 import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-policy.js";
 import { AuditAction } from "@prisma/client";
 import { recordAuditEvent } from "../services/audit-log.js";
@@ -719,17 +719,41 @@ r.get("/account/security", async (req, res) => {
   res.redirect(buildAccountConsoleUrl("account-security/signing-in"));
 });
 
-r.post("/forgot-password", async (req, res) => {
+const PASSWORD_RESET_LIMIT = { bucket: "password-reset", max: 10, windowSeconds: 15 * 60 };
+
+r.post("/forgot-password", rateLimit(PASSWORD_RESET_LIMIT), async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
   if (!email || !/^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{1,255}$/.test(email)) {
     return res.status(400).json({ message: "Ingresá un correo válido." });
   }
   try {
-    await triggerKeycloakPasswordReset(email);
+    await requestPasswordReset(email);
   } catch (error) {
-    // No revelamos si el correo existe, pero sí dejamos log para diagnosticar SMTP/Keycloak.
-    console.error("[auth/forgot-password] keycloak:", error);
+    // No revelamos si el correo existe, pero sí dejamos log para diagnosticar el envío.
+    console.error("[auth/forgot-password] envío:", error);
   }
+  res.json({ ok: true });
+});
+
+r.post("/reset-password", rateLimit(PASSWORD_RESET_LIMIT), async (req, res) => {
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  if (!token) return res.status(400).json({ code: "RESET_TOKEN_INVALID", message: new PasswordResetTokenError().message });
+  const parsed = strongPasswordSchema.safeParse(req.body?.password);
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
+  let userId: string;
+  try {
+    userId = await completePasswordReset(token, parsed.data);
+  } catch (error) {
+    if (error instanceof PasswordResetTokenError) {
+      return res.status(400).json({ code: error.code, message: error.message });
+    }
+    if ((error as { status?: number }).status === 400) {
+      return res.status(400).json({ message: "Keycloak rechazó la contraseña: no puede contener tu usuario ni tu correo." });
+    }
+    console.error("[auth/reset-password] keycloak:", error);
+    return res.status(503).json({ message: "No se pudo cambiar la contraseña. Probá de nuevo en unos minutos." });
+  }
+  recordAuditEvent({ action: AuditAction.AUTH_PASSWORD_RESET, actorUserId: userId, req, entityType: "User", entityId: userId });
   res.json({ ok: true });
 });
 
