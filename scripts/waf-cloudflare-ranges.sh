@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # waf-cloudflare-ranges.sh — Detecta si los rangos IP de Cloudflare cambiaron
-# respecto de los cableados en el WAF del reverse-proxy.
+# respecto de los cableados en el WAF del reverse-proxy y en la whitelist de CrowdSec.
 #
 # Por qué: el WAF de nginx (nginx/reverse-proxy/nginx.conf) usa los rangos de
 # Cloudflare en dos lugares — `set_real_ip_from` (restaurar IP real) y el bloque
@@ -9,22 +9,36 @@
 # Si Cloudflare AGREGA un rango y no lo reflejamos, el tráfico legítimo que salga
 # por esa IP cae en el lockdown (HTTP 444) → incidente difícil de diagnosticar.
 #
+# La whitelist de CrowdSec (monitoring/crowdsec/whitelists/edutrack-infra.yaml)
+# repite esos rangos como red de seguridad: si real_ip falla, un edge de
+# Cloudflare nunca debe convertirse en una decisión de ban.
+#
 # Este script NO modifica nada: solo compara y reporta. Pensado para correr por
 # cron (semanal) y avisar. Sale con código != 0 si hay drift.
 #
 # Uso:
-#   scripts/waf-cloudflare-ranges.sh [ruta-al-nginx.conf]
-# Default: nginx/reverse-proxy/nginx.conf (relativo a la raíz del repo).
+#   scripts/waf-cloudflare-ranges.sh [ruta-al-nginx.conf] [ruta-al-whitelist.yaml]
+# Defaults: nginx/reverse-proxy/nginx.conf y
+#           monitoring/crowdsec/whitelists/edutrack-infra.yaml (relativos al repo).
 
 set -euo pipefail
 
-CONF="${1:-$(cd "$(dirname "$0")/.." && pwd)/nginx/reverse-proxy/nginx.conf}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONF="${1:-$ROOT/nginx/reverse-proxy/nginx.conf}"
+WHITELIST="${2:-$ROOT/monitoring/crowdsec/whitelists/edutrack-infra.yaml}"
 V4_URL="https://www.cloudflare.com/ips-v4"
 V6_URL="https://www.cloudflare.com/ips-v6"
 
 if [[ ! -f "$CONF" ]]; then
   echo "ERROR: no existe la config: $CONF" >&2
   exit 2
+fi
+
+if [[ ! -f "$WHITELIST" ]]; then
+  echo "AVISO: no existe la whitelist de CrowdSec: $WHITELIST" >&2
+  echo "       Se omite esa verificación." >&2
+  WHITELIST=""
 fi
 
 tmp="$(mktemp -d)"
@@ -43,7 +57,7 @@ if [[ "$official_count" -lt 10 ]]; then
   exit 2
 fi
 
-# --- Verificar que CADA rango oficial esté presente en la config (en cualquiera de los dos bloques) ---
+# --- Verificar que CADA rango oficial esté presente en el WAF (en cualquiera de los dos bloques) ---
 missing=()
 while IFS= read -r range; do
   [[ -z "$range" ]] && continue
@@ -52,17 +66,29 @@ while IFS= read -r range; do
   fi
 done < "$tmp/official"
 
+# --- Y en la whitelist de CrowdSec, si existe ---
+missing_wl=()
+if [[ -n "$WHITELIST" ]]; then
+  while IFS= read -r range; do
+    [[ -z "$range" ]] && continue
+    if ! grep -qF -- "$range" "$WHITELIST"; then
+      missing_wl+=("$range")
+    fi
+  done < "$tmp/official"
+fi
+
 # --- Rangos tipo Cloudflare en `set_real_ip_from` que ya no están en la lista oficial (informativo) ---
 grep -oE 'set_real_ip_from[[:space:]]+[0-9a-fA-F:.]+/[0-9]+' "$CONF" \
   | awk '{print $2}' | sort -u > "$tmp/in_config"
 obsolete="$(comm -23 "$tmp/in_config" "$tmp/official" || true)"
 
-echo "Config:   $CONF"
+echo "WAF:       $CONF"
+echo "Whitelist: ${WHITELIST:-(omitida)}"
 echo "Oficiales: $official_count rangos de Cloudflare"
 echo
 
-if [[ ${#missing[@]} -eq 0 && -z "$obsolete" ]]; then
-  echo "OK — el WAF está en sync con los rangos de Cloudflare."
+if [[ ${#missing[@]} -eq 0 && ${#missing_wl[@]} -eq 0 && -z "$obsolete" ]]; then
+  echo "OK — WAF y whitelist en sync con los rangos de Cloudflare."
   exit 0
 fi
 
@@ -74,13 +100,21 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   echo
 fi
 
+if [[ ${#missing_wl[@]} -gt 0 ]]; then
+  echo "DRIFT (RIESGO): ${#missing_wl[@]} rango(s) de Cloudflare FALTAN en la whitelist de CrowdSec."
+  echo "  → Si real_ip falla, ese edge podría recibir una decisión de ban. Agregarlos a"
+  echo "    monitoring/crowdsec/whitelists/edutrack-infra.yaml:"
+  printf '    %s\n' "${missing_wl[@]}"
+  echo
+fi
+
 if [[ -n "$obsolete" ]]; then
   echo "OBSOLETOS (bajo riesgo): en 'set_real_ip_from' pero ya no en Cloudflare:"
   printf '    %s\n' $obsolete
   echo
 fi
 
-echo "Para aplicar: editar nginx/reverse-proxy/nginx.conf, 'nginx -t', y REINICIAR"
-echo "el contenedor del proxy (docker restart edutrack-reverse-proxy-1) — un simple"
-echo "reload no basta por el bind-mount de archivo único (el inode queda desincronizado)."
+echo "Para aplicar: editar los archivos, 'docker compose -f docker-compose.crowdsec.yml config',"
+echo "REINICIAR el reverse-proxy (docker restart edutrack-reverse-proxy-1 — un reload no basta"
+echo "por el bind-mount de archivo único) y REINICIAR CrowdSec para que relea la whitelist."
 exit 1

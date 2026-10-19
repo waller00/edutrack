@@ -14,6 +14,7 @@ services:
       - crowdsec-config:/etc/crowdsec
       - crowdsec-data:/var/lib/crowdsec/data
       - ./monitoring/crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
+      - ./monitoring/crowdsec/whitelists/edutrack-infra.yaml:/etc/crowdsec/parsers/s02-enrich/edutrack-infra.yaml:ro
       - ./monitoring/crowdsec/config.yaml.local:/etc/crowdsec/config.yaml.local:ro
       - ./monitoring/crowdsec/simulation.yaml:/etc/crowdsec/simulation.yaml:ro
     networks:

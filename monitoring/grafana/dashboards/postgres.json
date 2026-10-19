@@ -1,38 +1,269 @@
 {
   "uid": "edutrack-postgres",
   "title": "PostgreSQL",
-  "tags": ["edutrack", "postgres"],
+  "tags": [
+    "edutrack",
+    "postgres"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
-  "time": { "from": "now-6h", "to": "now" },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "type": "stat",
       "title": "Postgres up",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
-      "targets": [{ "expr": "pg_up", "refId": "A" }],
-      "fieldConfig": { "defaults": { "mappings": [{ "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } }, "type": "value" }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red" }, { "color": "green", "value": 1 }] } }, "overrides": [] }
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "pg_up",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "text": "DOWN"
+                },
+                "1": {
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red"
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "noValue": "Sin datos"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Active connections",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 },
-      "targets": [{ "expr": "sum by (datname) (pg_stat_activity_count)", "legendFormat": "{{ datname }}", "refId": "A" }]
+      "title": "Conexiones por base (todos los estados)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum by (datname) (pg_stat_activity_count)",
+          "legendFormat": "{{ datname }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Sin datos"
+        }
+      }
     },
     {
       "id": 3,
       "type": "timeseries",
       "title": "Database size",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
-      "targets": [{ "expr": "pg_database_size_bytes", "legendFormat": "{{ datname }}", "refId": "A" }],
-      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "pg_database_size_bytes",
+          "legendFormat": "{{ datname }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Sin datos"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "title": "Conexiones usadas / máximo",
+      "type": "timeseries",
+      "description": "Incluye conexiones activas e inactivas. Revisar pools y sesiones antes de aumentar el límite.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (pg_stat_activity_count{job=\"postgres\"}) / on(instance) pg_settings_max_connections{job=\"postgres\"}",
+          "instant": false,
+          "range": true,
+          "legendFormat": "",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Sin datos",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 11,
+      "title": "Deadlocks en el período",
+      "type": "table",
+      "description": "Conflictos de bloqueo detectados por PostgreSQL; investigar transacciones, no reiniciar por defecto.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (datname) (increase(pg_stat_database_deadlocks{job=\"postgres\"}[$__range]))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{datname}}",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Sin datos",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "Estado general",
+      "type": "link",
+      "url": "/d/edutrack-overview",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Backend",
+      "type": "link",
+      "url": "/d/edutrack-backend-red",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Logs",
+      "type": "link",
+      "url": "/d/edutrack-logs-loki",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "WAF",
+      "type": "link",
+      "url": "/d/waf-security",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "CrowdSec",
+      "type": "link",
+      "url": "/d/crowdsec-observation",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Servidor",
+      "type": "link",
+      "url": "/d/edutrack-node-host",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "PostgreSQL",
+      "type": "link",
+      "url": "/d/edutrack-postgres",
+      "includeVars": false,
+      "keepTime": true
     }
   ]
 }

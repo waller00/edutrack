@@ -437,3 +437,368 @@ groups:
           service: host
           severity: critical
         isPaused: false
+
+  - orgId: 1
+    name: edutrack-crowdsec-sensor
+    folder: EduTrack Alerts
+    interval: 1m
+    rules:
+      - uid: edutrack-crowdsec-metrics-down
+        title: "EduTrack CrowdSec metrics down"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: "min(up{job=\"crowdsec\"})"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "crowdsec up"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "EduTrack - CrowdSec no expone metricas"
+          description: "Prometheus no puede leer el endpoint de metricas de CrowdSec. La deteccion conductual puede estar caida sin que se note en el dashboard."
+          impact: "Se pierde visibilidad de detecciones y el sensor puede estar sin procesar logs."
+          action: "Revisar el contenedor crowdsec, su healthcheck y que Prometheus alcance crowdsec:6060."
+          runbook: "cd /root/edutrack && docker compose -f docker-compose.crowdsec.yml ps crowdsec && docker compose -f docker-compose.crowdsec.yml logs --tail=100 crowdsec"
+        labels:
+          service: crowdsec
+          severity: critical
+        isPaused: false
+
+      - uid: edutrack-crowdsec-heartbeat-stale
+        title: "EduTrack CrowdSec heartbeat stale"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: "time() - max(cs_machines_last_heartbeat_timestamp{job=\"crowdsec\"})"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "segundos desde ultimo heartbeat"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 300
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "EduTrack - Agente CrowdSec sin heartbeat"
+          description: "El agente no reporta heartbeat a la LAPI hace mas de 5 minutos, aunque el endpoint de metricas responda."
+          impact: "El motor puede no estar leyendo la adquisicion de Loki: las detecciones quedan ciegas."
+          action: "Revisar logs de CrowdSec y la conectividad con la LAPI local."
+          runbook: "cd /root/edutrack && docker compose -f docker-compose.crowdsec.yml exec -T crowdsec cscli lapi status && docker compose -f docker-compose.crowdsec.yml logs --tail=100 crowdsec"
+        labels:
+          service: crowdsec
+          severity: warning
+        isPaused: false
+
+      - uid: edutrack-crowdsec-parse-ratio-low
+        title: "EduTrack CrowdSec parse ratio low"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: "sum(increase(cs_parser_hits_ok_total{job=\"crowdsec\"}[5m])) / sum(increase(cs_parser_hits_total{job=\"crowdsec\"}[5m]))"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "ratio de parseo"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.9
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 30m
+        annotations:
+          summary: "EduTrack - CrowdSec parsea menos del 90%"
+          description: "Menos del 90% de las lineas que llegan a los parsers se interpretan correctamente en el periodo."
+          impact: "Las lineas no interpretadas no pueden disparar escenarios: la cobertura real baja sin que se vea en el conteo de alertas."
+          action: "Mirar el panel Parsers con mas errores y revisar el formato de la fuente en Loki."
+          runbook: "cd /root/edutrack && docker compose -f docker-compose.crowdsec.yml exec -T crowdsec cscli metrics"
+        labels:
+          service: crowdsec
+          severity: warning
+        isPaused: false
+
+      - uid: edutrack-crowdsec-detections-spike
+        title: "EduTrack CrowdSec detections spike"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: "sum(increase(cs_bucket_overflowed_total{job=\"crowdsec\"}[1h]))"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "disparos en 1h"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 10
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "EduTrack - Pico de detecciones CrowdSec"
+          description: "Mas de 10 disparos de escenario en una hora. Con un solo escenario y trafico bajo, es anormal en este despliegue."
+          impact: "Puede ser un ataque real o un falso positivo masivo por un cambio de trafico o de parsers."
+          action: "Triar con scripts/crowdsec-triage.sh antes de concluir nada. No activar bloqueo durante el pico."
+          runbook: "cd /root/edutrack && ./scripts/crowdsec-triage.sh --limit 100"
+        labels:
+          service: crowdsec
+          severity: warning
+        isPaused: false
+
+      - uid: edutrack-crowdsec-decisions-active
+        title: "EduTrack CrowdSec active decisions while observing"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: "sum(cs_active_decisions{job=\"crowdsec\"})"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "decisiones activas"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "EduTrack - Decisiones activas en modo observacion"
+          description: "La LAPI tiene decisiones activas. Con simulacion global y sin bouncer, no deberia haber ninguna."
+          impact: "O la simulacion se desactivo sin revision, o hay decisiones residuales que podrian aplicarse al instalar un bouncer."
+          action: "Confirmar el modo con cscli simulation status y listar decisiones antes de continuar."
+          runbook: "cd /root/edutrack && docker compose -f docker-compose.crowdsec.yml exec -T crowdsec cscli simulation status && docker compose -f docker-compose.crowdsec.yml exec -T crowdsec cscli decisions list"
+        labels:
+          service: crowdsec
+          severity: warning
+        isPaused: false

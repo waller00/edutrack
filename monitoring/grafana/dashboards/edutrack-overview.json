@@ -1,56 +1,482 @@
 {
   "uid": "edutrack-overview",
-  "title": "EduTrack Overview",
-  "tags": ["edutrack", "overview"],
+  "title": "EduTrack — Estado y diagnóstico",
+  "tags": [
+    "edutrack",
+    "overview"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
-  "time": { "from": "now-6h", "to": "now" },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
+      "title": "Disponibilidad interna por endpoint",
       "type": "stat",
-      "title": "Backend /health",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
-      "targets": [{ "expr": "probe_success{instance=\"http://auth:4000/health\"}", "refId": "A" }],
-      "fieldConfig": { "defaults": { "mappings": [{ "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } }, "type": "value" }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red" }, { "color": "green", "value": 1 }] } }, "overrides": [] }
+      "description": "Sondas dentro de Docker; no verifican DNS, Cloudflare ni login desde Internet.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "probe_success{job=\"blackbox-http\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{instance}}",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Sin datos",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "NO DISPONIBLE",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "DISPONIBLE",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
       "id": 2,
+      "title": "Fuentes de métricas disponibles",
       "type": "stat",
-      "title": "Frontend /",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
-      "targets": [{ "expr": "probe_success{instance=\"http://web:3000/\"}", "refId": "A" }],
-      "fieldConfig": { "defaults": { "mappings": [{ "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } }, "type": "value" }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red" }, { "color": "green", "value": 1 }] } }, "overrides": [] }
+      "description": "0 = no se puede recolectar. Exporter disponible no implica servicio saludable.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{job}} · {{instance}}",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Sin datos",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "NO DISPONIBLE",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "DISPONIBLE",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
       "id": 3,
-      "type": "timeseries",
-      "title": "HTTP probe duration",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "targets": [{ "expr": "probe_duration_seconds{job=\"blackbox-http\"}", "legendFormat": "{{ instance }}", "refId": "A" }],
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      "title": "Tráfico backend sin sondas (req/s)",
+      "type": "stat",
+      "description": "Excluye /health, /ready y /metrics. Incluye automatizaciones y usuarios; no representa usuarios únicos.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(edutrack_backend_http_requests_total{job=\"edutrack-backend\",route!~\"/health|/ready|/metrics\"}[$__rate_interval]))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "Sin datos",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
       "id": 4,
-      "type": "timeseries",
-      "title": "Container CPU",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
-      "targets": [{ "expr": "topk(10, sum by (id) (rate(container_cpu_usage_seconds_total{id!=\"/\", cpu=\"total\"}[5m])))", "legendFormat": "{{ id }}", "refId": "A" }]
+      "title": "Respuestas 5xx backend / solicitudes",
+      "type": "stat",
+      "description": "Ventana 5 minutos. Sin solicitudes no hay proporción calculable. Abrir Backend para ver rutas y volumen.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 5,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(edutrack_backend_http_requests_total{job=\"edutrack-backend\",route!~\"/health|/ready|/metrics\",status_code=~\"5..\"}[5m])) or (0 * sum(rate(edutrack_backend_http_requests_total{job=\"edutrack-backend\",route!~\"/health|/ready|/metrics\"}[5m])))) / (sum(rate(edutrack_backend_http_requests_total{job=\"edutrack-backend\",route!~\"/health|/ready|/metrics\"}[5m])) > 0)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Sin datos",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
       "id": 5,
+      "title": "Backend p95 sin sondas",
+      "type": "stat",
+      "description": "Estimación basada en histograma; con poco tráfico no es representativa. No mide latencia del navegador.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 5,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,sum by (le) (rate(edutrack_backend_http_request_duration_seconds_bucket{job=\"edutrack-backend\",route!~\"/health|/ready|/metrics\"}[5m])))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Sin datos",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Problemas detectados por Prometheus",
+      "type": "table",
+      "description": "pending = condición en evaluación; firing = superó la duración. Sin filas puede significar ninguna alerta: comprobar primero las fuentes. Los avisos gestionados por Grafana están en Alerting → Alert rules.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ALERTS{alertstate=~\"pending|firing\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Sin datos",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 7,
+      "title": "Espacio disponible por disco",
       "type": "timeseries",
-      "title": "Container memory",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "targets": [{ "expr": "topk(10, container_memory_usage_bytes{id!=\"/\"})", "legendFormat": "{{ id }}", "refId": "A" }],
-      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+      "description": "Si desciende, revisar retención, volúmenes y crecimiento antes de borrar datos.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_filesystem_avail_bytes{job=\"node\",fstype!~\"tmpfs|overlay|squashfs|proc|sysfs|devtmpfs\"} / node_filesystem_size_bytes{job=\"node\",fstype!~\"tmpfs|overlay|squashfs|proc|sysfs|devtmpfs\"}",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{mountpoint}}",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Sin datos",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 8,
+      "title": "Memoria disponible del servidor",
+      "type": "timeseries",
+      "description": "Revisar Servidor y Docker para localizar consumo; no confundir caché recuperable con memoria agotada.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_memory_MemAvailable_bytes{job=\"node\"}",
+          "instant": false,
+          "range": true,
+          "legendFormat": "",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Sin datos",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 9,
+      "type": "text",
+      "title": "Cómo actuar",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**1. Disponibilidad:** si falla /ready, revisar dependencias y PostgreSQL. Si falla /health, revisar backend.\n\n**2. Errores o lentitud:** abrir Backend y luego Logs manteniendo el período.\n\n**3. Seguridad:** revisar WAF y CrowdSec; una detección no confirma intrusión.\n\n**4. Sin datos:** revisar la fuente antes de interpretar ceros. La disponibilidad externa y los recorridos autenticados aún no están cubiertos por estas sondas."
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "Estado general",
+      "type": "link",
+      "url": "/d/edutrack-overview",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Backend",
+      "type": "link",
+      "url": "/d/edutrack-backend-red",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Logs",
+      "type": "link",
+      "url": "/d/edutrack-logs-loki",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "WAF",
+      "type": "link",
+      "url": "/d/waf-security",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "CrowdSec",
+      "type": "link",
+      "url": "/d/crowdsec-observation",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Servidor",
+      "type": "link",
+      "url": "/d/edutrack-node-host",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "PostgreSQL",
+      "type": "link",
+      "url": "/d/edutrack-postgres",
+      "includeVars": false,
+      "keepTime": true
     }
   ]
 }
