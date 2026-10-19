@@ -1,53 +1,177 @@
 {
   "uid": "edutrack-logs-loki",
   "title": "Logs Loki",
-  "tags": ["edutrack", "logs", "loki"],
+  "tags": [
+    "edutrack",
+    "logs",
+    "loki"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "type": "logs",
       "title": "Auth logs",
-      "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
-      "targets": [{ "expr": "{compose_service=\"auth\"}", "refId": "A" }],
-      "options": { "showLabels": true, "showTime": true, "wrapLogMessage": true }
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "{compose_project=\"edutrack\",compose_service=\"auth\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showLabels": true,
+        "showTime": true,
+        "wrapLogMessage": true
+      }
     },
     {
       "id": 2,
       "type": "logs",
       "title": "Web logs",
-      "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 10 },
-      "targets": [{ "expr": "{compose_service=\"web\"}", "refId": "A" }],
-      "options": { "showLabels": true, "showTime": true, "wrapLogMessage": true }
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "targets": [
+        {
+          "expr": "{compose_project=\"edutrack\",compose_service=\"web\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showLabels": true,
+        "showTime": true,
+        "wrapLogMessage": true
+      }
     },
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Auth 5xx log rate",
-      "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "title": "Respuestas HTTP 5xx del backend por intervalo",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
       "targets": [
         {
-          "expr": "sum(count_over_time({compose_service=\"auth\"} |~ \"5[0-9][0-9]\" [5m]))",
+          "expr": "sum(count_over_time({compose_project=\"edutrack\",compose_service=\"auth\"} | regexp `^(?P<method>[A-Z]+) (?P<path>[^ ]+) (?P<status>[0-9]{3}) [0-9.]+ ms -` | status=~\"5[0-9]{2}\" [$__auto]))",
           "refId": "A"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Sin datos"
+        },
+        "overrides": []
+      },
+      "description": "Solo líneas de acceso con estado HTTP 5xx. Un 500 en una ruta, duración o tamaño no cuenta como error."
     },
     {
       "id": 4,
       "type": "logs",
-      "title": "Auth recent 5xx logs",
-      "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
-      "targets": [{ "expr": "{compose_service=\"auth\"} |~ \"5[0-9][0-9]\"", "refId": "A" }],
-      "options": { "showLabels": true, "showTime": true, "wrapLogMessage": true }
+      "title": "Solicitudes del backend con respuesta 5xx",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "{compose_project=\"edutrack\",compose_service=\"auth\"} | regexp `^(?P<method>[A-Z]+) (?P<path>[^ ]+) (?P<status>[0-9]{3}) [0-9.]+ ms -` | status=~\"5[0-9]{2}\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showLabels": true,
+        "showTime": true,
+        "wrapLogMessage": true
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "Estado general",
+      "type": "link",
+      "url": "/d/edutrack-overview",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Backend",
+      "type": "link",
+      "url": "/d/edutrack-backend-red",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Logs",
+      "type": "link",
+      "url": "/d/edutrack-logs-loki",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "WAF",
+      "type": "link",
+      "url": "/d/waf-security",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "CrowdSec",
+      "type": "link",
+      "url": "/d/crowdsec-observation",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Servidor",
+      "type": "link",
+      "url": "/d/edutrack-node-host",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "PostgreSQL",
+      "type": "link",
+      "url": "/d/edutrack-postgres",
+      "includeVars": false,
+      "keepTime": true
     }
   ]
 }

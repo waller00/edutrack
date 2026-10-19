@@ -1,110 +1,363 @@
 {
   "uid": "edutrack-k6-performance",
   "title": "k6 Performance",
-  "tags": ["edutrack", "k6", "performance"],
+  "tags": [
+    "edutrack",
+    "k6",
+    "performance"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "5s",
-  "time": { "from": "now-30m", "to": "now" },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "type": "stat",
       "title": "Generated requests / second",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
-      "targets": [{ "expr": "sum(rate(k6_http_reqs_total[1m]))", "refId": "A" }],
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(k6_http_reqs_total[1m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "Sin datos"
+        },
+        "overrides": []
+      },
+      "description": "Usar un rango que contenga la ejecución de k6. Sin datos no acredita éxito. Las series pueden sumar varias ejecuciones si no están separadas por etiquetas."
     },
     {
       "id": 2,
       "type": "stat",
       "title": "Failed requests",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
-      "targets": [{ "expr": "max(k6_http_req_failed_rate)", "refId": "A" }],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "max(k6_http_req_failed_rate)",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "yellow", "value": 0.01 }, { "color": "red", "value": 0.05 }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "noValue": "Sin datos"
         },
         "overrides": []
-      }
+      },
+      "description": "Usar un rango que contenga la ejecución de k6. Sin datos no acredita éxito. Las series pueden sumar varias ejecuciones si no están separadas por etiquetas."
     },
     {
       "id": 3,
       "type": "stat",
       "title": "Checks passed",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
-      "targets": [{ "expr": "min(k6_checks_rate)", "refId": "A" }],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "min(k6_checks_rate)",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red" }, { "color": "green", "value": 0.99 }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red"
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
+            ]
+          },
+          "noValue": "Sin datos"
         },
         "overrides": []
-      }
+      },
+      "description": "Usar un rango que contenga la ejecución de k6. Sin datos no acredita éxito. Las series pueden sumar varias ejecuciones si no están separadas por etiquetas."
     },
     {
       "id": 4,
       "type": "stat",
       "title": "Dropped iterations",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
-      "targets": [{ "expr": "sum(increase(k6_dropped_iterations_total[30m])) or vector(0)", "refId": "A" }],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(k6_dropped_iterations_total[30m]))",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 1 }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "noValue": "Sin datos"
         },
         "overrides": []
-      }
+      },
+      "description": "Usar un rango que contenga la ejecución de k6. Sin datos no acredita éxito. Las series pueden sumar varias ejecuciones si no están separadas por etiquetas."
     },
     {
       "id": 5,
       "type": "timeseries",
       "title": "k6 request rate",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
-      "targets": [{ "expr": "sum(rate(k6_http_reqs_total[30s]))", "legendFormat": "requests / second", "refId": "A" }],
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(k6_http_reqs_total[30s]))",
+          "legendFormat": "requests / second",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "Sin datos"
+        },
+        "overrides": []
+      },
+      "description": "Usar un rango que contenga la ejecución de k6. Sin datos no acredita éxito. Las series pueden sumar varias ejecuciones si no están separadas por etiquetas."
     },
     {
       "id": 6,
       "type": "timeseries",
       "title": "k6 external latency percentiles",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
       "targets": [
-        { "expr": "histogram_quantile(0.50, sum(rate(k6_http_req_duration_seconds[1m])))", "legendFormat": "p50", "refId": "A" },
-        { "expr": "histogram_quantile(0.95, sum(rate(k6_http_req_duration_seconds[1m])))", "legendFormat": "p95", "refId": "B" },
-        { "expr": "histogram_quantile(0.99, sum(rate(k6_http_req_duration_seconds[1m])))", "legendFormat": "p99", "refId": "C" }
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(k6_http_req_duration_seconds[1m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(k6_http_req_duration_seconds[1m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(k6_http_req_duration_seconds[1m])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Sin datos"
+        },
+        "overrides": []
+      },
+      "description": "Usar un rango que contenga la ejecución de k6. Sin datos no acredita éxito. Las series pueden sumar varias ejecuciones si no están separadas por etiquetas."
     },
     {
       "id": 7,
       "type": "timeseries",
       "title": "Virtual users",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
       "targets": [
-        { "expr": "sum(k6_vus)", "legendFormat": "active VUs", "refId": "A" },
-        { "expr": "sum(k6_vus_max)", "legendFormat": "max VUs", "refId": "B" }
-      ]
+        {
+          "expr": "sum(k6_vus)",
+          "legendFormat": "active VUs",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(k6_vus_max)",
+          "legendFormat": "max VUs",
+          "refId": "B"
+        }
+      ],
+      "description": "Usar un rango que contenga la ejecución de k6. Sin datos no acredita éxito. Las series pueden sumar varias ejecuciones si no están separadas por etiquetas.",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Sin datos"
+        }
+      }
     },
     {
       "id": 8,
       "type": "timeseries",
       "title": "k6 vs backend request rate",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
       "targets": [
-        { "expr": "sum(rate(k6_http_reqs_total[1m]))", "legendFormat": "k6 generated", "refId": "A" },
-        { "expr": "sum(rate(edutrack_backend_http_requests_total[1m]))", "legendFormat": "backend observed", "refId": "B" }
+        {
+          "expr": "sum(rate(k6_http_reqs_total[1m]))",
+          "legendFormat": "k6 generated",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(edutrack_backend_http_requests_total[1m]))",
+          "legendFormat": "backend observed",
+          "refId": "B"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "Sin datos"
+        },
+        "overrides": []
+      },
+      "description": "Usar un rango que contenga la ejecución de k6. Sin datos no acredita éxito. Las series pueden sumar varias ejecuciones si no están separadas por etiquetas."
+    }
+  ],
+  "links": [
+    {
+      "title": "Estado general",
+      "type": "link",
+      "url": "/d/edutrack-overview",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Backend",
+      "type": "link",
+      "url": "/d/edutrack-backend-red",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Logs",
+      "type": "link",
+      "url": "/d/edutrack-logs-loki",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "WAF",
+      "type": "link",
+      "url": "/d/waf-security",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "CrowdSec",
+      "type": "link",
+      "url": "/d/crowdsec-observation",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Servidor",
+      "type": "link",
+      "url": "/d/edutrack-node-host",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "PostgreSQL",
+      "type": "link",
+      "url": "/d/edutrack-postgres",
+      "includeVars": false,
+      "keepTime": true
     }
   ]
 }

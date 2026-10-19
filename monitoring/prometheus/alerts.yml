@@ -32,10 +32,11 @@ groups:
     rules:
       - alert: EduTrackBackendHighErrorRate
         expr: |
-          sum(rate(edutrack_backend_http_errors_total[5m]))
+          sum(rate(edutrack_backend_http_errors_total{route!~"/health|/ready|/metrics"}[5m]))
           /
-          clamp_min(sum(rate(edutrack_backend_http_requests_total[5m])), 0.001)
+          clamp_min(sum(rate(edutrack_backend_http_requests_total{route!~"/health|/ready|/metrics"}[5m])), 0.001)
           > 0.05
+          and on() sum(increase(edutrack_backend_http_requests_total{route!~"/health|/ready|/metrics"}[5m])) >= 20
         for: 5m
         labels:
           severity: warning
@@ -47,8 +48,9 @@ groups:
         expr: |
           histogram_quantile(
             0.95,
-            sum by (le) (rate(edutrack_backend_http_request_duration_seconds_bucket[5m]))
+            sum by (le) (rate(edutrack_backend_http_request_duration_seconds_bucket{route!~"/health|/ready|/metrics"}[5m]))
           ) > 1
+          and on() sum(increase(edutrack_backend_http_requests_total{route!~"/health|/ready|/metrics"}[5m])) >= 20
         for: 10m
         labels:
           severity: warning
@@ -90,3 +92,43 @@ groups:
         annotations:
           summary: "Container CPU usage high"
           description: "Container {{ $labels.name }} has sustained high CPU usage."
+
+  # Este stack no incluye Alertmanager: las reglas se evalúan en Prometheus
+  # (visibles en /alerts) pero no generan avisos. Las reglas operativas, las que
+  # se ven en Grafana, están en monitoring/grafana/provisioning/alerting/.
+  - name: edutrack-observability
+    rules:
+      - alert: CrowdSecMetricsUnavailable
+        expr: up{job="crowdsec"} == 0 or absent(up{job="crowdsec"})
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CrowdSec: no se puede verificar la detección"
+          description: "Revisar salud de CrowdSec y conectividad interna de métricas. Esto no demuestra caída de la aplicación."
+          runbook_url: "/d/crowdsec-observation"
+
+      - alert: CrowdSecParsingFailures
+        expr: |
+          (sum(increase(cs_parser_hits_ko_total{job="crowdsec"}[10m])) > 10)
+          and
+          (sum(increase(cs_parser_hits_ko_total{job="crowdsec"}[10m]))
+           / clamp_min(sum(increase(cs_lokisource_hits_total{job="crowdsec"}[10m])), 1) > 0.05)
+          and on() (up{job="crowdsec"} == 1)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CrowdSec: líneas adquiridas que no se interpretan"
+          description: "Más de 10 fallos y 5% en 10 minutos. Revisar formato Nginx, filtro Loki y parsers; no reintroducir tokens en logs."
+          runbook_url: "/d/crowdsec-observation"
+
+      - alert: CadvisorContainerNamesMissing
+        expr: up{job="cadvisor"} == 1 unless on() count(container_memory_working_set_bytes{job="cadvisor",name!=""})
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "cAdvisor responde, pero faltan nombres de contenedores"
+          description: "La atribución de recursos está incompleta. Revisar compatibilidad de cAdvisor con Docker y cgroups; no confundir cgroups con contenedores identificados."
+          runbook_url: "/d/edutrack-docker-containers"
