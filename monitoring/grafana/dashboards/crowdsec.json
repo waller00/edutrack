@@ -1,95 +1,138 @@
 {
-  "uid": "crowdsec-observation",
-  "title": "CrowdSec — Observación",
-  "schemaVersion": 39,
-  "version": 1,
-  "tags": [
-    "seguridad",
-    "crowdsec"
-  ],
-  "timezone": "browser",
-  "refresh": "30s",
-  "time": {
-    "from": "now-6h",
-    "to": "now"
+  "annotations": {
+    "list": []
   },
+  "editable": false,
+  "graphTooltip": 0,
+  "links": [
+    {
+      "title": "Estado general",
+      "type": "link",
+      "url": "/d/edutrack-overview",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Backend",
+      "type": "link",
+      "url": "/d/edutrack-backend-red",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Logs",
+      "type": "link",
+      "url": "/d/edutrack-logs-loki",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "WAF",
+      "type": "link",
+      "url": "/d/waf-security",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "CrowdSec",
+      "type": "link",
+      "url": "/d/crowdsec-observation",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "Servidor",
+      "type": "link",
+      "url": "/d/edutrack-node-host",
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "title": "PostgreSQL",
+      "type": "link",
+      "url": "/d/edutrack-postgres",
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
   "panels": [
     {
       "id": 1,
-      "title": "Endpoint de métricas disponible (1 = sí)",
-      "type": "stat",
-      "description": "Disponibilidad del scrape; no garantiza adquisición. Sin datos no equivale a cero alertas.",
+      "type": "row",
+      "title": "1 · Salud del sensor",
+      "collapsed": false,
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 8,
-        "h": 5
+        "w": 24,
+        "h": 1
       },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "up{job=\"crowdsec\"}",
-          "instant": true,
-          "legendFormat": "{{reason}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "Sin datos"
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none"
-      }
+      "panels": []
     },
     {
       "id": 2,
-      "title": "Líneas leídas desde el arranque",
       "type": "stat",
-      "description": "",
-      "gridPos": {
-        "x": 8,
-        "y": 0,
-        "w": 8,
-        "h": 5
-      },
+      "title": "Scrape del endpoint",
+      "description": "Prometheus pudo leer el endpoint de métricas de CrowdSec (1 = sí). No prueba que esté leyendo logs: eso lo muestran las líneas leídas y el ratio de parseo.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "sum(cs_lokisource_hits_total{job=\"crowdsec\"})",
-          "instant": true,
-          "legendFormat": "{{reason}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          }
+          },
+          "expr": "up{job=\"crowdsec\"}",
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "Sin datos"
+          "noValue": "sin scrape",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
@@ -98,43 +141,69 @@
           "calcs": [
             "lastNotNull"
           ],
+          "fields": "",
           "values": false
         },
-        "colorMode": "value",
-        "graphMode": "none"
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
       }
     },
     {
       "id": 3,
-      "title": "Líneas procesadas desde el arranque",
       "type": "stat",
-      "description": "",
-      "gridPos": {
-        "x": 16,
-        "y": 0,
-        "w": 8,
-        "h": 5
-      },
+      "title": "Último heartbeat (s)",
+      "description": "Segundos desde el último heartbeat del agente a la LAPI. Si crece mientras el scrape responde, el agente está desincronizado.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "sum(cs_parser_hits_ok_total{job=\"crowdsec\"})",
-          "instant": true,
-          "legendFormat": "{{reason}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          }
+          },
+          "expr": "time() - max(cs_machines_last_heartbeat_timestamp{job=\"crowdsec\"})",
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "noValue": "Sin datos"
+          "unit": "s",
+          "noValue": "sin heartbeat",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 120
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -143,43 +212,61 @@
           "calcs": [
             "lastNotNull"
           ],
+          "fields": "",
           "values": false
         },
+        "orientation": "auto",
+        "textMode": "auto",
         "colorMode": "value",
-        "graphMode": "none"
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
       }
     },
     {
       "id": 4,
-      "title": "Alertas almacenadas por escenario",
-      "type": "timeseries",
-      "description": "Gauge de alertas locales; puede bajar por retención. No es un contador de bloqueos ni un listado de IPs. Sin serie no prueba ausencia de alertas.",
-      "gridPos": {
-        "x": 0,
-        "y": 5,
-        "w": 12,
-        "h": 8
-      },
+      "type": "stat",
+      "title": "Líneas leídas (período)",
+      "description": "Incremento estimado de líneas leídas por la adquisición Loki. Tolera reinicios. Contrastar con count_over_time() en Loki: si difiere mucho, la adquisición no lee todo.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "sum by (reason) (cs_alerts{job=\"crowdsec\"})",
-          "instant": false,
-          "legendFormat": "{{reason}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          }
+          },
+          "expr": "sum(increase(cs_lokisource_hits_total{job=\"crowdsec\"}[$__range]))",
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "Sin datos"
+          "noValue": "0 — sin serie",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -188,43 +275,70 @@
           "calcs": [
             "lastNotNull"
           ],
+          "fields": "",
           "values": false
         },
+        "orientation": "auto",
+        "textMode": "auto",
         "colorMode": "value",
-        "graphMode": "none"
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
       }
     },
     {
       "id": 5,
-      "title": "Disparos de escenarios en el período",
       "type": "stat",
-      "description": "Incluye detecciones simuladas. No equivale a bloqueos aplicados.",
-      "gridPos": {
-        "x": 12,
-        "y": 5,
-        "w": 12,
-        "h": 5
-      },
+      "title": "Ratio de parseo",
+      "description": "Líneas parseadas OK sobre el total que llegó a los parsers (ok + ko). No es leídas/procesadas: ese cociente compara denominadores distintos. Sin serie significa que no hubo líneas, no que el parser esté roto.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "sum by (name) (increase(cs_bucket_overflowed_total{job=\"crowdsec\"}[$__range]))",
-          "instant": true,
-          "legendFormat": "{{name}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          }
+          },
+          "expr": "sum(increase(cs_parser_hits_ok_total{job=\"crowdsec\"}[$__range])) / sum(increase(cs_parser_hits_total{job=\"crowdsec\"}[$__range]))",
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "noValue": "Sin datos"
+          "unit": "percentunit",
+          "noValue": "sin líneas",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.9
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
+            ]
+          },
+          "decimals": 1
         },
         "overrides": []
       },
@@ -233,43 +347,61 @@
           "calcs": [
             "lastNotNull"
           ],
+          "fields": "",
           "values": false
         },
+        "orientation": "auto",
+        "textMode": "auto",
         "colorMode": "value",
-        "graphMode": "none"
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
       }
     },
     {
       "id": 6,
-      "title": "Procesamiento por segundo",
-      "type": "timeseries",
-      "description": "",
-      "gridPos": {
-        "x": 0,
-        "y": 13,
-        "w": 12,
-        "h": 8
-      },
+      "type": "stat",
+      "title": "Latencia LAPI p95",
+      "description": "p95 del tiempo de respuesta de la LAPI. Incluye solo llamadas locales del agente y, si hubiera, de bouncers. No mide la latencia del sitio.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "sum(rate(cs_parser_hits_ok_total{job=\"crowdsec\"}[$__rate_interval]))",
-          "instant": false,
-          "legendFormat": "{{reason}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          }
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(cs_lapi_request_duration_seconds_bucket{job=\"crowdsec\"}[$__rate_interval])))",
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "noValue": "Sin datos"
+          "unit": "s",
+          "noValue": "sin serie",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -278,43 +410,284 @@
           "calcs": [
             "lastNotNull"
           ],
+          "fields": "",
           "values": false
         },
+        "orientation": "auto",
+        "textMode": "auto",
         "colorMode": "value",
-        "graphMode": "none"
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
       }
     },
     {
       "id": 7,
-      "title": "Líneas sin interpretar por segundo",
-      "type": "timeseries",
-      "description": "Errores del parser final; no suma los intentos fallidos de parsers secundarios.",
-      "gridPos": {
-        "x": 12,
-        "y": 13,
-        "w": 12,
-        "h": 8
-      },
+      "type": "table",
+      "title": "Versión del motor",
+      "description": "Versión reportada por cs_info. Debe coincidir con la imagen fijada en docker-compose.crowdsec.yml.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "sum(rate(cs_parser_hits_ko_total{job=\"crowdsec\"}[$__rate_interval]))",
-          "instant": false,
-          "legendFormat": "{{reason}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
+          },
+          "expr": "max by (version) (cs_info{job=\"crowdsec\"})",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "Value": "Activo"
+            }
           }
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "Sin datos"
+          "noValue": "sin serie",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "2 · Detecciones",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Alertas almacenadas por escenario",
+      "description": "Gauge de alertas guardadas en la LAPI por escenario. Puede bajar por retención. No es historial ni decisiones aplicadas. Sin serie = no hay alertas almacenadas.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (reason) (cs_alerts{job=\"crowdsec\"})",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "Value": "Alertas"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0 — sin serie",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Disparos de escenario (período)",
+      "description": "Overflows de escenario en el período. En simulación también ocurren: es exactamente el conjunto que se bloquearía al salir de simulación.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 6,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (name) (increase(cs_bucket_overflowed_total{job=\"crowdsec\"}[$__range]))",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "Value": "Disparos"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0 — sin serie",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Buckets abiertos ahora",
+      "description": "Escenarios con eventos acumulándose en este momento. Un valor mayor que cero no implica alerta: el bucket puede expirar sin alcanzar el umbral.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(cs_buckets{job=\"crowdsec\"})",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0 — sin serie",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -323,61 +696,1100 @@
           "calcs": [
             "lastNotNull"
           ],
+          "fields": "",
           "values": false
         },
+        "orientation": "auto",
+        "textMode": "auto",
         "colorMode": "value",
-        "graphMode": "none"
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
       }
     },
     {
-      "id": 8,
-      "title": "Logs operativos y detecciones de CrowdSec",
-      "type": "logs",
-      "description": "Logs capturados por Alloy y saneados. No sustituyen el detalle persistido de cscli alerts inspect; no incluyen históricos anteriores a la captura.",
+      "id": 12,
+      "type": "timeseries",
+      "title": "Ciclo de vida de escenarios",
+      "description": "Instanciados, expirados por falta de eventos (underflow) y cancelados. Distingue 'nadie ataca' de 'el escenario se dispara y expira solo'.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 9,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(cs_bucket_instantiation_total{job=\"crowdsec\"}[$__interval]))",
+          "refId": "A",
+          "legendFormat": "instanciados",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(cs_bucket_underflowed_total{job=\"crowdsec\"}[$__interval]))",
+          "refId": "B",
+          "legendFormat": "underflow",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(cs_bucket_canceled_total{job=\"crowdsec\"}[$__interval]))",
+          "refId": "C",
+          "legendFormat": "cancelados",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Disparos en el tiempo",
+      "description": "Overflows por escenario en ventanas de 5 minutos. Sirve para ver si un pico fue puntual o sostenido; no para identificar la IP (eso queda en cscli alerts).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (name) (increase(cs_bucket_overflowed_total{job=\"crowdsec\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{name}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Eventos vertidos por escenario",
+      "description": "Eventos que llegaron a cada escenario (cs_bucket_poured_total). Muestra qué escenario está recibiendo tráfico aunque todavía no haya disparado.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (name) (increase(cs_bucket_poured_total{job=\"crowdsec\"}[$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{name}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "3 · Decisiones y contención",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Decisiones activas",
+      "description": "Decisiones que la LAPI tiene activas, por acción, motivo y origen. Con simulación global activa no debería haber ninguna: si aparece, revisar antes de asumir un bloqueo.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "gridPos": {
         "x": 0,
         "y": 21,
-        "w": 24,
-        "h": 10
+        "w": 8,
+        "h": 7
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (action, reason, origin) (cs_active_decisions{job=\"crowdsec\"})",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "Value": "Decisiones"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0 — sin serie",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Decisiones servidas a bouncers",
+      "description": "Consultas ok/ko de bouncers a la LAPI. Sin bouncer instalado estas series no existen: la ausencia es el estado esperado, no un fallo.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 21,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(cs_lapi_decisions_ok_total{job=\"crowdsec\"}[$__interval]))",
+          "refId": "A",
+          "legendFormat": "ok",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(cs_lapi_decisions_ko_total{job=\"crowdsec\"}[$__interval]))",
+          "refId": "B",
+          "legendFormat": "ko",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Peticiones de bouncers (período)",
+      "description": "Llamadas de bouncers a la LAPI en el período. Cero es lo esperado en modo observación: no hay bouncer instalado ni se aplican bloqueos.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 21,
+        "w": 8,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(cs_lapi_bouncer_requests_total{job=\"crowdsec\"}[$__range]))",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0 — sin bouncer",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 19,
+      "type": "text",
+      "title": "Alcance de las decisiones",
+      "gridPos": {
+        "x": 16,
+        "y": 24,
+        "w": 8,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "**No hay bouncer instalado.** Las decisiones que llegara a calcular la LAPI no se aplican en nginx ni en Cloudflare: esta fila existe para observar, no para confiar en un bloqueo. El modo efectivo se comprueba con `cscli simulation status`; este panel no es dinámico."
+      }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "4 · Calidad de adquisición",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Líneas leídas por fuente",
+      "description": "Tasa de lectura de la adquisición, por fuente. Si cae a cero con tráfico normal, revisar Alloy y Loki antes que CrowdSec.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (source) (rate(cs_lokisource_hits_total{job=\"crowdsec\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{source}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Líneas sin interpretar",
+      "description": "Tasa de líneas que el parser final no pudo interpretar. Algo de ruido es normal (formatos ajenos al parser de nginx); un salto sostenido indica un parser roto.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 29,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(cs_parser_hits_ko_total{job=\"crowdsec\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "ko",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Tiempo de parseo p95",
+      "description": "p95 del tiempo de parseo por tipo de evento. No mide la latencia del sitio.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 29,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, type) (rate(cs_parsing_time_seconds_bucket{job=\"crowdsec\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "{{type}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 24,
+      "type": "table",
+      "title": "Parsers con más errores",
+      "description": "Top 5 de parsers por líneas no interpretadas. El agregado dice cuántos fallos hay; esto dice cuál parser hay que corregir.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "topk(5, sum by (name) (increase(cs_node_hits_ko_total{job=\"crowdsec\"}[$__range])))",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "Value": "No interpretadas"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0 — sin serie",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 25,
+      "type": "table",
+      "title": "Eventos descartados por whitelist",
+      "description": "Eventos que la whitelist descartó, por motivo. Explica las ausencias: tráfico de infraestructura o de rangos excluidos no genera alertas ni aparece como ataque.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (reason) (increase(cs_node_wl_hits_ok_total{job=\"crowdsec\"}[$__range]))",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "Value": "Descartados"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0 — sin serie",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 26,
+      "type": "row",
+      "title": "5 · Logs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 27,
+      "type": "logs",
+      "title": "Logs de CrowdSec (sin heartbeat)",
+      "description": "Logs del contenedor CrowdSec, saneados por Alloy. Se excluye el login periódico de watchers para que no tape las detecciones. No sustituye cscli alerts inspect.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
       },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 10
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{compose_project=\"edutrack-crowdsec\",compose_service=\"crowdsec\"} != \"watchers/login\"",
           "refId": "A",
-          "expr": "{compose_project=\"edutrack-crowdsec\", compose_service=\"crowdsec\"}",
           "queryType": "range"
         }
       ],
       "options": {
         "showTime": true,
-        "sortOrder": "Descending",
+        "showLabels": false,
+        "showCommonLabels": false,
         "wrapLogMessage": true,
-        "enableLogDetails": true
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
       }
     },
     {
-      "id": 9,
-      "title": "Alcance de esta vista",
+      "id": 28,
       "type": "text",
+      "title": "Alcance de esta vista",
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 54,
         "w": 24,
-        "h": 4
+        "h": 5
       },
       "options": {
         "mode": "markdown",
-        "content": "Integración de observación: no activa bloqueos ni notificaciones. El modo efectivo se comprueba con `cscli simulation status`; este texto no es un indicador dinámico. Para el detalle completo por IP/evento: `cscli alerts list` y `cscli alerts inspect ID`. Si no hay datos, revisar disponibilidad y adquisición antes de interpretar el resultado."
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "**Modo observación.** Simulación global activa y sin bouncer: no se bloquea nada. El modo efectivo se comprueba con `cscli simulation status`.\n\n- **Cobertura mínima:** un escenario (`crowdsecurity/http-probing`) y cuatro parsers. Sin detecciones no equivale a sin ataques.\n- **Adquisición:** solo líneas del reverse-proxy ya saneadas, sin query string y con endpoints biométricos excluidos. Lo que no entra ahí no se puede detectar.\n- **Sin datos no es cero:** varias series nacen con el primer evento. El panel lo indica como `sin serie` cuando corresponde.\n- **Contadores desde el arranque:** las tasas usan `rate`/`increase` para tolerar reinicios.\n\nPara el detalle por IP: `cscli alerts list` y `cscli alerts inspect ID`."
       }
     }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "seguridad",
+    "crowdsec"
   ],
   "templating": {
     "list": []
   },
-  "annotations": {
-    "list": []
-  }
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "CrowdSec — Observación",
+  "uid": "crowdsec-observation",
+  "version": 3
 }

@@ -1,0 +1,48 @@
+# Whitelist de infraestructura para CrowdSec.
+#
+# Objetivo: que un fallo de real_ip o un drift de rangos de Cloudflare nunca
+# convierta una IP de edge en un ban. Con real_ip funcionando, las IPs de
+# Cloudflare no aparecen como cliente: solo llegan aca los health checks
+# directos al origen y los casos en que falta un rango en set_real_ip_from.
+#
+# Los rangos de Cloudflare deben coincidir con nginx/reverse-proxy/nginx.conf.
+# Verificar con: ./scripts/waf-cloudflare-ranges.sh
+#
+# Se monta en /etc/crowdsec/parsers/s02-enrich/edutrack-infra.yaml.
+name: edutrack/whitelist-infra
+description: "Infraestructura propia y rangos de Cloudflare: nunca generar decision"
+whitelist:
+  reason: "edutrack infra / cloudflare edge"
+  ip:
+    - "127.0.0.1"
+    - "::1"
+  cidr:
+    # Redes privadas: contenedores, monitoreo y llamadas internas.
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "fc00::/7"
+    - "fe80::/10"
+    # Cloudflare (debe coincidir con nginx.conf).
+    - "103.21.244.0/22"
+    - "103.22.200.0/22"
+    - "103.31.4.0/22"
+    - "104.16.0.0/13"
+    - "104.24.0.0/14"
+    - "108.162.192.0/18"
+    - "131.0.72.0/22"
+    - "141.101.64.0/18"
+    - "162.158.0.0/15"
+    - "172.64.0.0/13"
+    - "173.245.48.0/20"
+    - "188.114.96.0/20"
+    - "190.93.240.0/20"
+    - "197.234.240.0/22"
+    - "198.41.128.0/17"
+    - "2400:cb00::/32"
+    - "2405:8100::/32"
+    - "2405:b500::/32"
+    - "2606:4700::/32"
+    - "2803:f800::/32"
+    - "2a06:98c0::/29"
+    - "2c0f:f248::/32"

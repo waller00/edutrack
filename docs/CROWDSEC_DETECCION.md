@@ -155,22 +155,122 @@ su evaluación propia y no está incluida aquí.
 Dashboard provisionado: **EduTrack → CrowdSec — Observación**, UID
 `crowdsec-observation`. Usa las fuentes existentes `prometheus` y `loki`.
 
-- Disponibilidad del endpoint, líneas leídas/procesadas y errores del parser final.
-- Alertas locales por escenario (`cs_alerts`, gauge sujeto a retención) y disparos
-  de escenarios. Ninguna de estas métricas acredita bloqueos aplicados.
-- Logs del proyecto `edutrack-crowdsec` recogidos por Alloy, pasando por las mismas
-  etapas de saneamiento. No cambia la consulta de adquisición de CrowdSec, por
-  lo que sus propios logs no vuelven a alimentar el escenario HTTP.
-- Sin datos no equivale a cero. Algunas series aparecen recién con actividad.
-  Los contadores se reinician con CrowdSec; las tasas usan `rate`/`increase`.
+- **Salud del sensor:** scrape (`up`), segundos desde el último heartbeat del
+  agente, líneas leídas y ratio real de parseo (`ok / (ok + ko)`).
+- **Detecciones:** alertas por escenario (`cs_alerts`, gauge sujeto a retención),
+  disparos (`cs_bucket_overflowed_total`), buckets abiertos, ciclo de vida
+  (instanciados / underflow / cancelados) y eventos vertidos por escenario.
+  Ninguna de estas métricas acredita bloqueos aplicados.
+- **Decisiones y contención:** decisiones activas por acción, motivo y origen, y
+  consultas de bouncers. Sin bouncer instalado esas series no existen: la
+  ausencia es el estado esperado, no un fallo.
+- **Calidad de adquisición:** líneas/s por fuente, líneas sin interpretar, p95 de
+  parseo, top de parsers con error y eventos descartados por whitelist.
+- **Logs** del proyecto `edutrack-crowdsec` recogidos por Alloy y saneados, con el
+  heartbeat de watchers excluido para no tapar las detecciones. No vuelven a
+  alimentar el escenario HTTP.
+- Sin datos no equivale a cero. Varias series nacen con el primer evento y el
+  panel las distingue con `sin serie`. Los contadores se reinician con CrowdSec;
+  las tasas usan `rate`/`increase`.
 - No hay tabla completa de IPs/eventos desde la base LAPI ni avisos por correo.
-  Para investigar una alerta: `cscli alerts list` y `cscli alerts inspect ID`.
+  Para investigar una alerta: `./scripts/crowdsec-triage.sh` (solo lectura).
 - El texto de observación del dashboard no verifica dinámicamente el modo de
   simulación. Comprobar `cscli simulation status` al activar o modificar el motor.
+- Reglas de alerta provisionadas en
+  `monitoring/grafana/provisioning/alerting/critical-alerts.yml` (grupo
+  `edutrack-crowdsec-sensor`): endpoint caído, heartbeat viejo, ratio de parseo
+  bajo, pico de detecciones y decisiones activas con simulación.
+- Las reglas no tienen contact point externo: se ven en **Alerting** de Grafana.
+  Sin la revisión semanal, un aviso puede quedar sin leer.
 
 El endpoint de métricas no requiere autenticación: es accesible a los contenedores
 conectados a monitoring. LAPI permanece en `127.0.0.1:8080`; no se agregan puertos
 publicados, bouncers, reglas de firewall ni cambios en Cloudflare.
+
+### Fase de medición antes de bloquear
+
+CrowdSec corre en simulación global (`monitoring/crowdsec/simulation.yaml`) y sin
+bouncer. En simulación los escenarios **sí** se disparan y **sí** generan alertas;
+lo único que no ocurre es la decisión. Eso permite auditar exactamente el conjunto
+de IPs que se bloquearía al salir de simulación, sin bloquear nada.
+
+Antes de interpretar una alerta, verificar:
+
+1. **Cobertura de adquisición.** Contrastar el contador con Loki en la misma ventana:
+
+   ```logql
+   count_over_time({compose_project="edutrack",compose_service="reverse-proxy"}[6h])
+   ```
+
+   Si Loki tiene muchas más líneas que `cs_lokisource_hits_total`, la adquisición
+   no está leyendo todo y el conteo de detecciones no sirve como línea base.
+   Si el tráfico de health checks domina (se ve en el panel por fuente), conviene
+   excluirlo de la adquisición **antes** de sumar escenarios de tasa o fuerza
+   bruta; hoy `http-probing` no los marca porque esperan 200.
+2. **IP real.** nginx restaura la IP con `CF-Connecting-IP` y `set_real_ip_from`
+   (`nginx/reverse-proxy/nginx.conf`) y el log graba `$remote_addr`. La whitelist
+   `monitoring/crowdsec/whitelists/edutrack-infra.yaml` cubre redes privadas y
+   rangos de Cloudflare para que un fallo de `real_ip` no derive en un ban.
+   Verificar drift con `./scripts/waf-cloudflare-ranges.sh`.
+3. **Heartbeat.** Si `time() - max(cs_machines_last_heartbeat_timestamp)` crece
+   mientras `up` vale 1, el agente está desincronizado aunque el endpoint responda.
+
+#### Revisión periódica (semanal, 15 minutos)
+
+```bash
+./scripts/crowdsec-triage.sh --limit 100
+```
+
+Para cada alerta registrar: fecha, escenario, IP, path/status (`--id`), si
+corresponde a un usuario real y veredicto (TP / FP / desconocido). Sin este
+registro no hay criterio para decidir el bloqueo, solo una impresión.
+
+El log de nginx guarda `$log_path` **sin query string** por privacidad. Es un
+punto ciego deliberado: los ataques en parámetros no se detectan.
+
+#### Criterios de salida de la fase de medición
+
+- Cobertura de adquisición verificada y estable durante al menos dos semanas.
+- 100% de las alertas triageadas y cero falsos positivos sobre tráfico legítimo
+  en las últimas dos semanas.
+- Cada alerta corresponde a un patrón que se quiere bloquear.
+- La whitelist cubre monitoreo, health checks, rangos de Cloudflare y la salida
+  NAT del liceo: una IP compartida baneada deja sin acceso a toda la institución.
+- Si se agregan escenarios, uno por vez y cada uno con su propia línea base.
+
+### Escalones de bloqueo
+
+No se pasa de observar a un bouncer global. El orden previsto:
+
+1. **Quirúrgico.** Bouncer de nginx aplicado solo a rutas que ningún usuario
+   legítimo pide (`/wp-login.php`, `/wp-admin`, `/.env`, `/.git`, `/phpmyadmin`).
+2. **Autenticación.** Extenderlo a `/auth/*` y `/api/auth/*`, con TTL de 1 hora y
+   tope de decisiones.
+3. **Global.** Recién con semanas sin incidentes en los pasos anteriores.
+
+Reglas para todos los escalones: TTL corto (1–4 h) y nunca permanente al inicio;
+tope de decisiones activas con alerta; el bouncer debe fallar abierto si no
+alcanza la LAPI; y kill switch documentado:
+
+```bash
+docker compose -f docker-compose.crowdsec.yml exec -T crowdsec cscli decisions delete --all
+docker compose -f docker-compose.crowdsec.yml stop <bouncer>
+```
+
+Con Cloudflare por delante, un bouncer de nginx protege el origen pero no frena al
+atacante en el edge. El bloqueo efectivo a nivel de red es una decisión de
+Cloudflare y se evalúa aparte.
+
+### Whitelist de infraestructura
+
+`monitoring/crowdsec/whitelists/edutrack-infra.yaml` se monta en
+`/etc/crowdsec/parsers/s02-enrich/edutrack-infra.yaml`. Excluye loopback, redes
+privadas y los rangos de Cloudflare. Con `real_ip` funcionando, un cliente
+legítimo nunca llega con IP de Cloudflare: la whitelist solo cubre health checks
+directos y el caso en que falte un rango en `set_real_ip_from`.
+
+Los rangos deben coincidir con `nginx/reverse-proxy/nginx.conf`.
+`./scripts/waf-cloudflare-ranges.sh` verifica ambos archivos y avisa si hay drift.
 
 ### Aplicar después de integrar y actualizar el repositorio del servidor
 
@@ -179,20 +279,30 @@ Tras guardar las configuraciones anteriores como respaldo, desde `/root/edutrack
 
 ```bash
 docker compose -f docker-compose.crowdsec.yml config --quiet
-docker compose -f docker-compose.crowdsec.yml restart crowdsec
+docker compose -f docker-compose.crowdsec.yml up -d crowdsec
 docker compose --env-file .env.monitoring -f docker-compose.monitoring.yml restart prometheus alloy
+docker compose --env-file .env.monitoring -f docker-compose.monitoring.yml restart grafana
 ```
 
-El reinicio permite volver a montar los archivos actualizados por Git. Grafana
-lee el directorio de dashboards cada 30 segundos y no necesita reinicio.
-Hay una interrupción breve en detección/scraping/captura durante esos reinicios;
-la aplicación y su proxy no se reinician.
+`up -d` (y no `restart`) es necesario para que se aplique el nuevo montaje de la
+whitelist: `restart` no cambia los volúmenes del contenedor. El reinicio de Grafana
+aplica las reglas de alerta provisionadas; los dashboards se releen solos cada 30
+segundos. Hay una interrupción breve en detección/scraping/captura durante esos
+reinicios; la aplicación y su proxy no se reinician.
 
 Comprobar en Grafana que `up{job="crowdsec"}` vale 1, que los contadores aumentan
 con navegación normal y que aparecen logs de CrowdSec. Confirmar simulación y
-lista de bouncers vacía con `cscli`. No generar ataques en producción para probar.
-Para revertir, restaurar los tres archivos de configuración anteriores y retirar
-el dashboard; reiniciar CrowdSec, Prometheus y Alloy. No borrar volúmenes.
+lista de bouncers vacía con `cscli`. Verificar que la whitelist esté montada:
+
+```bash
+docker compose -f docker-compose.crowdsec.yml exec -T crowdsec \
+  ls -l /etc/crowdsec/parsers/s02-enrich/edutrack-infra.yaml
+docker compose -f docker-compose.crowdsec.yml logs crowdsec | grep -i "whitelist\|error" | tail
+```
+
+No generar ataques en producción para probar. Para revertir, restaurar los
+archivos de configuración anteriores y retirar el dashboard; reiniciar CrowdSec,
+Prometheus, Alloy y Grafana. No borrar volúmenes.
 
 Referencia de métricas: https://docs.crowdsec.net/docs/observability/prometheus/
 
