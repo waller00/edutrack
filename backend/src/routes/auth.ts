@@ -401,7 +401,8 @@ r.post("/register", async (req, res) => {
   });
 
   // Keycloak primero (crítico: sin la cuenta en el IdP el usuario no puede loguear).
-  // Si falla, respondemos 502 (con CORS) antes de enviar ningún correo.
+  // Si falla, respondemos 503 antes de enviar ningún correo. No 502: Cloudflare cambia los 502/504
+  // del origen por su propia página, sin CORS, y el front sólo vería "No se pudo conectar con la API".
   try {
     if (ssoProfile) {
       await syncRegisteredSsoUser({
@@ -442,7 +443,7 @@ r.post("/register", async (req, res) => {
     }
     const usernameTakenInKc = e instanceof Error && (e as { code?: string }).code === "KEYCLOAK_USERNAME_TAKEN";
     console.error("[register] keycloak create user:", e);
-    return res.status(usernameTakenInKc ? 409 : 502).json({
+    return res.status(usernameTakenInKc ? 409 : 503).json({
       message: usernameTakenInKc
         ? "No pudimos generar tu acceso por un conflicto de nombre de usuario. Probá de nuevo o contactá al administrador."
         : "No se pudo activar el acceso de la cuenta.",

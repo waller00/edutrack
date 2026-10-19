@@ -392,7 +392,7 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     expect(res.body.message).toMatch(/Celular/i);
   });
 
-  it("POST /auth/register devuelve 502 si falla Keycloak", async () => {
+  it("POST /auth/register devuelve 503 si falla Keycloak (un 502 lo taparía Cloudflare)", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
     prismaMock.user.create.mockResolvedValue({
       id: "u-kc-fail",
@@ -408,7 +408,7 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
         firstName: "Kc",
         lastName: "Fail",
       });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(503);
   });
 
   it("POST /auth/register devuelve 409 si Prisma detecta duplicado durante el alta", async () => {

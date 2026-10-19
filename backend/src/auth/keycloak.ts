@@ -381,14 +381,35 @@ export async function syncKeycloakUserIdentity(input: SyncKeycloakUserIdentityIn
     ...(typeof input.emailVerified === "boolean" ? { emailVerified: input.emailVerified } : {}),
   };
 
-  const updateRes = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify(next),
-  });
+  const putUser = (rep: Record<string, unknown>) =>
+    kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(rep),
+    });
+
+  let updateRes = await putUser(next);
+  let detail = updateRes.ok ? "" : await updateRes.text().catch(() => "");
+  // Con "Edit username" apagado en el realm, Keycloak rechaza el PUT entero si cambia el username
+  // (y con él, email y nombre). Se reintenta conservando el username que ya tiene la cuenta: el
+  // login vincula por `keycloakId` y Moodle por email, así que no tiene por qué coincidir con el de la app.
+  if (!updateRes.ok && next.username !== current.username && isReadOnlyUsernameError(updateRes.status, detail)) {
+    console.warn("[keycloak] username de sólo lectura en el realm: se conserva el de Keycloak", { kcId: input.kcId });
+    updateRes = await putUser({ ...next, username: current.username });
+    detail = updateRes.ok ? "" : await updateRes.text().catch(() => "");
+  }
   if (!updateRes.ok) {
-    const detail = await updateRes.text().catch(() => "");
     throw new Error(`Keycloak update user error ${updateRes.status}: ${detail}`);
+  }
+}
+
+function isReadOnlyUsernameError(status: number, detail: string): boolean {
+  if (status !== 400) return false;
+  try {
+    const body = JSON.parse(detail) as { field?: string; errorMessage?: string };
+    return body.field === "username" && body.errorMessage === "error-user-attribute-read-only";
+  } catch {
+    return false;
   }
 }
 
