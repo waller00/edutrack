@@ -203,4 +203,30 @@ else
   echo ">> OK. Google IdP clientId = $GAFTER"
 fi
 
+# Correo del realm (opcional). Recuperar contraseña ya lo manda EduTrack por Brevo
+# (auth/password-reset.ts); esto sólo hace falta para correos nativos de Keycloak. DigitalOcean
+# bloquea el 25/465/587: usar el relay SMTP de Brevo en el 2525 con su clave SMTP, no la de la API.
+SMTP_KC_HOST="${KEYCLOAK_SMTP_HOST:-$(env_get KEYCLOAK_SMTP_HOST)}"
+SMTP_KC_PORT="${KEYCLOAK_SMTP_PORT:-$(env_get KEYCLOAK_SMTP_PORT)}"
+SMTP_KC_USER="${KEYCLOAK_SMTP_USER:-$(env_get KEYCLOAK_SMTP_USER)}"
+SMTP_KC_PASS="${KEYCLOAK_SMTP_PASSWORD:-$(env_get KEYCLOAK_SMTP_PASSWORD)}"
+SMTP_KC_FROM="${KEYCLOAK_SMTP_FROM:-$(env_get KEYCLOAK_SMTP_FROM)}"
+SMTP_KC_FROM="${SMTP_KC_FROM:-${SMTP_FROM:-$(env_get SMTP_FROM)}}"
+if [ -z "$SMTP_KC_HOST" ] || [ -z "$SMTP_KC_USER" ] || [ -z "$SMTP_KC_PASS" ] || [ -z "$SMTP_KC_FROM" ]; then
+  echo ">> SMTP del realm: sin KEYCLOAK_SMTP_*; no lo toco (recuperar contraseña usa el correo de EduTrack)."
+else
+  REALM_NOW="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$KC_URL/admin/realms/$REALM_NAME")"
+  REALM_SMTP="$(printf '%s' "$REALM_NOW" | jq \
+    --arg host "$SMTP_KC_HOST" --arg port "${SMTP_KC_PORT:-2525}" \
+    --arg user "$SMTP_KC_USER" --arg pass "$SMTP_KC_PASS" --arg from "$SMTP_KC_FROM" '
+      .smtpServer = {
+        host: $host, port: $port, from: $from, fromDisplayName: "EduTrack",
+        auth: "true", user: $user, password: $pass, starttls: "true", ssl: "false"
+      }')"
+  curl -fsS -X PUT \
+    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    -d "$REALM_SMTP" "$KC_URL/admin/realms/$REALM_NAME"
+  echo ">> OK. SMTP del realm = $SMTP_KC_HOST:${SMTP_KC_PORT:-2525} (remitente $SMTP_KC_FROM)"
+fi
+
 echo ">> Hace un hard refresh (Ctrl+Shift+R) en la pantalla de login."

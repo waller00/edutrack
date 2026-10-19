@@ -54,7 +54,7 @@ export default function MyAssignedEventsPage(
   _props: { role?: 'TEACHER' | 'STAFF' } = {},
 ) {
   return (
-    <RoleGuard permission="events.read" permissionScope="own">
+    <RoleGuard permission="events.read">
       <EventsContent />
     </RoleGuard>
   )

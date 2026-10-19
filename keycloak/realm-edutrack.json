@@ -4,7 +4,7 @@
   "displayName": "EduTrack",
   "loginTheme": "edutrack",
   "loginWithEmailAllowed": true,
-  "editUsernameAllowed": false,
+  "editUsernameAllowed": true,
   "duplicateEmailsAllowed": false,
   "registrationAllowed": false,
   "resetPasswordAllowed": true,

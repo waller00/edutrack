@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
 
 export default function ForgotPage() {
@@ -7,6 +7,12 @@ export default function ForgotPage() {
   const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  // El "Olvidé mi contraseña" de la pantalla de ingreso trae el correo que ya se escribió.
+  useEffect(() => {
+    const prefill = new URLSearchParams(globalThis.location.search).get('email')
+    if (prefill) setEmail(prefill)
+  }, [])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -34,12 +40,13 @@ export default function ForgotPage() {
               <img src="/logo.svg" alt="EduTrack" className="h-10 w-10" />
             </div>
             <h1 className="mb-2 text-2xl font-bold text-gray-900">Recuperar contraseña</h1>
-            <p className="text-gray-600">Te enviamos un enlace para crear una contraseña nueva.</p>
+            <p className="text-gray-600">Ingresá el correo de tu cuenta y te mandamos un enlace para elegir una contraseña nueva.</p>
           </div>
 
           {sent ? (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-              Si el correo está registrado, vas a recibir el enlace de recuperación en unos minutos.
+              Si el correo está registrado, vas a recibir el enlace de recuperación en unos minutos. Vale por 60 minutos;
+              si no lo ves, revisá el correo no deseado.
             </div>
           ) : (
             <form onSubmit={submit} className="space-y-4">

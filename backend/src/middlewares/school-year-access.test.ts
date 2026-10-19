@@ -29,13 +29,13 @@ beforeEach(() => {
 })
 
 describe('catálogo de ciclos para los perfiles que usan el selector', () => {
-  it.each(['ADMIN', 'TEACHER', 'STAFF', 'ADSCRIPTO', 'DIRECCION', 'INSPECCION'])('permite consultar catálogo y ciclo activo a %s', async role => {
+  it.each(['ADMIN', 'TEACHER', 'ADSCRIPTO', 'DIRECCION'])('permite consultar catálogo y ciclo activo a %s', async role => {
     for (const path of ['', '/active', '/active/']) {
       expect((await request(app(role)).get('/admin/school-years' + path)).status).toBe(200)
     }
   })
 
-  it.each(['TEACHER', 'STAFF', 'ADSCRIPTO', 'DIRECCION', 'INSPECCION'])('no habilita gestión, métricas o planes a %s', async role => {
+  it.each(['TEACHER', 'STAFF', 'ADSCRIPTO', 'DIRECCION'])('no habilita gestión, métricas o planes a %s', async role => {
     expect((await request(app(role)).post('/admin/school-years')).status).toBe(403)
     expect((await request(app(role)).patch('/admin/school-years/y1')).status).toBe(403)
     expect((await request(app(role)).delete('/admin/school-years/y1')).status).toBe(403)

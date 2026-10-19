@@ -50,12 +50,42 @@ const {
   deleteKeycloakUserOtpCredentialsMock,
   exchangeCodeMock,
   provisionUserFromClaimsMock,
+  keycloakUserHasPasswordMock,
+  setInitialKeycloakPasswordMock,
+  recordAuditEventMock,
 } = vi.hoisted(() => ({
   getKeycloakUserIdByEmailMock: vi.fn().mockResolvedValue("kc-1"),
   verifyKeycloakUserOtpCodeMock: vi.fn().mockResolvedValue(true),
   deleteKeycloakUserOtpCredentialsMock: vi.fn().mockResolvedValue(1),
   exchangeCodeMock: vi.fn(),
   provisionUserFromClaimsMock: vi.fn(),
+  keycloakUserHasPasswordMock: vi.fn().mockResolvedValue(false),
+  setInitialKeycloakPasswordMock: vi.fn().mockResolvedValue(undefined),
+  recordAuditEventMock: vi.fn(),
+}));
+
+const { requestPasswordResetMock, completePasswordResetMock, MockPasswordResetTokenError } = vi.hoisted(() => {
+  class MockPasswordResetTokenError extends Error {
+    readonly code = "RESET_TOKEN_INVALID";
+    constructor() {
+      super("El enlace para restablecer la contraseña venció o ya se usó.");
+    }
+  }
+  return {
+    requestPasswordResetMock: vi.fn().mockResolvedValue(true),
+    completePasswordResetMock: vi.fn().mockResolvedValue("user-1"),
+    MockPasswordResetTokenError,
+  };
+});
+
+vi.mock("../auth/password-reset.js", () => ({
+  requestPasswordReset: requestPasswordResetMock,
+  completePasswordReset: completePasswordResetMock,
+  PasswordResetTokenError: MockPasswordResetTokenError,
+}));
+
+vi.mock("../services/audit-log.js", () => ({
+  recordAuditEvent: recordAuditEventMock,
 }));
 
 vi.mock("../db/redis.js", () => ({
@@ -87,8 +117,9 @@ vi.mock("../auth/keycloak.js", () => ({
   getKeycloakUserOtpStatus: vi.fn().mockResolvedValue({ enabled: true, count: 1 }),
   redirectUri: vi.fn(() => "http://localhost:4000/auth/callback"),
   refreshTokens: vi.fn(),
-  triggerKeycloakPasswordReset: vi.fn(),
   verifyKeycloakUserOtpCode: verifyKeycloakUserOtpCodeMock,
+  keycloakUserHasPassword: keycloakUserHasPasswordMock,
+  setInitialKeycloakPassword: setInitialKeycloakPasswordMock,
 }));
 
 vi.mock("../auth/keycloak-provisioning.js", () => ({
@@ -267,6 +298,98 @@ describe("auth-keycloak account routes", () => {
   });
 });
 
+describe("auth-keycloak crear contraseña (cuenta de Google)", () => {
+  const session = (createdAt: number) => ({
+    sid: "sid-1",
+    userId: "user-1",
+    kcId: "kc-1",
+    email: "u@example.com",
+    role: "TEACHER",
+    accessToken: "access-1",
+    accessTokenExpiresAt: Date.now() + 60_000,
+    createdAt,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.FRONTEND_URL = "http://localhost:3000";
+    redisMock.set.mockResolvedValue("OK");
+    redisMock.incr.mockResolvedValue(1);
+    getSessionMock.mockResolvedValue(session(Date.now()));
+    keycloakUserHasPasswordMock.mockResolvedValue(false);
+    setInitialKeycloakPasswordMock.mockResolvedValue(undefined);
+  });
+
+  const post = (password: unknown) =>
+    request(app()).post("/auth/account/password").set("Cookie", "sid=sid-1").send({ password });
+
+  it("GET /auth/account/password-status dice si la cuenta tiene contraseña", async () => {
+    const res = await request(app()).get("/auth/account/password-status").set("Cookie", "sid=sid-1");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ hasPassword: false });
+    expect(keycloakUserHasPasswordMock).toHaveBeenCalledWith("kc-1");
+  });
+
+  it("crea la primera contraseña con un ingreso reciente y lo audita", async () => {
+    const res = await post("Segura123!");
+
+    expect(res.status).toBe(200);
+    expect(setInitialKeycloakPasswordMock).toHaveBeenCalledWith("kc-1", "Segura123!");
+    expect(recordAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "AUTH_PASSWORD_CREATED", actorUserId: "user-1", entityId: "user-1" }),
+    );
+  });
+
+  it("rechaza una contraseña débil sin tocar Keycloak", async () => {
+    const res = await post("corta");
+
+    expect(res.status).toBe(400);
+    expect(setInitialKeycloakPasswordMock).not.toHaveBeenCalled();
+  });
+
+  it("con una sesión de hace más de 10 minutos pide volver a ingresar", async () => {
+    getSessionMock.mockResolvedValue(session(Date.now() - 11 * 60 * 1000));
+
+    const res = await post("Segura123!");
+
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe("REAUTH_REQUIRED");
+    expect(setInitialKeycloakPasswordMock).not.toHaveBeenCalled();
+  });
+
+  it("si la cuenta ya tiene contraseña no la pisa: eso es «Cambiar contraseña»", async () => {
+    keycloakUserHasPasswordMock.mockResolvedValue(true);
+
+    const res = await post("Segura123!");
+
+    expect(res.status).toBe(409);
+    expect(setInitialKeycloakPasswordMock).not.toHaveBeenCalled();
+  });
+
+  it("devuelve 400 si la política de Keycloak rechaza la contraseña", async () => {
+    setInitialKeycloakPasswordMock.mockRejectedValue(Object.assign(new Error("Keycloak reset password error 400"), { status: 400 }));
+
+    const res = await post("Segura123!");
+
+    expect(res.status).toBe(400);
+    expect(recordAuditEventMock).not.toHaveBeenCalled();
+  });
+
+  it("GET /auth/account/reauth pide el ingreso de nuevo y vuelve al perfil con el formulario", async () => {
+    const res = await request(app()).get("/auth/account/reauth").set("Cookie", "sid=sid-1");
+
+    expect(res.status).toBe(302);
+    expect(buildLoginUrlMock).toHaveBeenCalledWith(expect.objectContaining({ prompt: "login" }));
+    expect(redisMock.set).toHaveBeenCalledWith(
+      "bff:oauth:state-1",
+      expect.stringContaining('"returnTo":"/profile?crear-contrasena=1"'),
+      "EX",
+      600,
+    );
+  });
+});
+
 describe("auth-keycloak login OIDC", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -405,5 +528,80 @@ describe("auth-keycloak 2FA por correo (público)", () => {
     expect(res.text).toContain("Demasiados intentos");
     expect(prismaMock.user.findFirst).not.toHaveBeenCalled();
     expect(sendMailMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("auth-keycloak recuperar contraseña (correo de EduTrack)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    redisMock.incr.mockResolvedValue(1);
+    requestPasswordResetMock.mockResolvedValue(true);
+    completePasswordResetMock.mockResolvedValue("user-1");
+  });
+
+  it("POST /auth/forgot-password pide el enlace por EduTrack y responde ok", async () => {
+    const res = await request(app()).post("/auth/forgot-password").send({ email: " Ana@Example.com " });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    expect(requestPasswordResetMock).toHaveBeenCalledWith("ana@example.com");
+  });
+
+  it("POST /auth/forgot-password no revela si el envío falló", async () => {
+    requestPasswordResetMock.mockRejectedValueOnce(new Error("brevo down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await request(app()).post("/auth/forgot-password").send({ email: "ana@example.com" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+  });
+
+  it("POST /auth/forgot-password rechaza un correo inválido", async () => {
+    const res = await request(app()).post("/auth/forgot-password").send({ email: "no-es-correo" });
+
+    expect(res.status).toBe(400);
+    expect(requestPasswordResetMock).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/reset-password cambia la contraseña y lo audita", async () => {
+    const res = await request(app()).post("/auth/reset-password").send({ token: "tok-1", password: "Segura123!" });
+
+    expect(res.status).toBe(200);
+    expect(completePasswordResetMock).toHaveBeenCalledWith("tok-1", "Segura123!");
+    expect(recordAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "AUTH_PASSWORD_RESET", actorUserId: "user-1", entityId: "user-1" }),
+    );
+  });
+
+  it("POST /auth/reset-password rechaza una contraseña débil sin gastar el enlace", async () => {
+    const res = await request(app()).post("/auth/reset-password").send({ token: "tok-1", password: "corta" });
+
+    expect(res.status).toBe(400);
+    expect(completePasswordResetMock).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/reset-password sin token o con un enlace vencido responde RESET_TOKEN_INVALID", async () => {
+    const sinToken = await request(app()).post("/auth/reset-password").send({ password: "Segura123!" });
+    completePasswordResetMock.mockRejectedValueOnce(new MockPasswordResetTokenError());
+    const vencido = await request(app()).post("/auth/reset-password").send({ token: "viejo", password: "Segura123!" });
+
+    for (const res of [sinToken, vencido]) {
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("RESET_TOKEN_INVALID");
+    }
+    expect(recordAuditEventMock).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/reset-password: 400 si la política de Keycloak la rechaza, 503 si Keycloak falla", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    completePasswordResetMock.mockRejectedValueOnce(Object.assign(new Error("policy"), { status: 400 }));
+    const politica = await request(app()).post("/auth/reset-password").send({ token: "tok-1", password: "Segura123!" });
+    completePasswordResetMock.mockRejectedValueOnce(new Error("kc down"));
+    const caido = await request(app()).post("/auth/reset-password").send({ token: "tok-1", password: "Segura123!" });
+
+    expect(politica.status).toBe(400);
+    expect(politica.body.message).toMatch(/Keycloak rechazó/);
+    expect(caido.status).toBe(503);
   });
 });

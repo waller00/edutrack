@@ -5,7 +5,8 @@ import { validateNewPassword } from '@/lib/auth/password-strength'
 export const REGISTER_USERNAME_PATTERN = '^[a-zA-Z0-9._-]{3,30}$'
 export const REGISTER_USERNAME_REGEX = /^[a-zA-Z0-9._-]{3,30}$/
 
-export type RegisterRole = 'STAFF' | 'TEACHER' | ''
+/** Perfiles que se pueden pedir al registrarse. Administrador no: lo asigna un admin. */
+export type RegisterRole = 'TEACHER' | 'STAFF' | 'ADSCRIPTO' | 'DIRECCION' | ''
 export type RegisterUsernameStatus = 'idle' | 'checking' | 'ok' | 'taken' | 'invalid'
 
 export function isValidRegisterEmail(email: string): boolean {

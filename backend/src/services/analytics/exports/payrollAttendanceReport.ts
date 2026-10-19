@@ -115,7 +115,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
 
 const ROLE_LABELS: Record<string, string> = {
   TEACHER: 'Docente',
-  STAFF: 'Equipo administrativo',
+  STAFF: 'Personal',
   ADMIN: 'Administrador',
 }
 

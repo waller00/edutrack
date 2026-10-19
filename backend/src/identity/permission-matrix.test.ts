@@ -87,17 +87,12 @@ describe('invariantes de la matriz (CLAUDE.md)', () => {
     expect(withExports).toEqual(['ADMIN'])
   })
 
-  it('inspección consulta libretas pero no las exporta ni visa', () => {
-    const inspeccion = grantsOf('INSPECCION')
-    expect(inspeccion.get('gradebook.read')).toBe('all')
-    expect(inspeccion.has('gradebook.export')).toBe(false)
-    expect(inspeccion.has('gradebook.endorse')).toBe(false)
+  it('el docente sólo tiene alcance propio en la libreta', () => {
+    const scopes = [...grantsOf('TEACHER')].filter(([id]) => id.startsWith('gradebook.')).map(([, scope]) => scope)
+    expect(new Set(scopes)).toEqual(new Set(['own']))
   })
 
-  it('docente y staff sólo tienen alcance propio en la libreta', () => {
-    for (const role of ['TEACHER', 'STAFF'] as const) {
-      const scopes = [...grantsOf(role)].filter(([id]) => id.startsWith('gradebook.')).map(([, scope]) => scope)
-      expect(new Set(scopes)).toEqual(new Set(['own']))
-    }
+  it('Personal no tiene nada de la libreta', () => {
+    expect([...grantsOf('STAFF').keys()].filter((id) => id.startsWith('gradebook.'))).toEqual([])
   })
 })

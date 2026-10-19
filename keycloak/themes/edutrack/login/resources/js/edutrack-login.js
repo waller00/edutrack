@@ -48,6 +48,10 @@
       if (url.port === '4000') {
         return url.protocol + '//' + url.hostname + ':3000'
       }
+      // En las pantallas login-actions no viaja frontend_origin y queda el callback de la API.
+      if (url.hostname.indexOf('api.') === 0) {
+        return url.protocol + '//' + url.host.slice(4)
+      }
       return url.protocol + '//' + url.host
     } catch (_error) {
       return 'http://localhost:3000'
@@ -211,7 +215,20 @@
     localizeSocialProvidersLabel()
 
     var forgot = document.querySelector('a[href*="reset-credentials"]')
-    if (forgot) forgot.textContent = 'Olvidé mi contraseña'
+    if (forgot) {
+      forgot.textContent = 'Olvidé mi contraseña'
+      forgot.href = forgotPasswordUrl()
+      // El correo puede escribirse después de cargar la página.
+      forgot.addEventListener('click', function () { forgot.href = forgotPasswordUrl() })
+    }
+  }
+
+  // El correo de recuperación lo manda EduTrack (Brevo): Keycloak no tiene SMTP que funcione.
+  function forgotPasswordUrl() {
+    var username = document.querySelector('#username')
+    var typed = username && username.value ? username.value.trim() : ''
+    var query = typed.indexOf('@') > 0 ? '?' + new URLSearchParams({ email: typed }).toString() : ''
+    return frontendOrigin() + '/forgot' + query
   }
 
   function localizeActionScreens() {

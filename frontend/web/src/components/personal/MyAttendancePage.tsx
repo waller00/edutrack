@@ -72,7 +72,7 @@ export default function MyAttendancePage(
   _props: { role?: 'TEACHER' | 'STAFF' } = {},
 ) {
   return (
-    <RoleGuard permission="attendance.read" permissionScope="own">
+    <RoleGuard permission="attendance.read">
       <AttendanceContent />
     </RoleGuard>
   )

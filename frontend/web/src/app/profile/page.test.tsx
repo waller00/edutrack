@@ -22,6 +22,12 @@ function renderProfile() {
   )
 }
 
+// Tiene sus propios tests (PasswordCard.test.tsx) y su propia consulta a la API, que acá
+// desordenaría la secuencia de respuestas de cada caso.
+vi.mock('@/components/profile/PasswordCard', () => ({
+  default: () => <a href="http://localhost:4000/auth/account/password">Cambiar contraseña</a>,
+}))
+
 vi.mock('@/components/notifications/WebPushSection', () => ({
   default: vi.fn(() => <p>Preferencias del navegador</p>),
 }))

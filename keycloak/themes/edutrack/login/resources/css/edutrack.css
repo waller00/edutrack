@@ -321,6 +321,12 @@ input[type="email"]:focus {
   color: var(--et-text) !important;
 }
 
+/* Edge dibuja su propio "ojo" dentro del campo: con el botón de arriba quedaban dos. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
 /* ── 12. Botón primario — `.btn-primary` de globals.css ─────────────────── */
 .pf-v5-c-button.pf-m-primary,
 #kc-form-buttons input[type="submit"],

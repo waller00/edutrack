@@ -201,7 +201,7 @@ export function computeBreakdown(
 
 const ROLE_BREAKDOWN_LABELS: Record<string, string> = {
   TEACHER: 'Docentes',
-  STAFF: 'Equipo administrativo',
+  STAFF: 'Personal',
   ADMIN: 'Administradores',
 }
 

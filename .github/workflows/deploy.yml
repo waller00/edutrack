@@ -193,6 +193,7 @@ jobs:
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
+            PREV_REV="$(git rev-parse HEAD 2>/dev/null || true)"
             git_sync_from_url "$REPO_HTTPS" origin/main
             . scripts/deploy-compose-functions.sh
             # El reverse proxy y el cierre de puertos son parte del despliegue, no un ajuste manual:
@@ -202,6 +203,11 @@ jobs:
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
             compose $CF up -d --no-build pg redis keycloak-db keycloak
+            # Keycloak (modo `start`) cachea el tema en memoria: sin reinicio sigue sirviendo el viejo.
+            if [ -z "$PREV_REV" ] || ! git diff --quiet "$PREV_REV" HEAD -- keycloak/themes; then
+              echo "Cambió el tema de Keycloak -> reinicio keycloak"
+              compose $CF restart keycloak
+            fi
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/postgres-apply-role-password.sh
             # Build con la app aún arriba; no hacer `compose down` (deja el sitio en 521 si falla el build).
             compose $CF build web auth

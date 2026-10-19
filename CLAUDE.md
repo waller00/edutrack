@@ -226,6 +226,13 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > **Dirección no tiene ninguno:** ve la libreta, la visa y le escribe al docente ("Mensajes del
 > director"), pero no la edita. Para sacarle un permiso a un rol que ya lo tiene en producción no
 > alcanza con los defaults: la autorización lee la base, así que va en `REVOKED_PROFILE_PERMISSION_IDS`.
+> Cambiar el **alcance** de uno que ya existe tampoco llega (el sync sólo crea filas faltantes): va en
+> `ENFORCED_PROFILE_PERMISSION_SCOPES`.
+
+> **Perfiles:** Administrador; Docente; **Personal** (`STAFF`, no docente: sólo sus ingresos y sus
+> licencias); **Dirección** y **Adscripción** ven todo el centro como Administración pero sólo
+> editan lo suyo (visar / justificar). Inspección se retiró (`RETIRED_ORG_ROLE_CODES`). Los "Mis …"
+> del menú (agenda, asistencias, licencias) no fijan alcance: quien ve todo conserva lo propio.
 
 > **El menú de la libreta depende de quién mira** (`sectionsFor`, `lib/libreta/menu.ts`). El
 > docente tiene "Mensajes del director"; quien supervisa tiene "Visado y seguimiento". Visar no es

@@ -347,7 +347,35 @@ async function setKeycloakUserPassword(token: string, kcUserId: string, password
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Keycloak reset password error ${res.status}: ${detail}`);
+    // `status` distingue la contraseña rechazada por la política del realm (400) de una caída.
+    const error = new Error(`Keycloak reset password error ${res.status}: ${detail}`) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
+  }
+}
+
+/**
+ * Primera contraseña de una cuenta que entra sólo con Google. El "Cambiar contraseña" de Keycloak
+ * pide la actual, que esa cuenta no tiene. Quien llama verifica que no tenga ninguna.
+ */
+export async function setInitialKeycloakPassword(kcUserId: string, password: string): Promise<void> {
+  const token = await getAdminToken();
+  await setKeycloakUserPassword(token, kcUserId, password);
+}
+
+/**
+ * Cierra las sesiones de Keycloak del usuario. Tras un alta con Google la sesión del proveedor
+ * quedaba abierta, y el siguiente login entraba sin preguntar a una cuenta que todavía no puede usar.
+ */
+export async function logoutKeycloakUserSessions(kcUserId: string): Promise<void> {
+  const token = await getAdminToken();
+  const res = await kcFetch(`${adminBaseUrl()}/admin/realms/${adminRealm()}/users/${encodeURIComponent(kcUserId)}/logout`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Keycloak logout user error ${res.status}: ${detail}`);
   }
 }
 
@@ -381,14 +409,35 @@ export async function syncKeycloakUserIdentity(input: SyncKeycloakUserIdentityIn
     ...(typeof input.emailVerified === "boolean" ? { emailVerified: input.emailVerified } : {}),
   };
 
-  const updateRes = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify(next),
-  });
+  const putUser = (rep: Record<string, unknown>) =>
+    kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(rep),
+    });
+
+  let updateRes = await putUser(next);
+  let detail = updateRes.ok ? "" : await updateRes.text().catch(() => "");
+  // Con "Edit username" apagado en el realm, Keycloak rechaza el PUT entero si cambia el username
+  // (y con él, email y nombre). Se reintenta conservando el username que ya tiene la cuenta: el
+  // login vincula por `keycloakId` y Moodle por email, así que no tiene por qué coincidir con el de la app.
+  if (!updateRes.ok && next.username !== current.username && isReadOnlyUsernameError(updateRes.status, detail)) {
+    console.warn("[keycloak] username de sólo lectura en el realm: se conserva el de Keycloak", { kcId: input.kcId });
+    updateRes = await putUser({ ...next, username: current.username });
+    detail = updateRes.ok ? "" : await updateRes.text().catch(() => "");
+  }
   if (!updateRes.ok) {
-    const detail = await updateRes.text().catch(() => "");
     throw new Error(`Keycloak update user error ${updateRes.status}: ${detail}`);
+  }
+}
+
+function isReadOnlyUsernameError(status: number, detail: string): boolean {
+  if (status !== 400) return false;
+  try {
+    const body = JSON.parse(detail) as { field?: string; errorMessage?: string };
+    return body.field === "username" && body.errorMessage === "error-user-attribute-read-only";
+  } catch {
+    return false;
   }
 }
 
@@ -782,6 +831,20 @@ export async function getKeycloakUserOtpStatus(kcUserId: string): Promise<{ enab
   return { enabled: secondFactorCredentials.length > 0, count: secondFactorCredentials.length };
 }
 
+/** Si la cuenta tiene contraseña en Keycloak. Quien se registró con Google no tiene. */
+export async function keycloakUserHasPassword(kcUserId: string): Promise<boolean> {
+  const token = await getAdminToken();
+  const res = await kcFetch(`${adminBaseUrl()}/admin/realms/${adminRealm()}/users/${encodeURIComponent(kcUserId)}/credentials`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Keycloak credentials error ${res.status}: ${detail}`);
+  }
+  const credentials = (await res.json()) as KeycloakCredential[];
+  return credentials.some((credential) => credential.type === "password");
+}
+
 export async function verifyKeycloakUserOtpCode(kcUserId: string, code: string): Promise<boolean> {
   const normalizedCode = normalizeOtpCode(code);
   if (!kcUserId || !/^\d{6,8}$/.test(normalizedCode)) return false;
@@ -862,22 +925,14 @@ async function clearPendingTotpRequiredAction(token: string, kcUserId: string): 
   });
 }
 
-/** Envía el email de actualización de contraseña de Keycloak al usuario. */
-export async function triggerKeycloakPasswordReset(email: string): Promise<void> {
+/**
+ * Fija la contraseña elegida con el enlace de "Olvidé mi contraseña". El correo lo manda EduTrack
+ * (`auth/password-reset.ts`): el de Keycloak (`execute-actions-email`) necesita un SMTP que el
+ * droplet no tiene.
+ */
+export async function resetKeycloakPassword(kcUserId: string, password: string): Promise<void> {
   const token = await getAdminToken();
-  const kcId = await findKeycloakUserIdByEmail(token, email);
-  if (!kcId) throw new Error("Usuario no encontrado en Keycloak");
-  const base = adminBaseUrl();
-  const realm = adminRealm();
   // El reset solo debe cambiar la contraseña; nunca encadenar la config de 2FA.
-  await clearPendingTotpRequiredAction(token, kcId);
-  const res = await kcFetch(`${base}/admin/realms/${realm}/users/${kcId}/execute-actions-email`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify(["UPDATE_PASSWORD"]),
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`Keycloak password reset error ${res.status}: ${detail}`);
-  }
+  await clearPendingTotpRequiredAction(token, kcUserId);
+  await setKeycloakUserPassword(token, kcUserId, password);
 }

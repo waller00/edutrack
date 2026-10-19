@@ -10,7 +10,7 @@ import { DEFAULT_PROFILE_PERMISSIONS } from "../identity/profile-permissions-def
 
 const {
   prismaMock,
-  triggerKeycloakPasswordResetMock,
+  requestPasswordResetMock,
   createKeycloakUserMock,
   syncKeycloakUserIdentityByEmailMock,
   deleteKeycloakUserByEmailMock,
@@ -19,7 +19,7 @@ const {
 } = vi.hoisted(() => ({
   sendApprovalEmailMock: vi.fn().mockResolvedValue(undefined),
   sendRejectionEmailMock: vi.fn().mockResolvedValue(undefined),
-  triggerKeycloakPasswordResetMock: vi.fn().mockResolvedValue(undefined),
+  requestPasswordResetMock: vi.fn().mockResolvedValue(true),
   createKeycloakUserMock: vi.fn().mockResolvedValue("kc-id-1"),
   syncKeycloakUserIdentityByEmailMock: vi.fn().mockResolvedValue(undefined),
   deleteKeycloakUserByEmailMock: vi.fn().mockResolvedValue(true),
@@ -42,6 +42,7 @@ const {
     medicalLeave: { count: vi.fn().mockResolvedValue(0) },
     orgRole: {
       upsert: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       findFirst: vi.fn(),
       findUnique: vi.fn(),
       findMany: vi.fn(),
@@ -124,8 +125,10 @@ function permissionCatalogRows() {
 }
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../auth/password-reset.js", () => ({
+  requestPasswordReset: requestPasswordResetMock,
+}));
 vi.mock("../auth/keycloak.js", () => ({
-  triggerKeycloakPasswordReset: triggerKeycloakPasswordResetMock,
   createKeycloakUser: createKeycloakUserMock,
   syncKeycloakUserIdentityByEmail: syncKeycloakUserIdentityByEmailMock,
   deleteKeycloakUserByEmail: deleteKeycloakUserByEmailMock,
@@ -891,12 +894,20 @@ describe("admin routes (prisma mock)", () => {
     );
   });
 
-  it("POST /admin/users/:id/password/reset dispara Keycloak", async () => {
+  it("POST /admin/users/:id/password/reset manda el correo de EduTrack", async () => {
     prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "STAFF" }, email: "u@example.com" });
     const res = await request(app()).post("/admin/users/u1/password/reset").set(adminHdr());
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(triggerKeycloakPasswordResetMock).toHaveBeenCalledWith("u@example.com");
+    expect(requestPasswordResetMock).toHaveBeenCalledWith("u@example.com");
+  });
+
+  it("POST /admin/users/:id/password/reset avisa si el correo no salió", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "STAFF" }, email: "u@example.com" });
+    requestPasswordResetMock.mockResolvedValueOnce(false);
+    const res = await request(app()).post("/admin/users/u1/password/reset").set(adminHdr());
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/No se envió/);
   });
 
   it("POST /admin/users/:id/password/reset 403 para administrador", async () => {
@@ -1486,11 +1497,11 @@ describe("admin routes (prisma mock)", () => {
       expect(res.status).toBe(404);
     });
 
-    it("POST password/reset 502 si Keycloak falla", async () => {
+    it("POST password/reset 503 si falla el envío", async () => {
       prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "TEACHER" }, email: "u1@a.com" });
-      triggerKeycloakPasswordResetMock.mockRejectedValueOnce(new Error("kc down"));
+      requestPasswordResetMock.mockRejectedValueOnce(new Error("brevo down"));
       const res = await request(app()).post("/admin/users/u1/password/reset").set(adminHdr());
-      expect(res.status).toBe(502);
+      expect(res.status).toBe(503);
     });
   });
 

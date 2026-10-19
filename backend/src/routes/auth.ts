@@ -14,7 +14,13 @@ import {
 } from "../auth/auth-profile-pure.js";
 import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-policy.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
-import { createKeycloakUser, freeKeycloakUsernameIfOrphan, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
+import {
+  createKeycloakUser,
+  freeKeycloakUsernameIfOrphan,
+  logoutKeycloakUserSessions,
+  syncKeycloakUserIdentity,
+  syncRegisteredSsoUser,
+} from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
 import { linkKeycloakAccount } from "../auth/keycloak-provisioning.js";
 import { getSession, newSessionId, saveSession } from "../auth/session-store.js";
@@ -67,7 +73,8 @@ const registerSchema = z.object({
   lastName: z.string().min(1).max(80),
   phone: z.string().min(7).max(20).optional(),
   birthdate: z.string().datetime().optional(),
-  role: z.enum(["ADMIN", "STAFF", "TEACHER"]).optional(),
+  // Los perfiles que puede pedir quien se registra solo. Administrador nunca: lo asigna un admin.
+  role: z.enum(["STAFF", "TEACHER", "ADSCRIPTO", "DIRECCION"]).optional(),
   ssoRegistrationToken: z.string().min(20).max(128).optional(),
 });
 
@@ -401,7 +408,8 @@ r.post("/register", async (req, res) => {
   });
 
   // Keycloak primero (crítico: sin la cuenta en el IdP el usuario no puede loguear).
-  // Si falla, respondemos 502 (con CORS) antes de enviar ningún correo.
+  // Si falla, respondemos 503 antes de enviar ningún correo. No 502: Cloudflare cambia los 502/504
+  // del origen por su propia página, sin CORS, y el front sólo vería "No se pudo conectar con la API".
   try {
     if (ssoProfile) {
       await syncRegisteredSsoUser({
@@ -415,6 +423,11 @@ r.post("/register", async (req, res) => {
       });
       await linkKeycloakAccount(user.id, ssoProfile.kcId);
       if (ssoRegistrationToken) await consumeSsoRegistration(ssoRegistrationToken);
+      // La sesión de Google en Keycloak sigue abierta: el próximo login entraría sin preguntar y
+      // mostraría otra vez "espera aprobación". Si no se puede cerrar, el alta vale igual.
+      await logoutKeycloakUserSessions(ssoProfile.kcId).catch((error) =>
+        console.warn("[register] no se pudo cerrar la sesión de Keycloak:", error),
+      );
     } else {
       // Si el username quedó ocupado en Keycloak por una cuenta huérfana (sin usuario en la app),
       // la borramos para usar el nombre limpio (no se crean ni se toleran huérfanos).
@@ -442,7 +455,7 @@ r.post("/register", async (req, res) => {
     }
     const usernameTakenInKc = e instanceof Error && (e as { code?: string }).code === "KEYCLOAK_USERNAME_TAKEN";
     console.error("[register] keycloak create user:", e);
-    return res.status(usernameTakenInKc ? 409 : 502).json({
+    return res.status(usernameTakenInKc ? 409 : 503).json({
       message: usernameTakenInKc
         ? "No pudimos generar tu acceso por un conflicto de nombre de usuario. Probá de nuevo o contactá al administrador."
         : "No se pudo activar el acceso de la cuenta.",

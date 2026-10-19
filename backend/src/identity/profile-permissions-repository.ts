@@ -7,6 +7,7 @@ import {
   type BuiltinProfileRole,
   BUILTIN_PROFILE_ROLES,
   DEFAULT_PROFILE_PERMISSIONS,
+  ENFORCED_PROFILE_PERMISSION_SCOPES,
   normalizePermissionId,
   REMOVED_PROFILE_PERMISSION_IDS,
   REVOKED_PROFILE_PERMISSION_IDS,
@@ -163,12 +164,37 @@ export async function revokeRetiredProfilePermissions(client: PrismaClient = pri
   return revoked
 }
 
+/**
+ * Aplica en la base los alcances de `ENFORCED_PROFILE_PERMISSION_SCOPES`: el sync de defaults sólo
+ * crea filas faltantes, así que un cambio de alcance en la matriz no llegaría a quien ya tiene la fila.
+ * Idempotente: sólo toca filas que no estén ya habilitadas con ese alcance.
+ */
+export async function enforceProfilePermissionScopes(client: PrismaClient = prisma): Promise<number> {
+  let updated = 0
+  for (const [roleCode, scopes] of Object.entries(ENFORCED_PROFILE_PERMISSION_SCOPES)) {
+    for (const [permissionCode, scope] of Object.entries(scopes ?? {})) {
+      const target = scopeToDb(scope)
+      const result = await client.rolePermission.updateMany({
+        where: {
+          orgRole: { code: roleCode },
+          permission: { code: permissionCode },
+          OR: [{ enabled: false }, { scope: { not: target } }],
+        },
+        data: { enabled: true, scope: target },
+      })
+      updated += result.count
+    }
+  }
+  return updated
+}
+
 export async function ensureDefaultProfilePermissionsIfNeeded(): Promise<void> {
   await ensureBuiltinOrgRoles()
   const count = await prisma.rolePermission.count()
   if (count > 0) {
     await ensureCanonicalProfilePermissionsPresent()
     await revokeRetiredProfilePermissions()
+    await enforceProfilePermissionScopes()
     return
   }
   await upsertCanonicalProfilePermissions()

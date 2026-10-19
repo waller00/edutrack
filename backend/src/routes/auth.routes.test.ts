@@ -10,6 +10,7 @@ const {
   createKeycloakUserMock,
   syncKeycloakUserIdentityMock,
   syncRegisteredSsoUserMock,
+  logoutKeycloakUserSessionsMock,
   getSsoRegistrationMock,
   consumeSsoRegistrationMock,
   ensureDefaultPermissionsMock,
@@ -44,6 +45,7 @@ const {
   createKeycloakUserMock: vi.fn().mockResolvedValue("kc-id-1"),
   syncKeycloakUserIdentityMock: vi.fn().mockResolvedValue(undefined),
   syncRegisteredSsoUserMock: vi.fn().mockResolvedValue(undefined),
+  logoutKeycloakUserSessionsMock: vi.fn().mockResolvedValue(undefined),
   getSsoRegistrationMock: vi.fn().mockResolvedValue(null),
   consumeSsoRegistrationMock: vi.fn().mockResolvedValue(null),
   ensureDefaultPermissionsMock: vi.fn().mockResolvedValue(undefined),
@@ -59,6 +61,7 @@ vi.mock("../auth/keycloak.js", () => ({
   createKeycloakUser: createKeycloakUserMock,
   syncKeycloakUserIdentity: syncKeycloakUserIdentityMock,
   syncRegisteredSsoUser: syncRegisteredSsoUserMock,
+  logoutKeycloakUserSessions: logoutKeycloakUserSessionsMock,
   freeKeycloakUsernameIfOrphan: vi.fn().mockResolvedValue(false),
 }));
 vi.mock("../auth/sso-registration.js", () => ({
@@ -99,6 +102,7 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     createKeycloakUserMock.mockResolvedValue("kc-id-1");
     syncKeycloakUserIdentityMock.mockResolvedValue(undefined);
     syncRegisteredSsoUserMock.mockResolvedValue(undefined);
+    logoutKeycloakUserSessionsMock.mockResolvedValue(undefined);
     getSsoRegistrationMock.mockResolvedValue(null);
     consumeSsoRegistrationMock.mockResolvedValue(null);
     ensureDefaultPermissionsMock.mockResolvedValue(undefined);
@@ -280,6 +284,36 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     }));
     expect(prismaMock.emailVerification.create).not.toHaveBeenCalled();
     expect(consumeSsoRegistrationMock).toHaveBeenCalledWith("token-google-registration-1");
+    // Sin esto el próximo login entraba solo y repetía la pantalla de "espera aprobación".
+    expect(logoutKeycloakUserSessionsMock).toHaveBeenCalledWith("kc-google-1");
+  });
+
+  it("POST /auth/register con Google completa el alta aunque no pueda cerrar la sesión de Keycloak", async () => {
+    getSsoRegistrationMock.mockResolvedValue({
+      kcId: "kc-google-2",
+      email: "google2@example.com",
+      firstName: "Google",
+      lastName: "Dos",
+      emailVerified: true,
+    });
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "u-google-2", email: "google2@example.com", username: "google.dos" });
+    logoutKeycloakUserSessionsMock.mockRejectedValueOnce(new Error("kc logout 500"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const res = await request(app())
+      .post("/auth/register")
+      .send({
+        email: "google2@example.com",
+        ssoRegistrationToken: "token-google-registration-2",
+        firstName: "Google",
+        lastName: "Dos",
+        birthdate: "1990-01-01T00:00:00.000Z",
+        role: "TEACHER",
+      });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.delete).not.toHaveBeenCalled();
   });
 
   it("POST /auth/verify token válido", async () => {
@@ -392,7 +426,7 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     expect(res.body.message).toMatch(/Celular/i);
   });
 
-  it("POST /auth/register devuelve 502 si falla Keycloak", async () => {
+  it("POST /auth/register devuelve 503 si falla Keycloak (un 502 lo taparía Cloudflare)", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
     prismaMock.user.create.mockResolvedValue({
       id: "u-kc-fail",
@@ -408,7 +442,29 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
         firstName: "Kc",
         lastName: "Fail",
       });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(503);
+  });
+
+  it("POST /auth/register no deja pedir el perfil de Administrador", async () => {
+    const res = await request(app())
+      .post("/auth/register")
+      .send({ email: "intruso@example.com", password: "Segura123!", firstName: "In", lastName: "Truso", role: "ADMIN" });
+
+    expect(res.status).toBe(400);
+    expect(prismaMock.user.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/register acepta Dirección y Adscripto (quedan pendientes de aprobación)", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "u-dir", email: "dir@example.com", username: "dir.ector" });
+    for (const role of ["DIRECCION", "ADSCRIPTO"]) {
+      const res = await request(app())
+        .post("/auth/register")
+        .send({ email: "dir@example.com", password: "Segura123!", firstName: "Dir", lastName: "Ector", role });
+      expect(res.status, role).toBe(200);
+    }
+    expect(getOrgRoleIdMock).toHaveBeenCalledWith("DIRECCION");
+    expect(getOrgRoleIdMock).toHaveBeenCalledWith("ADSCRIPTO");
   });
 
   it("POST /auth/register devuelve 409 si Prisma detecta duplicado durante el alta", async () => {

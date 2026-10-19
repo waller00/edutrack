@@ -10,11 +10,16 @@ import {
   exchangeCode,
   getKeycloakUserIdByEmail,
   getKeycloakUserOtpStatus,
+  keycloakUserHasPassword,
   redirectUri,
   refreshTokens,
-  triggerKeycloakPasswordReset,
+  setInitialKeycloakPassword,
   verifyKeycloakUserOtpCode,
 } from "../auth/keycloak.js";
+import { completePasswordReset, PasswordResetTokenError, requestPasswordReset } from "../auth/password-reset.js";
+import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-policy.js";
+import { AuditAction } from "@prisma/client";
+import { recordAuditEvent } from "../services/audit-log.js";
 import { sendMail } from "../notifications/email.js";
 import {
   BffSession,
@@ -29,7 +34,7 @@ import {
   SsoRegistrationRequiredError,
 } from "../auth/keycloak-provisioning.js";
 import { createSsoRegistration } from "../auth/sso-registration.js";
-import { hitRateLimit } from "../middlewares/rate-limit.js";
+import { hitRateLimit, rateLimit } from "../middlewares/rate-limit.js";
 import { clientIp } from "../lib/client-ip.js";
 
 /**
@@ -286,6 +291,62 @@ r.get("/account/password", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
   await beginLoginFlow(res, { requiredAction: "UPDATE_PASSWORD", prompt: "login", returnTo: "/profile" });
+});
+
+/**
+ * Crear contraseña exige un ingreso reciente: con una sesión olvidada abierta, otro podría ponerle
+ * una contraseña a la cuenta y volver a entrar cuando quiera. Pasado este plazo se reautentica.
+ */
+const PASSWORD_CREATE_MAX_SESSION_AGE_MS = 10 * 60 * 1000;
+const PASSWORD_CREATE_LIMIT = { bucket: "password-create", max: 10, windowSeconds: 15 * 60 };
+
+r.get("/account/password-status", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  try {
+    res.json({ hasPassword: await keycloakUserHasPassword(session.kcId) });
+  } catch (error) {
+    console.error("[auth/account/password-status] keycloak:", error);
+    res.status(503).json({ message: "No se pudo consultar si tu cuenta tiene contraseña." });
+  }
+});
+
+/** Primera contraseña de una cuenta de Google. Cambiar una existente sigue en `/account/password`. */
+r.post("/account/password", rateLimit(PASSWORD_CREATE_LIMIT), async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  const parsed = strongPasswordSchema.safeParse(req.body?.password);
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
+  if (Date.now() - session.createdAt > PASSWORD_CREATE_MAX_SESSION_AGE_MS) {
+    return res.status(401).json({ code: "REAUTH_REQUIRED", message: "Por seguridad, volvé a ingresar para crear la contraseña." });
+  }
+  try {
+    if (await keycloakUserHasPassword(session.kcId)) {
+      return res.status(409).json({ message: "Tu cuenta ya tiene contraseña: usá «Cambiar contraseña»." });
+    }
+    await setInitialKeycloakPassword(session.kcId, parsed.data);
+  } catch (error) {
+    if ((error as { status?: number }).status === 400) {
+      return res.status(400).json({ message: "Keycloak rechazó la contraseña: no puede contener tu usuario ni tu correo." });
+    }
+    console.error("[auth/account/password] keycloak:", error);
+    return res.status(503).json({ message: "No se pudo crear la contraseña. Probá de nuevo en unos minutos." });
+  }
+  recordAuditEvent({
+    action: AuditAction.AUTH_PASSWORD_CREATED,
+    actorUserId: session.userId,
+    req,
+    entityType: "User",
+    entityId: session.userId,
+  });
+  res.json({ ok: true });
+});
+
+/** Vuelve a pedir el ingreso (Google o contraseña) y regresa al perfil con el formulario abierto. */
+r.get("/account/reauth", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  await beginLoginFlow(res, { prompt: "login", returnTo: "/profile?crear-contrasena=1" });
 });
 
 r.get("/account/2fa", async (req, res) => {
@@ -658,17 +719,41 @@ r.get("/account/security", async (req, res) => {
   res.redirect(buildAccountConsoleUrl("account-security/signing-in"));
 });
 
-r.post("/forgot-password", async (req, res) => {
+const PASSWORD_RESET_LIMIT = { bucket: "password-reset", max: 10, windowSeconds: 15 * 60 };
+
+r.post("/forgot-password", rateLimit(PASSWORD_RESET_LIMIT), async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
   if (!email || !/^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{1,255}$/.test(email)) {
     return res.status(400).json({ message: "Ingresá un correo válido." });
   }
   try {
-    await triggerKeycloakPasswordReset(email);
+    await requestPasswordReset(email);
   } catch (error) {
-    // No revelamos si el correo existe, pero sí dejamos log para diagnosticar SMTP/Keycloak.
-    console.error("[auth/forgot-password] keycloak:", error);
+    // No revelamos si el correo existe, pero sí dejamos log para diagnosticar el envío.
+    console.error("[auth/forgot-password] envío:", error);
   }
+  res.json({ ok: true });
+});
+
+r.post("/reset-password", rateLimit(PASSWORD_RESET_LIMIT), async (req, res) => {
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  if (!token) return res.status(400).json({ code: "RESET_TOKEN_INVALID", message: new PasswordResetTokenError().message });
+  const parsed = strongPasswordSchema.safeParse(req.body?.password);
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
+  let userId: string;
+  try {
+    userId = await completePasswordReset(token, parsed.data);
+  } catch (error) {
+    if (error instanceof PasswordResetTokenError) {
+      return res.status(400).json({ code: error.code, message: error.message });
+    }
+    if ((error as { status?: number }).status === 400) {
+      return res.status(400).json({ message: "Keycloak rechazó la contraseña: no puede contener tu usuario ni tu correo." });
+    }
+    console.error("[auth/reset-password] keycloak:", error);
+    return res.status(503).json({ message: "No se pudo cambiar la contraseña. Probá de nuevo en unos minutos." });
+  }
+  recordAuditEvent({ action: AuditAction.AUTH_PASSWORD_RESET, actorUserId: userId, req, entityType: "User", entityId: userId });
   res.json({ ok: true });
 });
 

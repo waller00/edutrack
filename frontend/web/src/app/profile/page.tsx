@@ -1,10 +1,10 @@
 'use client'
 import type { FormEvent } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Bell, ChevronDown, ExternalLink, FileText, KeyRound, Mail, Save, ShieldCheck, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Bell, ChevronDown, ExternalLink, FileText, Mail, Save, ShieldCheck, X } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { api } from '@/lib/api/client'
-import { accountPasswordUrl, accountRecoveryCodesUrl, accountTwoFactorUrl } from '@/lib/auth/urls'
+import { accountRecoveryCodesUrl, accountTwoFactorUrl } from '@/lib/auth/urls'
 import PhoneBirthdateFields from '@/components/forms/PhoneBirthdateFields'
 import WebPushSection from '@/components/notifications/WebPushSection'
 import { formatLocalMobileInputFromE164 } from '@/lib/forms/uruguay-forms'
@@ -18,6 +18,7 @@ import {
   validateProfileForm,
 } from '@/lib/profile/profile-form'
 import ModuleHeader from '@/components/common/ModuleHeader'
+import PasswordCard from '@/components/profile/PasswordCard'
 
 export default function ProfilePage() {
   const { me, loading, refresh } = useAuth()
@@ -40,6 +41,7 @@ export default function ProfilePage() {
   const [twoFactorCode, setTwoFactorCode] = useState('')
   const [twoFactorDisableBusy, setTwoFactorDisableBusy] = useState(false)
   const [disableEmailBusy, setDisableEmailBusy] = useState(false)
+  const [createPasswordRequested, setCreatePasswordRequested] = useState(false)
 
   useEffect(() => {
     if (loading) return
@@ -62,6 +64,12 @@ export default function ProfilePage() {
     if (requestedSection === 'notifications' || requestedSection === 'security') {
       setSection(requestedSection)
       if (requestedSection === 'notifications') setNotificationsVisited(true)
+    }
+    // Vuelve de reautenticarse para crear la contraseña (cuenta de Google).
+    if (params.get('crear-contrasena') === '1') {
+      setSection('security')
+      setCreatePasswordRequested(true)
+      globalThis.history.replaceState(null, '', '/profile')
     }
     if (params.has('twoFactorDisabled')) {
       notify('2FA desactivado', 'success')
@@ -261,16 +269,7 @@ export default function ProfilePage() {
         <h2 id="profile-security-title" className="font-semibold text-slate-900">Seguridad de la cuenta</h2>
         <p className="mt-1 text-sm text-slate-500">Gestioná tu contraseña y la verificación en dos pasos.</p>
         <div className="mt-5 space-y-5">
-          <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">Contraseña</h3>
-                <p className="mt-1 text-xs text-slate-500">Elegí una contraseña nueva para tu cuenta.</p>
-              </div>
-            </div>
-            <a href={accountPasswordUrl()} className="btn-secondary w-full shrink-0 sm:w-auto">Cambiar contraseña<ExternalLink className="h-4 w-4 shrink-0" aria-hidden /></a>
-          </div>
+          <PasswordCard username={username} openCreate={createPasswordRequested} onCreated={(text) => notify(text, 'success')} />
           <div className="space-y-4 rounded-lg border border-slate-200 p-4">
             <div className="flex items-start gap-3">
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" aria-hidden />

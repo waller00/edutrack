@@ -111,11 +111,11 @@ describe('auth middleware — permisos y sesión', () => {
 
   it('requirePermission: scope ok → next; requiredScope all con own → 403', async () => {
     const next1 = vi.fn()
-    await requirePermission('gradebook.read')({ user: { id: 'u1', role: 'STAFF' } } as never, mockRes(), next1)
+    await requirePermission('gradebook.read')({ user: { id: 'u1', role: 'TEACHER' } } as never, mockRes(), next1)
     expect(next1).toHaveBeenCalled()
 
     const res2 = mockRes()
-    await requirePermission('gradebook.read', 'all')({ user: { id: 'u1', role: 'STAFF' } } as never, res2, vi.fn())
+    await requirePermission('gradebook.read', 'all')({ user: { id: 'u1', role: 'TEACHER' } } as never, res2, vi.fn())
     expect(res2.status).toHaveBeenCalledWith(403)
 
     // Un permiso que el rol no tiene en su matriz no pasa, aunque el alcance pedido sea `own`.

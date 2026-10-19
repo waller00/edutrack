@@ -31,11 +31,19 @@ type LoginHeading = { title: string; description: string }
 /** Título y explicación de por qué el usuario terminó en esta pantalla. */
 function loginHeading(state: {
   registrationCancelled: boolean
+  registered: boolean
   loggedOut: boolean
   externalError: string
   autoLoginBlocked: boolean
   blocked: BlockedAccount
 }): LoginHeading {
+  // Recién registrado: la pantalla del alta ya explicó los pasos, acá no se repiten.
+  if (state.registered && !state.externalError) {
+    return {
+      title: 'Registro enviado',
+      description: 'Vas a poder ingresar cuando administración apruebe tu cuenta.',
+    }
+  }
   if (state.registrationCancelled) {
     return {
       title: 'Registro cancelado',
@@ -87,6 +95,12 @@ function pendingStageFor(externalError: string, blocked: BlockedAccount): 'verif
   return null
 }
 
+/** Una cuenta pendiente sólo tiene que esperar: "cambiar cuenta" es para la que fue inhabilitada. */
+function accountButtonLabel(externalError: string, pendingStage: 'verify' | 'approval' | null): string {
+  if (externalError !== 'account') return 'Ingresar'
+  return pendingStage ? 'Cerrar sesión' : 'Cerrar sesión y cambiar cuenta'
+}
+
 function wasAutoLoginStarted(): boolean {
   try {
     return globalThis.sessionStorage.getItem(AUTO_LOGIN_ATTEMPT_KEY) === '1'
@@ -118,6 +132,7 @@ export default function LoginPage() {
   const [autoLoginBlocked, setAutoLoginBlocked] = useState(false)
   const [sessionPending, setSessionPending] = useState(true)
   const [registrationCancelled, setRegistrationCancelled] = useState(false)
+  const [registered, setRegistered] = useState(false)
   const [blocked, setBlocked] = useState<BlockedAccount>({})
 
   useEffect(() => {
@@ -127,12 +142,15 @@ export default function LoginPage() {
     // Quien viene de cancelar un alta pidió explícitamente salir del flujo: mandarlo
     // de nuevo al proveedor de identidad lo deja rebotando sin entender por qué.
     const cancelledParam = params.get('cancelled') === '1'
+    // Quien acaba de registrarse todavía no puede entrar: iniciar el login sólo lo devolvería acá.
+    const registeredParam = params.get('registered') === '1'
     const returnTo = safeReturnTo(params.get('returnTo'))
 
     let alive = true
     setExternalError(error)
     setLoggedOut(loggedOutParam)
     setRegistrationCancelled(cancelledParam)
+    setRegistered(registeredParam)
 
     api('/auth/me')
       .then(() => {
@@ -151,7 +169,7 @@ export default function LoginPage() {
           setSessionPending(false)
           return
         }
-        if (error || loggedOutParam || cancelledParam) {
+        if (error || loggedOutParam || cancelledParam || registeredParam) {
           setSessionPending(false)
           return
         }
@@ -169,8 +187,10 @@ export default function LoginPage() {
     }
   }, [router])
 
-  const heading = loginHeading({ registrationCancelled, loggedOut, externalError, autoLoginBlocked, blocked })
+  const heading = loginHeading({ registrationCancelled, registered, loggedOut, externalError, autoLoginBlocked, blocked })
   const pendingStage = pendingStageFor(externalError, blocked)
+  // Quien ya se registró (o acaba de hacerlo) no tiene nada que hacer en el alta.
+  const offerRegister = !pendingStage && !registered
 
   if (sessionPending) {
     return (
@@ -231,13 +251,15 @@ export default function LoginPage() {
               globalThis.location.href = loginUrl('/')
             }}
           >
-            {externalError === 'account' ? 'Cerrar sesión y cambiar cuenta' : 'Ingresar'}
+            {accountButtonLabel(externalError, pendingStage)}
           </button>
-          <div className="mt-6 text-center">
-            <a href="/register" className="text-emerald-600 hover:text-emerald-700 font-medium text-sm">
-              Registrarse
-            </a>
-          </div>
+          {offerRegister && (
+            <div className="mt-6 text-center">
+              <a href="/register" className="text-emerald-600 hover:text-emerald-700 font-medium text-sm">
+                Registrarse
+              </a>
+            </div>
+          )}
         </div>
       </div>
     </main>
