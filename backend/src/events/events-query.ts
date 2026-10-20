@@ -51,9 +51,18 @@ export function applyMyEventsDateFilter(
   delete where.OR;
 }
 
+/**
+ * Hasta dónde expandir una serie. Nunca pasa de `recurrenceEnd`: si no, una serie terminada (las
+ * clases del ciclo anterior) sigue generando clases cada vez que se pide un día o un rango
+ * posterior —"Clases del día", "Listas sin pasar", el pase de lista—.
+ */
 export function resolveRecurringRangeEnd(event: any, endDate?: unknown) {
-  if (endDate) return new Date(endDate as string);
-  if (event.recurrenceEnd) return new Date(event.recurrenceEnd);
+  const seriesEnd = event.recurrenceEnd ? new Date(event.recurrenceEnd) : null;
+  if (endDate) {
+    const requested = new Date(endDate as string);
+    return seriesEnd && seriesEnd.getTime() < requested.getTime() ? seriesEnd : requested;
+  }
+  if (seriesEnd) return seriesEnd;
   return new Date(Math.max(Date.now(), new Date(event.startDate).getTime()));
 }
 

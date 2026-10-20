@@ -27,6 +27,11 @@ describe('resolveRecurringRangeEnd', () => {
       '2026-05-20',
     )
   })
+  it('no pasa de recurrenceEnd aunque el rango pedido siga', () => {
+    const ended = { ...baseWeekly, recurrenceEnd: '2026-05-20T02:59:59.999Z' }
+    expect(resolveRecurringRangeEnd(ended, '2026-06-01T00:00:00Z').toISOString()).toBe('2026-05-20T02:59:59.999Z')
+    expect(resolveRecurringRangeEnd(ended, '2026-05-10T00:00:00Z').toISOString()).toContain('2026-05-10')
+  })
   it('cae al máximo entre ahora y startDate', () => {
     expect(resolveRecurringRangeEnd({ startDate: '2000-01-01T00:00:00Z' }).getTime()).toBeGreaterThan(Date.now() - 1000)
   })
@@ -109,6 +114,13 @@ describe('expandRecurringEvent', () => {
     const out = expandRecurringEvent(baseWeekly, '2026-05-04T00:00:00Z', '2026-05-10T23:59:59Z')
     expect(out).toHaveLength(2)
     expect(out.every((o) => typeof o.status === 'string')).toBe(true)
+  })
+
+  it('una serie terminada no genera clases después de su fin', () => {
+    // Termina el miércoles 6 de mayo (fin del día en Montevideo, como lo guarda la app).
+    const ended = { ...baseWeekly, recurrenceEnd: '2026-05-07T02:59:59.999Z' }
+    expect(expandRecurringEvent(ended, '2026-05-04T00:00:00Z', '2026-05-17T23:59:59Z')).toHaveLength(2)
+    expect(expandRecurringEvent(ended, '2026-05-10T00:00:00Z', '2026-05-12T23:59:59Z')).toHaveLength(0)
   })
 
   it('no genera ocurrencias fantasma antes de la fecha base', () => {
