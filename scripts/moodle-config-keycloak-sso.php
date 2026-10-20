@@ -199,6 +199,11 @@ echo 'auth=' . get_config('core', 'auth') . "\n";
 set_config('guestloginbutton', 0);
 set_config('registerauth', '');
 set_config('auth_instructions', '');
+// El SSO sólo entra a cuentas que ya existen (las crea el sync de EduTrack; se vinculan por correo).
+// Sin esto, cualquiera con cuenta en Keycloak —incluso una solicitud de registro sin aprobar— se
+// creaba una cuenta nueva de Moodle con sólo entrar por "Ingresar con EduTrack".
+set_config('authpreventaccountcreation', 1);
+echo "authpreventaccountcreation=1\n";
 
 foreach ($DB->get_records('oauth2_issuer') as $row) {
     if ((int) $row->enabled !== 1) {

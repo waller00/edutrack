@@ -13,6 +13,7 @@ import {
   buildAdminUsersQueryParams,
   cloneAdminUser,
   countActiveUserFilters,
+  approvalConfirmMessage,
   displayUserName,
   getActiveBadgeClass,
   getAdminUserSaveErrorMessage,
@@ -268,7 +269,7 @@ function AdminUsersPageContent() {
 
   async function toggleApproval(u: AdminUserRow) {
     const next = !u.isApproved
-    if (!confirm(next ? '¿Aprobar usuario? Le va a llegar un correo avisándole.' : '¿Marcar como pendiente de aprobación?')) return
+    if (!confirm(next ? approvalConfirmMessage(u) : '¿Marcar como pendiente de aprobación?')) return
     try {
       await api(`/admin/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ isApproved: next }) })
       setNotice({ tone: 'success', text: next ? `${displayUserName(u)} fue aprobado.` : `${displayUserName(u)} quedó pendiente de aprobación.` })

@@ -112,8 +112,10 @@ docker compose up -d --build auth  # rebuild solo el backend
 
 > **El registro público (`POST /auth/register`) nunca da ADMIN.** Un ADMIN nace únicamente del
 > bootstrap; nunca agregarlo al esquema del registro (la lista de usuarios oculta a los ADMIN, así que
-> una cuenta así ni se ve). `keycloak-apply-realm-settings.sh` apaga en cada deploy el password grant
-> de los clientes públicos del realm (`admin-cli`).
+> una cuenta así ni se ve). Dirección y Adscripto sí se piden, y ven todo el centro: "Aprobar" nombra
+> el perfil y lo advierte (`approvalConfirmMessage`). El registro tiene su propio rate limit por IP y
+> sus errores no enumeran los perfiles válidos. `keycloak-apply-realm-settings.sh` apaga en cada
+> deploy el password grant de los clientes públicos del realm (`admin-cli`).
 
 > **La IP del cliente es `clientIp(req)` (`src/lib/client-ip.ts`).** Nunca el primer valor de
 > `X-Forwarded-For`: lo escribe el cliente. `trust proxy` sólo cree en el salto inmediato y privado
@@ -162,6 +164,10 @@ Detalle completo: [docs/MOODLE_INTEGRACION.md](docs/MOODLE_INTEGRACION.md)
 > serie. Si la fase de titulares tuvo cualquier error no se revoca nada en esa corrida. Moodle guarda
 > **una** matrícula manual por usuario y curso: al titular nunca se lo inscribe además como suplente
 > del mismo curso (le pondría fecha de fin).
+
+> **El SSO de Moodle no crea cuentas** (`authpreventaccountcreation`, en
+> `scripts/moodle-config-keycloak-sso.php`): sólo entra a las que creó el sync, vinculadas por
+> correo. Una cuenta de Keycloak sin aprobar en EduTrack no tiene que poder abrirse una en Moodle.
 
 ---
 

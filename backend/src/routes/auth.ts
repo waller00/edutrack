@@ -27,6 +27,7 @@ import { getSession, newSessionId, saveSession } from "../auth/session-store.js"
 import { sendVerificationEmail, VERIFY_RESEND_COOLDOWN_SECONDS } from "../auth/email-verification.js";
 import { USERNAME_REGEX, usernameSchema } from "../auth/account-validation.js";
 import { generateUniqueUsername as generateUniqueUsernameWith } from "../services/usernames.js";
+import { rateLimit } from "../middlewares/rate-limit.js";
 
 const r = Router();
 
@@ -74,9 +75,16 @@ const registerSchema = z.object({
   phone: z.string().min(7).max(20).optional(),
   birthdate: z.string().datetime().optional(),
   // Los perfiles que puede pedir quien se registra solo. Administrador nunca: lo asigna un admin.
-  role: z.enum(["STAFF", "TEACHER", "ADSCRIPTO", "DIRECCION"]).optional(),
+  // El mensaje no lista los válidos: el de zod se los enumeraba a cualquiera que probara otro.
+  role: z
+    .enum(["STAFF", "TEACHER", "ADSCRIPTO", "DIRECCION"], { errorMap: () => ({ message: "Elegí un perfil válido." }) })
+    .optional(),
   ssoRegistrationToken: z.string().min(20).max(128).optional(),
 });
+
+// Público y sin sesión: cada alta crea una cuenta en Keycloak y manda un correo. 20 por hora y por IP
+// alcanzan para que un liceo dé de alta a su plantel desde la misma red (nginx corta antes las ráfagas).
+const REGISTER_LIMIT = { bucket: "register", max: 20, windowSeconds: 60 * 60 };
 
 function errorCode(error: unknown) {
   return typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : "";
@@ -316,7 +324,7 @@ r.get("/register/sso", async (req, res) => {
   });
 });
 
-r.post("/register", async (req, res) => {
+r.post("/register", rateLimit(REGISTER_LIMIT), async (req, res) => {
   try {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });

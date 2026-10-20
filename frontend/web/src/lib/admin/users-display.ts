@@ -71,6 +71,25 @@ export function displayUserName(u: Pick<AdminUserRow, 'firstName' | 'lastName' |
   return composed || u.name?.trim() || u.email || '—'
 }
 
+/**
+ * Perfiles que ven todo el centro (personal, estudiantes, libretas). El perfil lo pide quien se
+ * registra: aprobarlo sin mirar le da esos datos a un desconocido.
+ */
+const CENTER_WIDE_ROLES = new Set(['DIRECCION', 'ADSCRIPTO'])
+
+/** Confirmación de "Aprobar": nombra el perfil pedido y avisa si ve todo el centro. */
+export function approvalConfirmMessage(
+  u: Pick<AdminUserRow, 'role' | 'firstName' | 'lastName' | 'name' | 'email'>,
+): string {
+  const role = getRoleLabel(u.role)
+  const base = `¿Aprobar a ${displayUserName(u)} como ${role}? Le va a llegar un correo avisándole.`
+  if (!CENTER_WIDE_ROLES.has(String(u.role).toUpperCase())) return base
+  return (
+    `${base}\n\n${role} ve todo el centro: personal, estudiantes y libretas. Aprobá sólo si la ` +
+    'persona tiene ese cargo; si no, cambiale el perfil desde "Revisar".'
+  )
+}
+
 export function isAccountLocked(lockUntil?: string | null): boolean {
   if (!lockUntil) return false
   const t = new Date(lockUntil).getTime()

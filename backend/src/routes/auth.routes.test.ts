@@ -18,6 +18,7 @@ const {
   saveSessionMock,
   newSessionIdMock,
   getSessionMock,
+  getRedisMock,
 } = vi.hoisted(() => ({
   prismaMock: {
     user: {
@@ -53,9 +54,11 @@ const {
   saveSessionMock: vi.fn().mockResolvedValue(undefined),
   newSessionIdMock: vi.fn().mockReturnValue("perf-sid-1"),
   getSessionMock: vi.fn().mockResolvedValue(null),
+  getRedisMock: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../db/redis.js", () => ({ getRedis: getRedisMock, isRedisEnabled: () => false }));
 vi.mock("../notifications/email.js", () => ({ sendMail: sendMailMock }));
 vi.mock("../auth/keycloak.js", () => ({
   createKeycloakUser: createKeycloakUserMock,
@@ -110,6 +113,7 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     saveSessionMock.mockResolvedValue(undefined);
     newSessionIdMock.mockReturnValue("perf-sid-1");
     getSessionMock.mockResolvedValue(null);
+    getRedisMock.mockReturnValue(null);
     prismaMock.emailVerification.findFirst.mockResolvedValue(null);
     prismaMock.emailVerification.create.mockResolvedValue({});
     prismaMock.$transaction.mockImplementation(async (arg: unknown) => {
@@ -451,7 +455,22 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
       .send({ email: "intruso@example.com", password: "Segura123!", firstName: "In", lastName: "Truso", role: "ADMIN" });
 
     expect(res.status).toBe(400);
+    // Sin enumerar los perfiles válidos (el mensaje de zod los listaba).
+    expect(res.body.message).toBe("Elegí un perfil válido.");
     expect(prismaMock.user.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/register corta por IP con 429 al pasarse del límite", async () => {
+    let count = 0;
+    getRedisMock.mockReturnValue({ incr: async () => ++count, expire: async () => 1, ttl: async () => 1800 });
+    const send = () =>
+      request(app())
+        .post("/auth/register")
+        .send({ email: "x@example.com", password: "Segura123!", firstName: "X", lastName: "Y", role: "ADMIN" });
+    for (let i = 0; i < 20; i++) expect((await send()).status).toBe(400);
+    const limited = await send();
+    expect(limited.status).toBe(429);
+    expect(limited.headers["retry-after"]).toBe("1800");
   });
 
   it("POST /auth/register acepta Dirección y Adscripto (quedan pendientes de aprobación)", async () => {

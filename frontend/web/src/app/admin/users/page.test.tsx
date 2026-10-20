@@ -406,6 +406,7 @@ describe('AdminUsersPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Pendientes' }))
     await screen.findAllByText('user1')
     fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Aprobar' }))
+    expect(confirm).toHaveBeenCalledWith('¿Aprobar a Ana L como Docente? Le va a llegar un correo avisándole.')
     await waitFor(() => expect(screen.queryAllByText('user1')).toHaveLength(0))
     expect(mockedApi).toHaveBeenCalledWith('/admin/users/u1', { method: 'PUT', body: JSON.stringify({ isApproved: true }) })
     expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&approved=false')

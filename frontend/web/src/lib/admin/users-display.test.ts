@@ -1,5 +1,6 @@
 import {
   ADMIN_USERS_PAGE_SIZE,
+  approvalConfirmMessage,
   buildAdminUserEditChanges,
   buildAdminUsersQueryParams,
   cloneAdminUser,
@@ -126,6 +127,19 @@ describe('buildAdminUserEditChanges', () => {
     expect(c.some((x) => x.includes('Venc. documento'))).toBe(true)
     expect(c.some((x) => x.includes('Aprobación'))).toBe(true)
     expect(c.some((x) => x.includes('Estado'))).toBe(true)
+  })
+})
+
+describe('approvalConfirmMessage', () => {
+  it('nombra el perfil pedido', () => {
+    const msg = approvalConfirmMessage(u({ id: '1', email: 'a@x.com', firstName: 'Ana', lastName: 'Rey' }))
+    expect(msg).toBe('¿Aprobar a Ana Rey como Docente? Le va a llegar un correo avisándole.')
+  })
+
+  it.each(['DIRECCION', 'ADSCRIPTO'])('avisa que %s ve todo el centro', (role) => {
+    const msg = approvalConfirmMessage(u({ id: '1', email: 'a@x.com', firstName: 'Ana', lastName: 'Rey', role }))
+    expect(msg).toContain('ve todo el centro')
+    expect(msg).toContain('Revisar')
   })
 })
 
