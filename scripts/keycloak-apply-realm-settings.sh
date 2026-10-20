@@ -135,6 +135,26 @@ echo ">> OK. bruteForceProtected=$AFTER_BRUTE_FORCE editUsernameAllowed=$AFTER_E
 echo ">> OK. passwordPolicy del realm '$REALM_NAME' = $AFTER_PASSWORD_POLICY"
 echo ">> OK. ssoSessionIdleTimeout=$AFTER_SSO_IDLE ssoSessionMaxLifespan=$AFTER_SSO_MAX"
 
+# Ningún cliente público del realm acepta usuario y contraseña directo (password grant): Keycloak crea
+# `admin-cli` con eso prendido, y deja probar contraseñas contra el endpoint de token sin pasar por la
+# pantalla de login. El cliente de verificación de 2FA es confidencial y lo necesita: no se toca. El
+# `admin-cli` del realm master (el que usan el backend y estos scripts) tampoco.
+PUBLIC_ROPG_CLIENTS="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$KC_URL/admin/realms/$REALM_NAME/clients" \
+  | jq -r '.[] | select(.publicClient == true and .directAccessGrantsEnabled == true) | "\(.id) \(.clientId)"')"
+if [ -z "$PUBLIC_ROPG_CLIENTS" ]; then
+  echo ">> OK. Ningún cliente público con password grant."
+else
+  while read -r CLIENT_UUID_ROPG CLIENT_ID_ROPG; do
+    [ -n "$CLIENT_UUID_ROPG" ] || continue
+    CLIENT_ROPG_URL="$KC_URL/admin/realms/$REALM_NAME/clients/$CLIENT_UUID_ROPG"
+    curl -fsS -H "Authorization: Bearer $TOKEN" "$CLIENT_ROPG_URL" \
+      | jq '.directAccessGrantsEnabled = false' \
+      | curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+          --data-binary @- "$CLIENT_ROPG_URL"
+    echo ">> OK. Password grant deshabilitado en: $CLIENT_ID_ROPG"
+  done <<< "$PUBLIC_ROPG_CLIENTS"
+fi
+
 CLIENT_ID="${KEYCLOAK_CLIENT_ID:-$(env_get KEYCLOAK_CLIENT_ID)}"
 CLIENT_ID="${CLIENT_ID:-edutrack-web}"
 FRONTEND_URL="${FRONTEND_URL:-$(env_get FRONTEND_URL)}"

@@ -110,6 +110,11 @@ docker compose up -d --build auth  # rebuild solo el backend
 > y username los edita el usuario en la consola de Keycloak: buscar por ellos es tomar cuentas ajenas.
 > Toda alta que crea la cuenta en Keycloak guarda el vínculo con `linkKeycloakAccount`.
 
+> **El registro público (`POST /auth/register`) nunca da ADMIN.** Un ADMIN nace únicamente del
+> bootstrap; nunca agregarlo al esquema del registro (la lista de usuarios oculta a los ADMIN, así que
+> una cuenta así ni se ve). `keycloak-apply-realm-settings.sh` apaga en cada deploy el password grant
+> de los clientes públicos del realm (`admin-cli`).
+
 > **La IP del cliente es `clientIp(req)` (`src/lib/client-ip.ts`).** Nunca el primer valor de
 > `X-Forwarded-For`: lo escribe el cliente. `trust proxy` sólo cree en el salto inmediato y privado
 > (nginx), así `req.ip` es la IP real. La usan auditoría, rate limit y las IPs permitidas de lectores.
