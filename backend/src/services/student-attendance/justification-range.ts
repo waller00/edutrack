@@ -2,18 +2,22 @@ import { AuditAction } from '@prisma/client'
 import { prisma } from '../../db/prisma.js'
 import { isYmdDateString } from '../../config/app-timezone.js'
 import { recordAuditEventNow } from '../audit-log.js'
-import { BASIC_CYCLE_LEVEL, isBasicCycle } from './absence-weight.js'
 import { justifyEntryTx } from './justify.js'
 import { RollCallError } from './roll-call.js'
 
 /**
- * Justificación de días completos (ciclo básico).
+ * Justificativos: el papel (certificado médico, constancia de viaje, de duelo…) que justifica las
+ * faltas de un estudiante en un período. En la pantalla se llaman así; en el modelo, rango de
+ * justificación (`StudentAbsenceJustificationRange`).
  *
- * Adscripción o dirección registran "el alumno falta del 3 al 5 por tal motivo". Sirve igual
- * antes que después: al crearla justifica las ausencias que ya existen en el rango, y al pasar
- * lista (`saveRollCall`) las ausencias que caigan dentro entran ya justificadas. Una llegada tarde
- * no se toca — no se justifica y siempre vale media — y si el docente marca presente, el
- * alumno vino y gana su marca.
+ * Los cargan administración, dirección y adscripción (`student-attendance.justify` con alcance
+ * `all`), para estudiantes de cualquier nivel. Sirve igual antes que después:
+ * - cargado **después**, justifica en el momento las ausencias ya marcadas en el período;
+ * - cargado **antes**, al pasar lista (`saveRollCall`) las ausencias de esos días entran ya
+ *   justificadas.
+ * Una llegada tarde no se toca (no se justifica: siempre vale media) y si el docente marca
+ * presente, el alumno vino y gana su marca. Cuánto cuenta una falta justificada lo decide el nivel
+ * (`absence-weight.ts`): en ciclo básico, media; en bachillerato, sigue siendo una falta.
  */
 
 export type CreateRangeInput = {
@@ -40,18 +44,11 @@ export async function createJustificationRange(input: CreateRangeInput) {
 
   const enrollment = await prisma.studentEnrollment.findFirst({
     where: { studentId: input.studentId, enrollmentStatus: 'ACTIVE' },
-    select: { schoolYearId: true, courseOffering: { select: { course: { select: { level: true } } } } },
+    select: { schoolYearId: true },
     orderBy: { createdAt: 'desc' },
   })
   if (!enrollment) {
     throw new RollCallError(409, 'NO_ENROLLMENT', 'El estudiante no tiene matrícula activa.')
-  }
-  if (!isBasicCycle(enrollment.courseOffering?.course?.level)) {
-    throw new RollCallError(
-      409,
-      'NOT_BASIC_CYCLE',
-      'La justificación por días sólo aplica a estudiantes de ciclo básico.',
-    )
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -150,16 +147,16 @@ export async function listJustificationRanges(filter: { studentId?: string; scho
 }
 
 /**
- * Estudiantes de ciclo básico con matrícula activa, para elegir a quién justificar. Adscripción y
- * dirección no tienen `students.manage`: este buscador es lo único que necesitan ver.
+ * Estudiantes con matrícula activa, de cualquier nivel, para elegir a quién cargarle un
+ * justificativo. Adscripción y dirección no tienen `students.manage`: este buscador es lo único
+ * que necesitan ver.
  */
-export async function searchBasicCycleStudents(filter: { q: string; schoolYearId?: string | null }) {
+export async function searchJustifiableStudents(filter: { q: string; schoolYearId?: string | null }) {
   const terms = filter.q.trim().split(/\s+/).filter(Boolean).slice(0, 3)
   const rows = await prisma.studentEnrollment.findMany({
     where: {
       enrollmentStatus: 'ACTIVE',
       ...(filter.schoolYearId ? { schoolYearId: filter.schoolYearId } : {}),
-      courseOffering: { course: { level: BASIC_CYCLE_LEVEL } },
       AND: terms.map((term) => ({
         student: {
           OR: [

@@ -266,7 +266,7 @@ export const APP_MODULES: readonly AppModule[] = [
     icon: FileText,
     permission: 'licenses.read',
     permissionScope: 'all',
-    related: [{ id: 'student-attendance', text: 'Las faltas justificadas de los estudiantes se cargan en' }],
+    related: [{ id: 'student-attendance', text: 'Los justificativos de los estudiantes se cargan en' }],
     quickAccess: 3,
   },
   {
@@ -319,7 +319,7 @@ export const APP_MODULES: readonly AppModule[] = [
     label: 'Asistencia de estudiantes',
     href: '/admin/student-attendance',
     description:
-      'Justificar faltas de estudiantes, seguir a quien falta seguido o llega a 18 o 25 faltas, y ver las listas sin pasar.',
+      'Justificativos y faltas de estudiantes: quién falta seguido, quién llega a 18 o 25 faltas y las listas sin pasar.',
     group: 'students',
     icon: ClipboardList,
     permission: STUDENT_ATTENDANCE_PERMISSIONS,

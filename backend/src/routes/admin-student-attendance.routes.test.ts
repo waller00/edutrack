@@ -268,7 +268,7 @@ describe("admin student-attendance routes", () => {
     expect(prismaMock.$executeRaw).toHaveBeenCalled();
   });
 
-  describe("justificación por días (ciclo básico)", () => {
+  describe("justificativos", () => {
     const STUDENT = "66666666-6666-4666-8666-666666666666";
     const body = { studentId: STUDENT, fromYmd: "2026-05-11", toYmd: "2026-05-12", reason: "Viaje familiar" };
 
@@ -301,17 +301,33 @@ describe("admin student-attendance routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("409 para un estudiante que no es de ciclo básico", async () => {
-      prismaMock.studentEnrollment.findFirst.mockResolvedValue({
-        schoolYearId: "sy-1",
-        courseOffering: { course: { level: "EMS" } },
-      });
+    it("vale también para bachillerato: no es sólo de ciclo básico", async () => {
+      prismaMock.studentEnrollment.findFirst.mockResolvedValue({ schoolYearId: "sy-1" });
+      const res = await request(app())
+        .post("/admin/student-attendance/justification-ranges")
+        .set("Authorization", `Bearer ${tok()}`)
+        .send(body);
+      expect(res.status).toBe(201);
+      expect(res.body.justifiedCount).toBe(1);
+    });
+
+    it("409 si el estudiante no tiene matrícula activa", async () => {
+      prismaMock.studentEnrollment.findFirst.mockResolvedValue(null);
       const res = await request(app())
         .post("/admin/student-attendance/justification-ranges")
         .set("Authorization", `Bearer ${tok()}`)
         .send(body);
       expect(res.status).toBe(409);
-      expect(res.body.code).toBe("NOT_BASIC_CYCLE");
+      expect(res.body.code).toBe("NO_ENROLLMENT");
+    });
+
+    it("un docente no carga justificativos: es de administración, dirección y adscripción", async () => {
+      const res = await request(app())
+        .post("/admin/student-attendance/justification-ranges")
+        .set("Authorization", `Bearer ${tok("TEACHER", "teacher-1")}`)
+        .send(body);
+      expect(res.status).toBe(403);
+      expect(prismaMock.studentAbsenceJustificationRange.create).not.toHaveBeenCalled();
     });
 
     it("lista los rangos del estudiante", async () => {
@@ -327,7 +343,7 @@ describe("admin student-attendance routes", () => {
       });
     });
 
-    it("el buscador sólo trae estudiantes de ciclo básico", async () => {
+    it("el buscador trae estudiantes de cualquier nivel", async () => {
       prismaMock.studentEnrollment.findMany.mockResolvedValue([
         { student: { id: STUDENT, firstName: "Ana", lastName: "Díaz", documentId: "1" }, courseOffering: { course: { name: "7 EBI" } } },
       ]);
@@ -337,7 +353,7 @@ describe("admin student-attendance routes", () => {
       expect(res.status).toBe(200);
       expect(res.body.data).toEqual([{ id: STUDENT, firstName: "Ana", lastName: "Díaz", documentId: "1", courseName: "7 EBI" }]);
       const where = prismaMock.studentEnrollment.findMany.mock.calls[0][0].where;
-      expect(where.courseOffering).toEqual({ course: { level: "EBI" } });
+      expect(where.courseOffering).toBeUndefined();
       expect(where.AND).toHaveLength(2);
     });
 

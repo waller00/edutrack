@@ -285,8 +285,13 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > marcas: `ABSENT` 100, `ABSENT_JUSTIFIED` 50, `LATE` 50. Dos tardes son 50, y tarde + ausencia
 > es 100, no 150. Ahí `absenceWeightHundredths` se ignora. Todo total pasa por
 > `absenceHundredthsFor` / `loadAbsenceTotals` (`services/student-attendance/`) con el nivel del
-> grupo; sumar `effectiveWeight` a mano rompe ciclo básico. La justificación por días
-> (`StudentAbsenceJustificationRange`) la aplica `saveRollCall` al pasar lista.
+> grupo; sumar `effectiveWeight` a mano rompe ciclo básico.
+
+> **Los justificativos** (`StudentAbsenceJustificationRange`, en pantalla "Justificativos") valen
+> para cualquier nivel y sólo los cargan administración, dirección y adscripción
+> (`student-attendance.justify` con alcance `all`). Cargado después, `createJustificationRange`
+> justifica las ausencias ya marcadas del período; cargado antes, las aplica `saveRollCall` al
+> pasar lista. La llegada tarde no se justifica.
 
 > **"Reunión de boletín" es `isReportCardPeriod`** (`services/gradebook/period-closure.ts`):
 > reunión que pide C y juicio. EBI: 1.ª–4.ª Entrega; EMS: los semestres (son `TRAMO` con reunión,

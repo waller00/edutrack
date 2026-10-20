@@ -14,7 +14,7 @@ export type AttendanceTabId = 'justificaciones' | 'seguidas' | 'faltas' | 'pendi
  * y ven las faltas; las listas sin pasar son de administración.
  */
 export const ATTENDANCE_TABS: readonly { id: AttendanceTabId; label: string; permission: string }[] = [
-  { id: 'justificaciones', label: 'Justificaciones', permission: 'student-attendance.justify' },
+  { id: 'justificaciones', label: 'Justificativos', permission: 'student-attendance.justify' },
   { id: 'seguidas', label: 'Faltas seguidas', permission: 'student-reports.read' },
   { id: 'faltas', label: '18 y 25 faltas', permission: 'student-reports.read' },
   { id: 'pendientes', label: 'Listas sin pasar', permission: 'student-attendance.manage' },

@@ -21,7 +21,7 @@ import {
   createJustificationRange,
   listJustificationRanges,
   revokeJustificationRange,
-  searchBasicCycleStudents,
+  searchJustifiableStudents,
 } from '../services/student-attendance/justification-range.js'
 import {
   consolidateRange,
@@ -250,8 +250,10 @@ function sendRollCallError(res: any, error: unknown, label: string) {
 }
 
 /**
- * Justificaciones por días completos (ciclo básico). Previa o posterior: al crearla justifica
- * las ausencias ya marcadas en el rango, y las que se marquen después entran justificadas.
+ * Justificativos (certificado médico, viaje…) de cualquier nivel. Previos o posteriores: al
+ * cargarlo justifica las ausencias ya marcadas en el período, y las que se marquen después entran
+ * justificadas. Sólo `student-attendance.justify` con alcance `all`: administración, dirección y
+ * adscripción.
  */
 r.get('/justification-ranges', requirePermission('student-attendance.justify', 'all'), async (req: any, res) => {
   try {
@@ -278,7 +280,7 @@ r.get('/justification-ranges/students', requirePermission('student-attendance.ju
       role: req.user?.role,
       requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
     })
-    return res.json({ data: await searchBasicCycleStudents({ q: q.slice(0, 80), schoolYearId }) })
+    return res.json({ data: await searchJustifiableStudents({ q: q.slice(0, 80), schoolYearId }) })
   } catch (error) {
     return sendRollCallError(res, error, 'range students')
   }

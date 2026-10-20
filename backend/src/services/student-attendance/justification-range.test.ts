@@ -45,13 +45,10 @@ describe('createJustificationRange', () => {
     ).rejects.toMatchObject({ code: 'INVALID_RANGE' })
   })
 
-  it('sólo aplica a ciclo básico', async () => {
-    prismaMock.studentEnrollment.findFirst.mockResolvedValue({
-      schoolYearId: 'sy-1',
-      courseOffering: { course: { level: 'EMS' } },
-    })
-    await expect(createJustificationRange(BASE)).rejects.toMatchObject({ statusCode: 409, code: 'NOT_BASIC_CYCLE' })
-    expect(prismaMock.studentAbsenceJustificationRange.create).not.toHaveBeenCalled()
+  it('vale para cualquier nivel: un justificativo de bachillerato también se carga', async () => {
+    prismaMock.studentEnrollment.findFirst.mockResolvedValue({ schoolYearId: 'sy-1' })
+    await createJustificationRange(BASE)
+    expect(prismaMock.studentAbsenceJustificationRange.create).toHaveBeenCalled()
   })
 
   it('sin matrícula activa no hay a quién justificar', async () => {

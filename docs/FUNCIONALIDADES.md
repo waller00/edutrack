@@ -356,12 +356,17 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
   El día vale la marca más pesada, no la suma: dos tardes son media falta, y tarde + ausencia es
   una falta (no una y media). En ciclo básico el peso manual (`absenceWeightHundredths`) se ignora
   y el docente no ve la opción "Media falta".
-- **Justificación por días (ciclo básico):** adscripción o dirección (`student-attendance.justify`)
-  cargan un rango de días completos con motivo (`StudentAbsenceJustificationRange`), en
-  `/admin/student-attendance`.
-  - Puede ser **previa**: las ausencias que se marquen en esos días entran ya justificadas, a nombre
-    de quien cargó el rango.
-  - O **posterior**: al crearla justifica las ausencias ya marcadas del rango.
+- **Justificativos** (certificado médico, viaje, duelo…): un período con motivo
+  (`StudentAbsenceJustificationRange`) en "Asistencia de estudiantes" → "Justificativos".
+  - Valen para estudiantes de **cualquier nivel**.
+  - Los cargan sólo administración, dirección y adscripción (`student-attendance.justify` con
+    alcance `all`); el docente no.
+  - Puede ser **previo**: las ausencias que se marquen en esos días entran ya justificadas, a nombre
+    de quien lo cargó.
+  - O **posterior**: al cargarlo justifica las ausencias ya marcadas del período.
+  - Cuánto cuenta la falta justificada lo decide el nivel: en ciclo básico vale media; en
+    bachillerato sigue contando como falta, justificada.
+  - La pantalla lista los últimos cargados del ciclo; el nombre abre al estudiante.
   - Si el docente marca presente o tarde, gana su marca.
   - Revocar un rango deja de aplicarlo de ahí en adelante, pero no deshace lo ya justificado.
 - **Suplencias: un día cubierto, la lista es del suplente.**

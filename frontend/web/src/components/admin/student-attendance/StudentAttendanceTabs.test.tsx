@@ -40,7 +40,7 @@ describe('<StudentAttendanceTabs />', () => {
   it('administración ve las cuatro pestañas y arranca en justificaciones', () => {
     render(<StudentAttendanceTabs />)
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-      'Justificaciones',
+      'Justificativos',
       'Faltas seguidas',
       '18 y 25 faltas',
       'Listas sin pasar',

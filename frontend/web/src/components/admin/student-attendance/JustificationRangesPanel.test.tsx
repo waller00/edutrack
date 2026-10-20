@@ -29,20 +29,20 @@ async function pickStudent() {
 }
 
 describe('<JustificationRangesPanel />', () => {
-  it('busca sólo estudiantes de ciclo básico', async () => {
+  it('busca estudiantes de cualquier nivel', async () => {
     await pickStudent()
-    expect(mockedApi.mock.calls[0][0]).toBe('/admin/student-attendance/justification-ranges/students?q=diaz')
+    expect(mockedApi).toHaveBeenCalledWith('/admin/student-attendance/justification-ranges/students?q=diaz')
     expect(await screen.findByText(/Díaz, Ana · 7 EBI/)).toBeInTheDocument()
   })
 
-  it('justifica un rango de días e informa cuántas ausencias ya marcadas justificó', async () => {
+  it('carga un justificativo e informa cuántas faltas ya marcadas justificó', async () => {
     await pickStudent()
     fireEvent.change(screen.getByLabelText(/Desde/), { target: { value: '2026-10-05' } })
     fireEvent.change(screen.getByLabelText(/Hasta/), { target: { value: '2026-10-07' } })
     fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: 'Viaje familiar' } })
-    fireEvent.click(screen.getByRole('button', { name: /Justificar días/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Cargar justificativo/ }))
 
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/2 ausencia\(s\) ya marcadas/))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/2 falta\(s\) ya marcadas/))
     const post = mockedApi.mock.calls.find(([, init]) => init?.method === 'POST')
     expect(post?.[0]).toBe('/admin/student-attendance/justification-ranges')
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({
@@ -61,7 +61,7 @@ describe('<JustificationRangesPanel />', () => {
     fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: 'Viaje familiar' } })
 
     expect(screen.getByText(/no puede ser posterior/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Justificar días/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Cargar justificativo/ })).toBeDisabled()
   })
 
   it('revocar pide confirmación en la página', async () => {
@@ -75,5 +75,28 @@ describe('<JustificationRangesPanel />', () => {
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/admin/student-attendance/justification-ranges/r-1/revoke', { method: 'POST' }),
     )
+  })
+})
+
+describe('<JustificationRangesPanel /> últimos justificativos', () => {
+  it('sin estudiante elegido, muestra los últimos del ciclo y el nombre abre al estudiante', async () => {
+    mockedApi.mockImplementation(async (path: string) => {
+      if (path === '/admin/student-attendance/justification-ranges') {
+        return {
+          data: [
+            { id: 'r-9', studentId: 'st-1', fromYmd: '2026-10-05', toYmd: '2026-10-07', reason: 'Certificado médico', notes: null, createdAt: '', revokedAt: null, student: STUDENT },
+          ],
+        } as never
+      }
+      if (path.includes('/justification-ranges?')) return { data: [] } as never
+      return {} as never
+    })
+    render(<JustificationRangesPanel />)
+
+    expect(await screen.findByText('Últimos justificativos')).toBeInTheDocument()
+    expect(screen.getByText('Certificado médico')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Díaz, Ana' }))
+    expect(await screen.findByText(/Díaz, Ana · 7 EBI/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Cargar justificativo/ })).toBeInTheDocument()
   })
 })
