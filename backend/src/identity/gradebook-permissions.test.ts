@@ -85,7 +85,16 @@ describe('calificar: sólo el docente sobre lo propio', () => {
     }
   })
 
-  it('gradebook.manage (corregir y reabrir fuera de plazo) es sólo de ADMIN', () => {
+  it('sólo el docente califica, planifica y cierra: tampoco Administración', () => {
+    for (const id of ['gradebook.grade', 'gradebook.plan', 'gradebook.close']) {
+      const holders = ALL_ROLES.filter((role) => scopeOf(role, id) !== null)
+      expect(holders, id).toEqual(['TEACHER'])
+      expect(REVOKED_PROFILE_PERMISSION_IDS.ADMIN, `apagar ${id} a ADMIN en producción`).toContain(id)
+      expect(REMOVED_PROFILE_PERMISSION_IDS.ADMIN.has(id)).toBe(true)
+    }
+  })
+
+  it('gradebook.manage (reabrir períodos) es sólo de ADMIN', () => {
     const withManage = ALL_ROLES.filter((role) => scopeOf(role, 'gradebook.manage') !== null)
     expect(withManage).toEqual(['ADMIN'])
   })

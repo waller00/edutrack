@@ -48,18 +48,19 @@ function Bubble({ message }: { message: Message }) {
 
 /**
  * Quién mira el intercambio:
- * - `teacher`: "Mensajes del director". Sólo los hilos que abrió Dirección, y el docente responde
- *   dentro de ellos (no abre hilos nuevos: es el canal por el que Dirección le avisa).
- * - `supervisor`: Dirección en "Visado y seguimiento". Ve todo el intercambio y le escribe al
+ * - `teacher`: "Mensajes de Dirección y Adscripción". Los hilos que abrió la supervisión
+ *   (Dirección, Administración o Adscripción), y el docente responde dentro de ellos (no abre hilos
+ *   nuevos: es el canal por el que le avisan).
+ * - `supervisor`: quien supervisa, en "Visado y seguimiento". Ve todo el intercambio y le escribe al
  *   docente.
  */
 export type MessagesVariant = 'teacher' | 'supervisor'
 
 const COPY: Record<MessagesVariant, { title: string; empty: string; placeholder: string }> = {
   teacher: {
-    title: 'Mensajes del director',
-    empty: 'Dirección todavía no te dejó mensajes en esta libreta.',
-    placeholder: 'Respondele a Dirección…',
+    title: 'Mensajes de Dirección y Adscripción',
+    empty: 'Todavía no te dejaron mensajes en esta libreta.',
+    placeholder: 'Escribí tu respuesta…',
   },
   supervisor: {
     title: 'Mensajes al docente',
@@ -91,7 +92,7 @@ export default function MessagesPanel({
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const from = variant === 'teacher' ? '?from=DIRECCION' : ''
+      const from = variant === 'teacher' ? '?from=SUPERVISION' : ''
       const res = await api<{ data: Message[] }>(`/gradebook/${gradeBookId}/messages${from}`)
       setMessages(res.data)
     } catch (err) {

@@ -63,6 +63,7 @@ import {
   notifyGradeBook,
   reopenedNotification,
   resolveGradeBookRecipients,
+  SUPERVISION_MESSAGE_ROLES,
   threadsStartedBy,
 } from '../services/gradebook/notifications.js'
 import { ENDORSEMENT_ROW_INCLUDE, serializeEndorsementRow } from '../services/gradebook/endorsement-view.js'
@@ -3022,9 +3023,11 @@ r.get('/:id/messages', requirePermission('gradebook.read'), async (req: any, res
       orderBy: { createdAt: 'asc' },
       take: 500,
     })
-    // `?from=DIRECCION`: "Mensajes del director" del docente, sólo los hilos que abrió Dirección.
-    const from = req.query.from === 'DIRECCION' ? 'DIRECCION' : null
-    return res.json({ data: from ? threadsStartedBy(messages, from) : messages })
+    // `?from=SUPERVISION`: la sección del docente, sólo los hilos que abrió la supervisión
+    // (Dirección, Administración, Adscripción). `DIRECCION` es el nombre viejo del parámetro: un front
+    // en caché durante el deploy lo sigue mandando y tiene que ver lo mismo.
+    const onlySupervision = req.query.from === 'SUPERVISION' || req.query.from === 'DIRECCION'
+    return res.json({ data: onlySupervision ? threadsStartedBy(messages, SUPERVISION_MESSAGE_ROLES) : messages })
   } catch (error) {
     console.error('[gradebook] messages:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })

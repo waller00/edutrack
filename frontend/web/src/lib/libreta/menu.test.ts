@@ -10,7 +10,7 @@ describe('menú del Libro del Profesor', () => {
       'cierre',
       'mensajes',
     ])
-    expect(sectionById('mensajes')?.label).toBe('Mensajes del director')
+    expect(sectionById('mensajes')?.label).toBe('Mensajes de Dirección y Adscripción')
   })
 
   it('el suplente sólo tiene sus notas: lo demás de la libreta es del titular', () => {

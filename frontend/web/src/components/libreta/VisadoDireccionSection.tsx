@@ -159,7 +159,7 @@ function InformesDelGrupo({ periods }: { periods: PeriodRow[] }) {
  *
  * Reúne lo que el director revisa antes de visar: las calificaciones y los juicios de cada reunión
  * cerrada, si el docente dio lo que planificó y si dejó el informe del grupo. No edita nada de la
- * libreta: observa, visa y le escribe al docente, que lo lee en "Mensajes del director".
+ * libreta: observa, visa y le escribe al docente, que lo lee en "Mensajes de Dirección y Adscripción".
  */
 export default function VisadoDireccionSection() {
   const { gradeBookId, detail } = useLibreta()

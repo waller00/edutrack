@@ -134,11 +134,20 @@ export function messageNotification(params: {
 type ThreadMessage = { id: string; parentId: string | null; authorRoleCode: string }
 
 /**
- * Los hilos que abrió un rol, con todas sus respuestas. Es "Mensajes del director": el docente ve
- * lo que le escribió Dirección y lo que él mismo contestó ahí, no el resto del intercambio.
+ * Quienes le escriben al docente desde "Visado y seguimiento". Los tres ven el cuadro "Mensajes al
+ * docente": filtrar sólo por Dirección hacía que lo de Administración y Adscripción le llegara como
+ * aviso y no apareciera en su sección.
  */
-export function threadsStartedBy<T extends ThreadMessage>(messages: readonly T[], roleCode: string): T[] {
-  const roots = new Set(messages.filter((m) => !m.parentId && m.authorRoleCode === roleCode).map((m) => m.id))
+export const SUPERVISION_MESSAGE_ROLES = ['DIRECCION', 'ADMIN', 'ADSCRIPTO'] as const
+
+/**
+ * Los hilos que abrieron esos roles, con todas sus respuestas. Es "Mensajes de Dirección y
+ * Adscripción": el docente ve lo que le escribió la supervisión y lo que él contestó ahí, no el
+ * resto del intercambio.
+ */
+export function threadsStartedBy<T extends ThreadMessage>(messages: readonly T[], roleCodes: readonly string[]): T[] {
+  const openers = new Set(roleCodes)
+  const roots = new Set(messages.filter((m) => !m.parentId && openers.has(m.authorRoleCode)).map((m) => m.id))
   return messages.filter((m) => (m.parentId ? roots.has(m.parentId) : roots.has(m.id)))
 }
 

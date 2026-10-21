@@ -234,8 +234,9 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 
 > **`gradebook.grade` y `gradebook.plan` son permisos distintos a propósito.** El primero cubre
 > evaluaciones, notas y juicios conceptuales; el segundo, planificación y desarrollo del curso.
-> **Dirección no tiene ninguno:** ve la libreta, la visa y le escribe al docente ("Mensajes del
-> director"), pero no la edita. Para sacarle un permiso a un rol que ya lo tiene en producción no
+> **Sólo el docente tiene `grade`, `plan` y `close`.** Dirección, Adscripción y **Administración**
+> ven la libreta y le escriben al docente, pero no la editan: Dirección visa y Administración sólo
+> reabre un período (`gradebook.manage`). Para sacarle un permiso a un rol que ya lo tiene en producción no
 > alcanza con los defaults: la autorización lee la base, así que va en `REVOKED_PROFILE_PERMISSION_IDS`.
 > Cambiar el **alcance** de uno que ya existe tampoco llega (el sync sólo crea filas faltantes): va en
 > `ENFORCED_PROFILE_PERMISSION_SCOPES`.
@@ -246,8 +247,9 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > del menú (agenda, asistencias, licencias) no fijan alcance: quien ve todo conserva lo propio.
 
 > **El menú de la libreta depende de quién mira** (`sectionsFor`, `lib/libreta/menu.ts`). El
-> docente tiene "Mensajes del director"; quien supervisa tiene "Visado y seguimiento". Visar no es
-> del docente.
+> docente tiene "Mensajes de Dirección y Adscripción" (los hilos que abrió cualquier rol de
+> `SUPERVISION_MESSAGE_ROLES`: Dirección, Administración, Adscripción); quien supervisa tiene
+> "Visado y seguimiento". Visar no es del docente.
 
 > **El suplente tiene un acceso provisorio y ve sólo lo suyo** (`services/gradebook/access.ts`).
 > Entra desde su primera clase cubierta hasta `SUBSTITUTE_ACCESS_DAYS_AFTER` (7) días después de la

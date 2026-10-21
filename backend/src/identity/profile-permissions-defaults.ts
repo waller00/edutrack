@@ -93,13 +93,12 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('students.manage', 'Estudiantes', 'manage', 'Gestionar estudiantes', true, 'all'),
     perm('academic-config.manage', 'Configuración académica', 'manage', 'Gestionar escalas, períodos y tipos de actividad', true, 'all'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver libretas', true, 'all'),
-    perm('gradebook.grade', 'Libreta', 'grade', 'Registrar evaluaciones y calificaciones', true, 'all'),
-    perm('gradebook.plan', 'Libreta', 'plan', 'Editar planificación y desarrollo del curso', true, 'all'),
-    perm('gradebook.close', 'Libreta', 'close', 'Cerrar períodos y emitir juicios conceptuales', true, 'all'),
+    // Sin `gradebook.grade`, `gradebook.plan` ni `gradebook.close`: la libreta es del docente.
+    // Administración la ve, reabre un período si hay que corregir y le escribe; no carga por él.
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
     perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all'),
     perm('gradebook.inspect', 'Libreta', 'inspect', 'Consultar libretas y registrar visitas de inspección', true, 'all'),
-    perm('gradebook.manage', 'Libreta', 'manage', 'Corregir y reabrir fuera de plazo', true, 'all'),
+    perm('gradebook.manage', 'Libreta', 'manage', 'Reabrir períodos cerrados (con motivo)', true, 'all'),
     perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
     perm('academic-analytics.read', 'Rendimiento académico', 'read', 'Ver rendimiento académico', true, 'all'),
     perm('student-reports.read', 'Reportes de estudiantes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
@@ -186,6 +185,9 @@ export const RENAMED_PERMISSION_MODULES: Readonly<Record<string, string>> = {
 }
 
 /** Lo que Personal (STAFF) tenía cuando compartía la matriz del docente. */
+/** Escribir en la libreta: sólo el docente (titular o suplente). */
+const ADMIN_GRADEBOOK_EDIT_PERMISSION_IDS = ['gradebook.grade', 'gradebook.plan', 'gradebook.close'] as const
+
 const STAFF_ACADEMIC_PERMISSION_IDS = [
   'events.read',
   'courses.read',
@@ -199,7 +201,7 @@ const STAFF_ACADEMIC_PERMISSION_IDS = [
 ] as const
 
 export const REMOVED_PROFILE_PERMISSION_IDS: Record<BuiltinProfileRole, Set<string>> = {
-  ADMIN: new Set(['licenses.approve']),
+  ADMIN: new Set(['licenses.approve', ...ADMIN_GRADEBOOK_EDIT_PERMISSION_IDS]),
   TEACHER: new Set(['attendance.create', 'events.create', 'events.update', 'licenses.create']),
   STAFF: new Set(['attendance.create', 'licenses.create', ...STAFF_ACADEMIC_PERMISSION_IDS]),
   ADSCRIPTO: new Set(),
@@ -218,6 +220,9 @@ export const REVOKED_PROFILE_PERMISSION_IDS: Partial<Record<BuiltinProfileRole, 
   DIRECCION: ['gradebook.plan'],
   // Personal no es docente: sin agenda de clases, cursos, pase de lista ni libretas (20/10/2026).
   STAFF: STAFF_ACADEMIC_PERMISSION_IDS,
+  // Administración ve la libreta del docente pero no la edita: ni notas, ni juicios, ni cierres,
+  // ni planificación (21/10/2026). Conserva `gradebook.manage` para reabrir un período.
+  ADMIN: ADMIN_GRADEBOOK_EDIT_PERMISSION_IDS,
 }
 
 export function normalizePermissionId(module: string, action: string) {

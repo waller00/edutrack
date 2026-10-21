@@ -106,7 +106,7 @@ describe('MessagesPanel', () => {
   })
 })
 
-describe('MessagesPanel — Mensajes del director (docente)', () => {
+describe('MessagesPanel — Mensajes de Dirección y Adscripción (docente)', () => {
   beforeEach(() => {
     mockedApi.mockReset()
     mockedApi.mockResolvedValue({
@@ -117,8 +117,8 @@ describe('MessagesPanel — Mensajes del director (docente)', () => {
   it('pide sólo los hilos que abrió Dirección y se titula así', async () => {
     render(<MessagesPanel gradeBookId="gb-1" variant="teacher" />)
     expect(await screen.findByText('Te falta el informe del grupo.')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Mensajes del director' })).toBeInTheDocument()
-    expect(mockedApi).toHaveBeenCalledWith('/gradebook/gb-1/messages?from=DIRECCION')
+    expect(screen.getByRole('heading', { name: 'Mensajes de Dirección y Adscripción' })).toBeInTheDocument()
+    expect(mockedApi).toHaveBeenCalledWith('/gradebook/gb-1/messages?from=SUPERVISION')
   })
 
   it('el docente no abre hilos: responde dentro del mensaje del director', async () => {
@@ -140,6 +140,6 @@ describe('MessagesPanel — Mensajes del director (docente)', () => {
   it('sin mensajes lo dice con palabras del docente', async () => {
     mockedApi.mockResolvedValue({ data: [] } as any)
     render(<MessagesPanel gradeBookId="gb-1" variant="teacher" />)
-    expect(await screen.findByText('Dirección todavía no te dejó mensajes en esta libreta.')).toBeInTheDocument()
+    expect(await screen.findByText('Todavía no te dejaron mensajes en esta libreta.')).toBeInTheDocument()
   })
 })

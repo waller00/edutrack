@@ -115,7 +115,7 @@ describe('<LibretaShell />', () => {
       expect(within(nav).getByText(section.label)).toBeInTheDocument()
       expect(within(nav).getByText(section.hint)).toBeInTheDocument()
     }
-    expect(within(nav).getByText('Mensajes del director')).toBeInTheDocument()
+    expect(within(nav).getByText('Mensajes de Dirección y Adscripción')).toBeInTheDocument()
     expect(within(nav).queryByText('Visado y seguimiento')).not.toBeInTheDocument()
     expect(within(nav).queryByText('Inasistencias')).not.toBeInTheDocument()
   })
@@ -128,7 +128,7 @@ describe('<LibretaShell />', () => {
 
     const nav = await screen.findByRole('navigation', { name: 'Secciones de la libreta' })
     expect(within(nav).getByText('Visado y seguimiento')).toBeInTheDocument()
-    expect(within(nav).queryByText('Mensajes del director')).not.toBeInTheDocument()
+    expect(within(nav).queryByText('Mensajes de Dirección y Adscripción')).not.toBeInTheDocument()
   })
 
   it('el docente que abre el visado vuelve a la portada de su libreta', async () => {
@@ -149,7 +149,7 @@ describe('<LibretaShell />', () => {
     renderShell()
 
     const current = await screen.findByRole('link', { current: 'page' })
-    expect(current).toHaveTextContent('Mensajes del director')
+    expect(current).toHaveTextContent('Mensajes de Dirección y Adscripción')
   })
 
   it('avisa que un ciclo cerrado es sólo consulta', async () => {

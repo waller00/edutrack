@@ -6,6 +6,7 @@ import {
   notifyGradeBook,
   observationNotification,
   resolveGradeBookRecipients,
+  SUPERVISION_MESSAGE_ROLES,
   threadsStartedBy,
 } from './notifications.js'
 
@@ -132,22 +133,30 @@ describe('armado de los avisos', () => {
   })
 })
 
-describe('mensajes del director', () => {
+describe('mensajes de la supervisión al docente', () => {
   const msg = (id: string, authorRoleCode: string, parentId: string | null = null) => ({ id, authorRoleCode, parentId })
 
-  it('se queda con los hilos que abrió Dirección y sus respuestas, de quien sean', () => {
+  it('trae los hilos que abrieron Dirección, Administración y Adscripción, con sus respuestas', () => {
     const all = [
       msg('d1', 'DIRECCION'),
       msg('a1', 'ADSCRIPTO'),
+      msg('ad1', 'ADMIN'),
+      msg('t1', 'TEACHER'),
       msg('r1', 'TEACHER', 'd1'),
       msg('r2', 'TEACHER', 'a1'),
       msg('r3', 'DIRECCION', 'd1'),
+      msg('r4', 'TEACHER', 'ad1'),
+      msg('r5', 'DIRECCION', 't1'),
     ]
-    expect(threadsStartedBy(all, 'DIRECCION').map((m) => m.id)).toEqual(['d1', 'r1', 'r3'])
+    expect(threadsStartedBy(all, SUPERVISION_MESSAGE_ROLES).map((m) => m.id)).toEqual(['d1', 'a1', 'ad1', 'r1', 'r2', 'r3', 'r4'])
   })
 
-  it('una respuesta de Dirección en un hilo ajeno no trae el hilo', () => {
-    expect(threadsStartedBy([msg('a1', 'ADSCRIPTO'), msg('r1', 'DIRECCION', 'a1')], 'DIRECCION')).toEqual([])
+  it('un hilo que abrió el docente no aparece aunque Dirección le haya respondido', () => {
+    expect(threadsStartedBy([msg('t1', 'TEACHER'), msg('r1', 'DIRECCION', 't1')], SUPERVISION_MESSAGE_ROLES)).toEqual([])
+  })
+
+  it('con un solo rol se queda con los hilos de ese rol', () => {
+    expect(threadsStartedBy([msg('a1', 'ADSCRIPTO'), msg('r1', 'DIRECCION', 'a1')], ['DIRECCION'])).toEqual([])
   })
 
   it('la respuesta del docente le llega a quien supervisa en Visado', () => {

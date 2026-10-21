@@ -154,6 +154,26 @@ describe('<PeriodBlock /> tramo', () => {
     await userEvent.click(screen.getByLabelText('Agregar nota de Evaluaciones escritas en Mayo – Junio'))
     expect(onAddGrade).toHaveBeenCalledWith('written')
   })
+
+  it('quien supervisa (Dirección, Administración) la ve sin "+" ni selects de C y R', () => {
+    render(
+      <PeriodBlock
+        period={TRAMO}
+        grades={[]}
+        saved={{ meetingValueHundredths: 700, conductValueHundredths: 600, conceptualJudgement: null }}
+        levels={LEVELS}
+        decimals={0}
+        conduct={CONDUCT}
+        editable={false}
+        onAddGrade={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    )
+    expect(screen.queryByLabelText(/^Agregar nota de /)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('R: rendimiento de Mayo – Junio')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('C: conducta en Mayo – Junio')).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
 })
 
 describe('<PeriodBlock /> entrega', () => {

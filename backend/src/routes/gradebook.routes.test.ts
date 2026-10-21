@@ -602,13 +602,31 @@ describe('PUT /:id/assessments/:assessmentId/grades', () => {
     expect(saveGradesMock).not.toHaveBeenCalled()
   })
 
-  it('administración con gradebook.manage corrige fuera de plazo, con origen ADMIN_CORRECTION', async () => {
-    vi.setSystemTime(new Date('2026-09-01T12:00:00.000Z'))
+  it('administración no carga notas en la libreta del docente: no tiene gradebook.grade', async () => {
     scopeMock.mockResolvedValue('all')
 
     const res = await request(app())
       .put(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
       .set('Authorization', `Bearer ${tok('ADMIN', 'a-1')}`)
+      .send({ entries, reason: 'reclamo del estudiante' })
+
+    expect(res.status).toBe(403)
+    expect(saveGradesMock).not.toHaveBeenCalled()
+  })
+
+  it('un perfil a medida con grade y manage corrige fuera de plazo, con origen ADMIN_CORRECTION', async () => {
+    vi.setSystemTime(new Date('2026-09-01T12:00:00.000Z'))
+    scopeMock.mockResolvedValue('all')
+    const custom = signAccessToken({
+      sub: 'a-1',
+      email: 'a-1@example.com',
+      role: 'ADMIN',
+      permissions: { 'gradebook.grade': 'all' },
+    })
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
+      .set('Authorization', `Bearer ${custom}`)
       .send({ entries, reason: 'reclamo del estudiante' })
 
     expect(res.status).toBe(200)
@@ -1325,16 +1343,19 @@ describe('mensajería (RF-090)', () => {
     expect(prismaMock.inAppNotification.createMany).not.toHaveBeenCalled()
   })
 
-  it('"Mensajes del director": sólo los hilos que abrió Dirección', async () => {
+  it('la sección del docente trae los hilos que abrió la supervisión (también Administración)', async () => {
     prismaMock.gradeBookMessage.findMany.mockResolvedValue([
       { id: 'd1', parentId: null, authorRoleCode: 'DIRECCION', body: 'Te falta el informe' },
+      { id: 'ad1', parentId: null, authorRoleCode: 'ADMIN', body: 'Te faltó cargar la planificación' },
       { id: 'a1', parentId: null, authorRoleCode: 'ADSCRIPTO', body: 'Otra cosa' },
+      { id: 't1', parentId: null, authorRoleCode: 'TEACHER', body: 'Nota para mí' },
       { id: 'r1', parentId: 'd1', authorRoleCode: 'TEACHER', body: 'Ya lo cargo' },
     ])
 
-    const res = await request(app()).get(`/gradebook/${GB_ID}/messages?from=DIRECCION`).set('Authorization', `Bearer ${tok()}`)
-
-    expect(res.body.data.map((m: { id: string }) => m.id)).toEqual(['d1', 'r1'])
+    for (const from of ['SUPERVISION', 'DIRECCION']) {
+      const res = await request(app()).get(`/gradebook/${GB_ID}/messages?from=${from}`).set('Authorization', `Bearer ${tok()}`)
+      expect(res.body.data.map((m: { id: string }) => m.id), from).toEqual(['d1', 'ad1', 'a1', 'r1'])
+    }
   })
 
   it('la respuesta del docente le avisa al director que abrió el hilo', async () => {
@@ -1619,16 +1640,17 @@ describe('dirección: ve la libreta pero no la edita', () => {
     expect(development.body.canEdit).toBe(false)
   })
 
-  it('si administración corrige la planificación de otro, queda auditado', async () => {
+  it('administración tampoco edita la planificación del docente', async () => {
     prismaMock.gradeBook.findUnique.mockResolvedValue({ ...ROW, teacherUserId: 'otro-docente' })
-    accessMock.mockResolvedValue({ level: 'SUPERVISION', canRead: true, canGrade: true, canPlan: true })
-    prismaMock.gradeBookPlanning.upsert.mockResolvedValue({ gradeBookId: GB_ID })
+    accessMock.mockResolvedValue({ level: 'SUPERVISION', canRead: true, canGrade: false, canPlan: false })
 
-    await request(app()).put(`/gradebook/${GB_ID}/planning`).set('Authorization', `Bearer ${tok('ADMIN', 'admin-1')}`).send({ formative: 'Ajuste' })
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/planning`)
+      .set('Authorization', `Bearer ${tok('ADMIN', 'admin-1')}`)
+      .send({ formative: 'Ajuste' })
 
-    await vi.waitFor(() =>
-      expect(prismaMock.auditLog.create.mock.calls.some(([arg]) => arg.data.action === 'GRADEBOOK_PLANNING_UPDATED')).toBe(true),
-    )
+    expect(res.status).toBe(403)
+    expect(prismaMock.gradeBookPlanning.upsert).not.toHaveBeenCalled()
   })
 
   it('el docente sigue pudiendo las dos cosas', async () => {

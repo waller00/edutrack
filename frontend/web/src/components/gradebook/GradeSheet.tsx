@@ -37,7 +37,7 @@ type SheetResponse = {
 
 const BLOCK_MESSAGES: Record<string, string> = {
   NOT_ASSIGNED: 'No sos docente de esta libreta.',
-  WINDOW_EXPIRED: 'Venció el plazo para editar. Pedí la corrección a administración.',
+  WINDOW_EXPIRED: 'Venció el plazo para editar. Si hay que corregir, consultá con administración el plazo de edición.',
   PERIOD_CLOSED: 'El período está cerrado.',
   ARCHIVED: 'El ciclo lectivo está cerrado: sólo lectura.',
 }

@@ -5,8 +5,9 @@
  * después lo que se evalúa y al final lo que se cierra. Cada entrada dice para qué sirve, porque
  * "Precierre" o "Visado" no se explican solos.
  *
- * El menú depende de quién mira. El docente trabaja su libreta y lee lo que le dice Dirección
- * ("Mensajes del director"); quien supervisa (Dirección, adscripción) la recorre de sólo lectura
+ * El menú depende de quién mira. El docente trabaja su libreta y lee lo que le dice la supervisión
+ * ("Mensajes de Dirección y Adscripción"); quien supervisa (Dirección, adscripción, administración)
+ * la recorre de sólo lectura
  * y tiene "Visado y seguimiento", donde visa y le escribe al docente. Las inasistencias no son una
  * sección: salen del pase de lista y se ven en la carta de cada alumno.
  */
@@ -36,9 +37,9 @@ const WORK_SECTIONS: readonly LibretaSection[] = [
 
 const MESSAGES_SECTION: LibretaSection = {
   id: 'mensajes',
-  label: 'Mensajes del director',
+  label: 'Mensajes de Dirección y Adscripción',
   abbr: 'Msj',
-  hint: 'Lo que Dirección te observó o te pidió en esta libreta: notas que faltan, informes, juicios. Podés responderle.',
+  hint: 'Lo que Dirección, Adscripción o Administración te observó o te pidió en esta libreta: notas que faltan, informes, juicios. Podés responder.',
 }
 
 const ENDORSEMENT_SECTION: LibretaSection = {

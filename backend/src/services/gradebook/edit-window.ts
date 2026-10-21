@@ -24,7 +24,10 @@ export function computeEditableUntil(assessmentDate: Date, windowDays: number): 
 export function resolveGradeEditPermissions(params: {
   /** Alcance de `gradebook.grade`; null si no lo tiene. */
   gradeScope: 'own' | 'all' | null
-  /** ¿Tiene `gradebook.manage`? Habilita escribir fuera de plazo. */
+  /**
+   * ¿Tiene `gradebook.manage`? Habilita escribir fuera de plazo, pero sólo a quien además califica:
+   * Administración tiene `manage` (para reabrir períodos) y no `gradebook.grade`, así que no edita.
+   */
   canManage: boolean
   /** Titular o suplente de la libreta. */
   isResponsible: boolean
@@ -42,6 +45,7 @@ export function resolveGradeEditPermissions(params: {
     return { canEdit: false, editableUntil, blockedReason: 'ARCHIVED', outsideWindow: expired }
   }
 
+  // Sin `gradebook.grade` no se escribe, tenga lo que tenga: la libreta es del docente.
   if (params.gradeScope === null) {
     return { canEdit: false, editableUntil, blockedReason: 'NOT_ASSIGNED', outsideWindow: expired }
   }
@@ -64,7 +68,7 @@ export function resolveGradeEditPermissions(params: {
 
 export const GRADE_BLOCK_MESSAGES: Record<GradeBlockReason, string> = {
   NOT_ASSIGNED: 'No sos docente de esta libreta.',
-  WINDOW_EXPIRED: 'Venció el plazo para editar esta evaluación. Pedí la corrección a administración.',
+  WINDOW_EXPIRED: 'Venció el plazo para editar esta evaluación. Si hay que corregirla, consultá con administración el plazo de edición.',
   PERIOD_CLOSED: 'El período está cerrado. Hay que reabrirlo para modificar calificaciones.',
   ARCHIVED: 'El ciclo lectivo está cerrado: la libreta es de sólo lectura.',
 }
