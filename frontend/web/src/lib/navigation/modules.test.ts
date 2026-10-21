@@ -125,16 +125,17 @@ describe('qué ve cada uno', () => {
     }
   })
 
-  it('Personal ve sólo sus ingresos y sus licencias', () => {
+  it('Personal ve sus ingresos, sus licencias y los mensajes', () => {
     const personal = {
       permissions: [
         { id: 'attendance.read', scope: 'own' as const },
         { id: 'licenses.read', scope: 'own' as const },
         { id: 'notifications.read', scope: 'own' as const },
+        { id: 'messaging.use', scope: 'own' as const },
       ],
     }
     const withPermission = visibleModules(personal).filter((m) => m.permission).map((m) => m.id)
-    expect(withPermission.sort()).toEqual(['my-attendance', 'my-licenses'])
+    expect(withPermission.sort()).toEqual(['messages', 'my-attendance', 'my-licenses'])
   })
 
   it('acepta la forma vieja de permisos (`permissionIds`, sin alcance) como propia', () => {

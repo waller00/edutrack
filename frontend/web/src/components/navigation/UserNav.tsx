@@ -23,6 +23,9 @@ import RollCallReminderBar from '@/components/rollcall/RollCallReminderBar'
 import NotificationBell from '@/components/notifications/NotificationBell'
 import NotificationToast from '@/components/notifications/NotificationToast'
 import { NotificationsProvider } from '@/components/notifications/NotificationsProvider'
+import { MessagesProvider } from '@/components/messages/MessagesProvider'
+import MessagesButton from '@/components/messages/MessagesButton'
+import MessagesDrawer from '@/components/messages/MessagesDrawer'
 import { SidebarSlotContext } from './sidebar-slot'
 
 type MeUser = AuthMe
@@ -92,6 +95,15 @@ function pathIsActive(pathname: string, href: string) {
 }
 
 type VisibleGroup = VisibleNavGroup
+
+/** Avisos (la campana) y mensajes: los dos se mantienen al día solos mientras se usa la app. */
+function ShellProviders({ children }: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <NotificationsProvider>
+      <MessagesProvider>{children}</MessagesProvider>
+    </NotificationsProvider>
+  )
+}
 
 function NavItemLink({ item, active }: { item: AppModule; active: boolean }) {
   const Icon = item.icon
@@ -463,7 +475,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
   const slotValue = { slot, rail, expand: () => rail && toggleCollapsed() }
 
   return (
-    <NotificationsProvider>
+    <ShellProviders>
       <SidebarSlotContext.Provider value={slotValue}>
         <div className="min-h-screen bg-slate-50/80">
           {/* Primer elemento del recorrido con teclado: sin él, cada página obligaba a pasar por
@@ -497,6 +509,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
                   <p className="truncate text-sm text-gray-600">Gestión diaria de la institución</p>
                 </div>
                 <NotificationBell />
+                <MessagesButton />
                 {accountButton}
               </div>
               {/* Durante la clase, debajo del encabezado y en cualquier pantalla: "pasá la lista". */}
@@ -508,7 +521,8 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
           </div>
         </div>
         <NotificationToast />
+        <MessagesDrawer />
       </SidebarSlotContext.Provider>
-    </NotificationsProvider>
+    </ShellProviders>
   )
 }

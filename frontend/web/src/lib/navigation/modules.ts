@@ -13,6 +13,7 @@ import {
   GraduationCap,
   History,
   LayoutDashboard,
+  MessageCircle,
   Library,
   Presentation,
   Receipt,
@@ -50,6 +51,7 @@ export type ModuleId =
   | 'my-gradebooks'
   | 'my-attendance'
   | 'my-licenses'
+  | 'messages'
   | 'staff-attendance'
   | 'staff-licenses'
   | 'agenda'
@@ -238,6 +240,16 @@ export const APP_MODULES: readonly AppModule[] = [
     icon: FileText,
     permission: 'licenses.read',
     quickAccess: 3,
+  },
+  {
+    id: 'messages',
+    label: 'Mensajes',
+    href: '/mensajes',
+    description: 'Conversaciones privadas con cualquier persona del personal del liceo.',
+    group: 'mine',
+    icon: MessageCircle,
+    permission: 'messaging.use',
+    related: [{ id: 'my-gradebooks', text: '¿Buscás lo que Dirección te observó en una libreta? Está en cada libreta:' }],
   },
 
   // Personal: docentes y funcionarios, vistos por la institución.

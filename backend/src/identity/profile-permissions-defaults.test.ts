@@ -17,4 +17,11 @@ describe('DEFAULT_PROFILE_PERMISSIONS', () => {
     expect(DEFAULT_PROFILE_PERMISSIONS.STAFF).toBeDefined()
     expect(DEFAULT_PROFILE_PERMISSIONS.TEACHER).toBeDefined()
   })
+
+  it('todo el personal usa la mensajería (cada uno, sus conversaciones)', () => {
+    for (const [role, grants] of Object.entries(DEFAULT_PROFILE_PERMISSIONS)) {
+      const grant = grants.find((p) => p.id === 'messaging.use')
+      expect(grant, `${role} debe tener messaging.use`).toMatchObject({ enabled: true, scope: 'own' })
+    }
+  })
 })

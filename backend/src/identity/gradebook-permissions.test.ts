@@ -189,6 +189,7 @@ describe('Personal: sólo sus ingresos y sus licencias', () => {
     expect(DEFAULT_PROFILE_PERMISSIONS.STAFF.map((p) => `${p.id}:${p.scope}`).sort()).toEqual([
       'attendance.read:own',
       'licenses.read:own',
+      'messaging.use:own',
       'notifications.read:own',
     ])
   })

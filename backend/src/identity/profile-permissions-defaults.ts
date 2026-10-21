@@ -52,6 +52,7 @@ function supervisionReadAll(): DefaultProfilePermission[] {
     perm('events.read', 'Agenda y clases', 'read', 'Ver eventos', true, 'all'),
     perm('licenses.read', 'Licencias', 'read', 'Ver licencias', true, 'all'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
+    perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
     perm('analytics.read', 'Indicadores del personal', 'read', 'Ver indicadores del personal', true, 'all'),
     perm('reports.read', 'Reportes', 'read', 'Ver reportes', true, 'all'),
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
@@ -109,12 +110,14 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('settings.manage', 'Configuración', 'manage', 'Gestionar configuración del sistema', true, 'all'),
     perm('audit.read', 'Auditoría', 'read', 'Ver auditoría', true, 'all'),
     perm('profiles.manage', 'Perfiles', 'manage', 'Gestionar perfiles', true, 'all'),
+    perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
   ],
   TEACHER: [
     perm('attendance.read', 'Asistencia del personal', 'read', 'Ver mis asistencias', true, 'own'),
     perm('events.read', 'Agenda y clases', 'read', 'Ver mis eventos', true, 'own'),
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
+    perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
     perm('student-attendance.take', 'Asistencia de estudiantes', 'take', 'Pasar lista de mis clases', true, 'own'),
     perm('student-attendance.read', 'Asistencia de estudiantes', 'read', 'Ver el pase de lista de mis clases', true, 'own'),
@@ -129,6 +132,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('attendance.read', 'Asistencia del personal', 'read', 'Ver mis asistencias', true, 'own'),
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
+    perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
   ],
   // Adscripto: ve todo el centro como Administración; controla el avance de las libretas y
   // justifica faltas, pero NO visa.

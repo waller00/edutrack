@@ -313,6 +313,27 @@ Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 ter
 
 ---
 
+## Mensajería
+
+Mensajes privados 1 a 1 entre todo el personal (`messaging.use`, alcance `own`, en los cinco perfiles),
+al estilo Moodle: ícono al lado de la campana, panel lateral con "Destacados" y "Privado", y la página
+`/mensajes`. Es aparte de los mensajes de cada libreta (`GradeBookMessage`), que siguen allá.
+
+Backend: `routes/messages.ts` y `services/messaging/`. Modelos `Conversation` (`pairKey` único: un par,
+una conversación), `ConversationMember` (`lastReadAt`, `starred`) y `DirectMessage`. Frontend:
+`components/messages/` (`MessagesProvider`, `MessagesDrawer`, `ConversationList`, `ConversationView`)
+y `lib/messages/`.
+
+> **Nadie lee conversaciones ajenas**, ni Administración: cada ruta trabaja sobre las del usuario de la
+> sesión, y quien no es miembro recibe 404. El directorio (`/messages/contacts`) devuelve sólo nombre y
+> perfil: nunca correo, cédula ni teléfono.
+
+> **"Casi al instante" es polling, no WebSocket.** El contador se pregunta cada 15 s, la conversación
+> abierta cada 3 s, siempre con la pestaña a la vista, y un push refresca enseguida. Los mensajes no
+> van a la campana: avisan por web push con `tag` por conversación.
+
+---
+
 ## Frontend
 
 > **Nombres, descripciones, íconos y permisos de cada sección salen de

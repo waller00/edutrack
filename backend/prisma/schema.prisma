@@ -134,6 +134,8 @@ model User {
   // relations
   emailVerifications                     EmailVerification[]
   passwordResets                         PasswordReset[]
+  conversationMemberships                ConversationMember[]
+  directMessages                         DirectMessage[]                  @relation("DirectMessageAuthor")
   attendances                            Attendance[]
   events                                 Event[]
   assignedEvents                         Event[]                          @relation("EventAssignment")
@@ -228,6 +230,52 @@ model PasswordReset {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+}
+
+/// Mensajería interna entre el personal. Hoy sólo conversaciones 1 a 1; `GROUP` queda para después.
+enum ConversationKind {
+  DIRECT
+}
+
+/// Conversación de la mensajería. Las de la libreta (`GradeBookMessage`) son otra cosa: observaciones
+/// sobre una libreta. `pairKey` (los dos userId ordenados, "a:b") hace que un par tenga una sola.
+model Conversation {
+  id            String               @id @default(uuid())
+  kind          ConversationKind     @default(DIRECT)
+  pairKey       String?              @unique
+  createdAt     DateTime             @default(now())
+  lastMessageAt DateTime             @default(now())
+  members       ConversationMember[]
+  messages      DirectMessage[]
+
+  @@index([lastMessageAt])
+}
+
+/// Quién está en la conversación. Lo no leído se calcula: mensajes ajenos posteriores a `lastReadAt`.
+model ConversationMember {
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt     DateTime?
+  starred        Boolean      @default(false)
+  joinedAt       DateTime     @default(now())
+
+  @@id([conversationId, userId])
+  @@index([userId])
+}
+
+/// Mensaje de la mensajería. Texto plano. Si se borra el autor el mensaje queda, sin autor.
+model DirectMessage {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  authorUserId   String?
+  author         User?        @relation("DirectMessageAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  body           String       @db.Text
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
 }
 
 /// Avisos dentro de la app (persisten aunque el push se pierda).
