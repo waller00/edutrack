@@ -65,6 +65,21 @@ const ESCUELAS_DE_ORIGEN = [
   'Escuela N.º 108 Brasil',
 ] as const
 
+/**
+ * Nombre y apellidos del alumno número `i` del ingreso.
+ *
+ * Los dos apellidos avanzan **en cada alumno**, con pasos coprimos con el largo de la lista. El
+ * seed del 2025 hace avanzar el primer apellido recién al agotar la vuelta de nombres, y eso con
+ * un grupo de veinte no pasa nunca: los veinte salían "Alonso".
+ */
+function nombreDeIngreso(i: number): { firstName: string; lastName: string } {
+  const firstName = NOMBRES_INGRESO[i % NOMBRES_INGRESO.length]
+  const primero = (i * 5 + 1) % APELLIDOS_INGRESO.length
+  let segundo = (i * 7 + 3) % APELLIDOS_INGRESO.length
+  if (segundo === primero) segundo = (segundo + 1) % APELLIDOS_INGRESO.length
+  return { firstName, lastName: `${APELLIDOS_INGRESO[primero]} ${APELLIDOS_INGRESO[segundo]}` }
+}
+
 export type ResumenCicloEnCurso = {
   ciclo: number
   desde: string
@@ -418,8 +433,7 @@ async function asegurarMatricula(p: {
     const faltan = Math.max(0, ingreso - actuales)
     for (let i = 0; i < faltan; i += 1) {
       const semilla = `${ciclo}-${i}`
-      const firstName = NOMBRES_INGRESO[i % NOMBRES_INGRESO.length]
-      const lastName = `${APELLIDOS_INGRESO[Math.floor(i / NOMBRES_INGRESO.length) % APELLIDOS_INGRESO.length]} ${APELLIDOS_INGRESO[(i * 7 + 3) % APELLIDOS_INGRESO.length]}`
+      const { firstName, lastName } = nombreDeIngreso(i)
       const username = await generateUniqueUsername(firstName, lastName, async (candidate) => {
         const exist = await db.student.findUnique({ where: { username: candidate }, select: { id: true } })
         return Boolean(exist)
