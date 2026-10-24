@@ -17,17 +17,29 @@
  *   npm run seed:demo
  */
 import 'dotenv/config'
-import crypto from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
-import type { AttendanceStatus, Event, User } from '@prisma/client'
-import { DateTime } from 'luxon'
-import { TEACHER_SPECIALTIES, type TeacherSpecialty, type TeacherSpecialtyArea } from './data/teacher-specialties.js'
+import type { Event, User } from '@prisma/client'
 import { seedAcademicCatalog } from './seed-academic-catalog.js'
 import { runBootstrap } from './seed-bootstrap.js'
 import { seedTeachers } from './seed-teachers.js'
-import { getAppTimezone, uruguayWallToUtc } from '../src/config/app-timezone.js'
+import { getAppTimezone } from '../src/config/app-timezone.js'
 import { generateUniqueUsername } from '../src/services/usernames.js'
-import { seedDemoLibreta2025 } from './demo/libreta-2025.js'
+import {
+  CLASS_SLOTS,
+  assertTeacherSpecialties,
+  buildValidCi,
+  crearPlanificadorDeHorario,
+  intBetween,
+  pick,
+  ratio,
+  sha256,
+  stableHash,
+  toYmd,
+  wall,
+  ymdToDate,
+} from './demo/comun.js'
+import { sembrarAsistenciaDelPersonal } from './demo/asistencia-personal.js'
+import { seedDemoLibreta } from './demo/libreta.js'
 
 const prisma = new PrismaClient()
 
@@ -66,15 +78,6 @@ const ORIENTATION_SUBJECTS: Record<string, string[]> = {
   'CREATIVO-ARTISTICO': ['Historia del Arte', 'Música', 'Danza', 'Teatro'],
 }
 
-const CLASS_SLOTS = [
-  { start: [7, 30], end: [8, 15] },
-  { start: [8, 20], end: [9, 5] },
-  { start: [9, 20], end: [10, 5] },
-  { start: [10, 10], end: [10, 55] },
-  { start: [11, 10], end: [11, 55] },
-  { start: [12, 0], end: [12, 45] },
-] as const
-
 const STUDENT_FIRST_NAMES = [
   'Agustina', 'Benjamín', 'Camila', 'Dante', 'Emilia', 'Facundo', 'Guadalupe', 'Hernán', 'Isabella', 'Joaquín',
   'Kiara', 'Lautaro', 'Martina', 'Nahuel', 'Olivia', 'Pedro', 'Renata', 'Santino', 'Thiago', 'Valentina',
@@ -88,96 +91,6 @@ const STUDENT_LAST_NAMES = [
 
 const STAFF_INITIAL_PASSWORD = 'funcionario123'
 
-function stableHash(input: string) {
-  let h = 2166136261
-  for (let i = 0; i < input.length; i += 1) {
-    h ^= input.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
-function ratio(key: string) {
-  return (stableHash(key) % 10_000) / 10_000
-}
-function intBetween(key: string, min: number, max: number) {
-  return min + (stableHash(key) % (max - min + 1))
-}
-function pick<T>(items: readonly T[], key: string): T {
-  return items[stableHash(key) % items.length]
-}
-function buildValidCi(baseNumber: number) {
-  const base7 = String(Math.abs(baseNumber) % 9_999_999).padStart(7, '0')
-  const weights = [2, 9, 8, 7, 6, 3, 4]
-  const sum = base7.split('').reduce((acc, digit, index) => acc + Number(digit) * weights[index], 0)
-  const checkDigit = (10 - (sum % 10)) % 10
-  return `${base7}${checkDigit}`
-}
-function sha256(value: string) {
-  return crypto.createHash('sha256').update(value).digest('hex')
-}
-function ymdToDate(ymd: string) {
-  return uruguayWallToUtc(ymd, 0, 0)
-}
-function wall(ymd: string, hour: number, minute: number) {
-  return uruguayWallToUtc(ymd, hour, minute)
-}
-function minutesToWall(ymd: string, minutes: number) {
-  const normalized = Math.max(0, Math.min(23 * 60 + 59, minutes))
-  return wall(ymd, Math.floor(normalized / 60), normalized % 60)
-}
-function toYmd(date: Date) {
-  return DateTime.fromJSDate(date, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
-}
-function wallMinutesFromStoredTime(date: Date) {
-  const wallTime = DateTime.fromJSDate(date, { zone: 'utc' }).setZone(getAppTimezone())
-  return wallTime.hour * 60 + wallTime.minute
-}
-function weekday(ymd: string) {
-  return DateTime.fromISO(ymd, { zone: getAppTimezone() }).weekday % 7
-}
-function eachYmd(start: string, end: string) {
-  const days: string[] = []
-  let cursor = DateTime.fromISO(start, { zone: getAppTimezone() }).startOf('day')
-  const final = DateTime.fromISO(end, { zone: getAppTimezone() }).startOf('day')
-  while (cursor <= final) {
-    days.push(cursor.toFormat('yyyy-MM-dd'))
-    cursor = cursor.plus({ days: 1 })
-  }
-  return days
-}
-function normalizedText(value: string) {
-  return value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
-}
-function subjectArea(subjectName: string): TeacherSpecialtyArea {
-  const s = normalizedText(subjectName)
-  if (s.includes('matematica') || s.includes('contabilidad') || s.includes('economia') || s.includes('administracion')) return 'matematica'
-  if (s.includes('fisica') || s.includes('quimica') || s.includes('biologia') || s.includes('astronomia')) return 'ciencias'
-  if (s.includes('computacion') || s.includes('tecnologias digitales')) return 'informatica'
-  if (s.includes('educacion fisica') || s.includes('deporte') || s.includes('recreacion')) return 'educacion_fisica'
-  if (s.includes('historia') || s.includes('filosofia') || s.includes('derecho') || s.includes('sociologia') || s.includes('geografia') || s.includes('ciudadana') || s.includes('metodologia')) return 'humanidades'
-  if (s.includes('ingles') || s.includes('literatura') || s.includes('espanol')) return 'lenguas'
-  if (s.includes('arte') || s.includes('musica') || s.includes('danza') || s.includes('teatro') || s.includes('visual') || s.includes('diseño') || s.includes('diseno')) return 'arte'
-  return 'gestion'
-}
-function specialtyForTeacher(teacher: Pick<User, 'username' | 'email'>): TeacherSpecialty | null {
-  const username = teacher.username?.toLowerCase()
-  if (username && TEACHER_SPECIALTIES[username]) return TEACHER_SPECIALTIES[username]
-  return TEACHER_SPECIALTIES[teacher.email.toLowerCase()] ?? null
-}
-function teacherLabel(teacher: Pick<User, 'username' | 'email' | 'name'>) {
-  return teacher.username ?? teacher.email ?? teacher.name ?? 'docente-sin-identificador'
-}
-function teacherCanTeachSubject(teacher: Pick<User, 'username' | 'email'>, subjectName: string) {
-  const specialty = specialtyForTeacher(teacher)
-  if (!specialty) return false
-  const normalizedSubject = normalizedText(subjectName)
-  return specialty.areas.includes(subjectArea(subjectName)) || (specialty.subjects ?? []).some((subject) => normalizedText(subject) === normalizedSubject)
-}
-function assertTeacherSpecialties(teachers: Array<Pick<User, 'username' | 'email' | 'name'>>) {
-  if (teachers.length === 0) throw new Error('[demo] No hay docentes activos con TeacherProfile activo.')
-  const missing = teachers.filter((teacher) => !specialtyForTeacher(teacher)).map(teacherLabel)
-  if (missing.length > 0) throw new Error(`[demo] Faltan especialidades docentes para: ${missing.join(', ')}`)
-}
 
 const VALID_ORIENTATION_CODES = ['CIENCIAS-VIDA', 'CIENCIA-TECNOLOGIA', 'CSOCIALES-HUMANIDADES', 'CREATIVO-ARTISTICO']
 
@@ -482,46 +395,10 @@ async function seedEvents(admin: User, teachers: User[], staffUsers: User[]) {
   const courseOrientationId = new Map(courseOrientations.map((row: any) => [`${row.courseId}:${row.orientationId}`, row.id]))
   assertTeacherSpecialties(teachers)
 
-  const teacherBusy = new Set<string>()
-  const groupBusy = new Set<string>()
-  const assignmentCounts = new Map(teachers.map((teacher) => [teacher.id, 0]))
+  const planificador = crearPlanificadorDeHorario(teachers)
   const createdEvents: Event[] = []
   const dates = SCHOOL_YEAR_DATES[YEAR]
 
-  function classDays(subjectIndex: number, courseSortOrder: number, offset: number) {
-    const primaryDay = 1 + ((subjectIndex + courseSortOrder + offset) % 5)
-    const secondDay = subjectIndex % 3 === 0 ? 1 + ((primaryDay + 2) % 5) : null
-    return Array.from(new Set([primaryDay, ...(secondDay ? [secondDay] : [])]))
-  }
-  function reserveClassPlacement(p: { groupKey: string; courseSortOrder: number; subjectIndex: number }) {
-    const baseSlot = (p.subjectIndex + p.courseSortOrder) % CLASS_SLOTS.length
-    for (let attempt = 0; attempt < CLASS_SLOTS.length * 5; attempt += 1) {
-      const slotIndex = (baseSlot + attempt) % CLASS_SLOTS.length
-      const dayOffset = Math.floor(attempt / CLASS_SLOTS.length)
-      const days = classDays(p.subjectIndex, p.courseSortOrder, dayOffset)
-      const conflict = days.some((day) => groupBusy.has(`${p.groupKey}:${day}:${slotIndex}`))
-      if (!conflict) {
-        days.forEach((day) => groupBusy.add(`${p.groupKey}:${day}:${slotIndex}`))
-        return { slotIndex, days }
-      }
-    }
-    throw new Error(`[demo] No se encontro franja libre para grupo ${p.groupKey}`)
-  }
-  function chooseTeacher(subject: string, days: number[], slotIndex: number) {
-    const compatible = teachers.filter((teacher) => teacherCanTeachSubject(teacher, subject))
-    if (compatible.length === 0) throw new Error(`[demo] No hay docente compatible para "${subject}" (${subjectArea(subject)}).`)
-    const available = compatible.filter((candidate) => days.every((day) => !teacherBusy.has(`${candidate.id}:${day}:${slotIndex}`)))
-    if (available.length === 0) throw new Error(`[demo] No hay docente compatible y libre para "${subject}", franja ${slotIndex + 1}.`)
-    available.sort((a, b) => {
-      const loadDelta = (assignmentCounts.get(a.id) ?? 0) - (assignmentCounts.get(b.id) ?? 0)
-      if (loadDelta !== 0) return loadDelta
-      return stableHash(`${subject}-${a.id}`) - stableHash(`${subject}-${b.id}`)
-    })
-    const teacher = available[0]
-    days.forEach((day) => teacherBusy.add(`${teacher.id}:${day}:${slotIndex}`))
-    assignmentCounts.set(teacher.id, (assignmentCounts.get(teacher.id) ?? 0) + days.length)
-    return teacher
-  }
   async function createRecurringClass(p: {
     courseOffering: (typeof offerings)[number]
     subjectName: string
@@ -530,10 +407,13 @@ async function seedEvents(admin: User, teachers: User[], staffUsers: User[]) {
   }) {
     const subjectId = subjectByName.get(p.subjectName)
     if (!subjectId) return
-    const groupKey = `${p.courseOffering.id}:${p.orientation?.id ?? 'GENERAL'}`
-    const { slotIndex, days } = reserveClassPlacement({ groupKey, courseSortOrder: p.courseOffering.course.sortOrder, subjectIndex: p.subjectIndex })
+    const grupo = `${p.courseOffering.id}:${p.orientation?.id ?? 'GENERAL'}`
+    const franja = planificador.reservarFranja({ grupo, ordenCurso: p.courseOffering.course.sortOrder, indiceAsignatura: p.subjectIndex })
+    if (!franja) throw new Error(`[demo] No se encontro franja libre para grupo ${grupo}`)
+    const { franja: slotIndex, dias: days } = franja
     const slot = CLASS_SLOTS[slotIndex]
-    const teacher = chooseTeacher(p.subjectName, days, slotIndex)
+    const teacher = planificador.elegirDocente({ asignatura: p.subjectName, dias: days, franja: slotIndex })
+    if (!teacher) throw new Error(`[demo] No hay docente compatible y libre para "${p.subjectName}", franja ${slotIndex + 1}.`)
     const orientationLabel = p.orientation ? ` - ${p.orientation.name}` : ''
     const courseOrientation = p.orientation && courseOrientationId.get(`${p.courseOffering.courseId}:${p.orientation.id}`)
     const event = await prisma.event.create({
@@ -630,147 +510,6 @@ async function seedEvents(admin: User, teachers: User[], staffUsers: User[]) {
 
   console.log(`[demo] Eventos recurrentes creados: ${createdEvents.length + 1 + staffUsers.length}`)
   return createdEvents
-}
-
-async function seedAttendances(params: {
-  teachers: User[]
-  device: { id: string }
-  mappings: Map<string, { id: string; deviceUserId: string }>
-}) {
-  const events = await prisma.event.findMany({
-    where: { assignedUserId: { not: null }, isRecurring: true },
-    include: { subject: { select: { name: true } } },
-  })
-  const nonWorkingDays = await prisma.nonWorkingDay.findMany({ select: { date: true } })
-  const blocked = new Set(nonWorkingDays.map((row) => toYmd(row.date)))
-  const leaves = await prisma.medicalLeave.findMany({ where: { status: 'ACTIVE' } })
-  const teacherRows = await prisma.user.findMany({ where: { orgRole: { code: 'TEACHER' } }, select: { id: true } })
-  const teacherIds = new Set(teacherRows.map((teacher) => teacher.id))
-  const adminUsers = await prisma.user.findMany({ where: { orgRole: { code: 'ADMIN' } }, select: { id: true } })
-  const adminId = adminUsers[0]?.id
-  const dates = SCHOOL_YEAR_DATES[YEAR]
-  let attendanceCount = 0
-  let punchCount = 0
-  let substitutionCount = 0
-  let absenceCount = 0
-
-  function hasLeave(userId: string, date: string) {
-    const day = ymdToDate(date).getTime()
-    return leaves.find((leave) => leave.userId === userId && ymdToDate(toYmd(leave.startDate)).getTime() <= day && ymdToDate(toYmd(leave.endDate)).getTime() >= day)
-  }
-
-  async function createPunch(userId: string, attendanceId: string, type: 'CHECK_IN' | 'CHECK_OUT', occurredAt: Date) {
-    const mapping = params.mappings.get(userId)
-    if (!mapping) return
-    // Evita colision del unico (deviceId, deviceUserId, occurredAt) cuando un docente
-    // encadena salida/entrada de clases consecutivas en el mismo minuto.
-    const existing = await prisma.biometricPunch.findFirst({
-      where: { deviceId: params.device.id, deviceUserId: mapping.deviceUserId, occurredAt },
-      select: { id: true },
-    })
-    if (existing) return
-    await prisma.biometricPunch.create({
-      data: {
-        deviceId: params.device.id,
-        mappingId: mapping.id,
-        userId,
-        attendanceId,
-        externalId: `${mapping.deviceUserId}-${occurredAt.getTime()}-${type}`,
-        deviceUserId: mapping.deviceUserId,
-        occurredAt,
-        receivedAt: new Date(occurredAt.getTime() + intBetween(`recv-${attendanceId}`, 10, 90) * 1000),
-        punchType: type,
-        processStatus: 'PROCESSED',
-        payload: { source: 'seed-demo-2025', type, deviceUserId: mapping.deviceUserId },
-      },
-    })
-    punchCount += 1
-  }
-
-  // Crea SIEMPRE un par completo entrada + salida para quien esta presente.
-  async function createPresencePair(userId: string, event: { id: string; schoolYearId: string | null }, date: string, inMinutes: number, outMinutes: number, inStatus: AttendanceStatus, outStatus: AttendanceStatus, inNote: string, outNote: string) {
-    const inTime = minutesToWall(date, inMinutes)
-    const outTime = minutesToWall(date, outMinutes)
-    const checkIn = await prisma.attendance.create({
-      data: { userId, eventId: event.id, type: 'CHECK_IN', status: inStatus, date: ymdToDate(date), time: inTime, schoolYearId: event.schoolYearId, notes: inNote },
-    })
-    const checkOut = await prisma.attendance.create({
-      data: { userId, eventId: event.id, type: 'CHECK_OUT', status: outStatus, date: ymdToDate(date), time: outTime, schoolYearId: event.schoolYearId, notes: outNote },
-    })
-    attendanceCount += 2
-    await createPunch(userId, checkIn.id, 'CHECK_IN', inTime)
-    await createPunch(userId, checkOut.id, 'CHECK_OUT', outTime)
-  }
-
-  // Marca de ausencia: UNA sola fila del lado entrada (sin salida ni punch, porque no vino).
-  async function createAbsenceMark(userId: string, event: { id: string; schoolYearId: string | null }, date: string, inMinutes: number, status: AttendanceStatus, note: string) {
-    await prisma.attendance.create({
-      data: { userId, eventId: event.id, type: 'CHECK_IN', status, date: ymdToDate(date), time: minutesToWall(date, inMinutes), schoolYearId: event.schoolYearId, notes: note },
-    })
-    absenceCount += 1
-  }
-
-  for (const event of events) {
-    if (!event.assignedUserId || !event.startTime || !event.endTime || !event.recurrenceEnd) continue
-    const startMinutes = wallMinutesFromStoredTime(event.startTime)
-    const endMinutes = wallMinutesFromStoredTime(event.endTime)
-    const days = event.daysOfWeek.length ? event.daysOfWeek : [weekday(toYmd(event.startDate))]
-
-    for (const date of eachYmd(toYmd(event.startDate), dates.attendanceUntil)) {
-      if (!days.includes(weekday(date)) || blocked.has(date)) continue
-      const userId = event.assignedUserId
-      const baseKey = `${event.id}-${date}`
-
-      // Licencia -> ausencia justificada (fila visible, sin salida).
-      if (hasLeave(userId, date)) {
-        await createAbsenceMark(userId, event, date, startMinutes, 'ABSENT_JUSTIFIED', 'Ausencia justificada por licencia médica.')
-        continue
-      }
-
-      // Ausencia docente. Con suplente -> Suplida (titular) + par del suplente; sin suplente -> Ausente.
-      if (teacherIds.has(userId) && ratio(`${baseKey}-absent`) < 0.05) {
-        const subjectName = event.subject?.name
-        const substitute = ratio(`${baseKey}-cover`) > 0.5
-          ? params.teachers.find((teacher) => teacher.id !== userId && (!subjectName || teacherCanTeachSubject(teacher, subjectName)) && ratio(`${baseKey}-${teacher.id}-pick`) > 0.7)
-          : null
-        if (substitute) {
-          await prisma.substitution.create({
-            data: {
-              eventId: event.id,
-              originalTeacherUserId: userId,
-              substituteUserId: substitute.id,
-              date: ymdToDate(date),
-              startTime: minutesToWall(date, startMinutes),
-              endTime: minutesToWall(date, endMinutes),
-              reason: 'Suplencia por ausencia docente',
-              notes: 'Cobertura generada para dataset de demo.',
-              createdByUserId: adminId,
-            },
-          })
-          substitutionCount += 1
-          await createAbsenceMark(userId, event, date, startMinutes, 'SUBSTITUTED', 'Ausencia prevista cubierta por suplente.')
-          await createPresencePair(substitute.id, event, date, startMinutes - 4, endMinutes + 2, 'PRESENT', 'EXIT', 'Entrada docente suplente.', 'Salida docente suplente.')
-        } else {
-          await createAbsenceMark(userId, event, date, startMinutes, 'ABSENT_NOT_JUSTIFIED', 'Inasistencia registrada para seguimiento.')
-        }
-        continue
-      }
-
-      // Presente: par completo entrada + salida (con tardanza / retiro anticipado ocasional).
-      const lateMinutes = ratio(`${baseKey}-late`) < 0.11 ? intBetween(`${baseKey}-late-min`, 7, 22) : intBetween(`${baseKey}-early-in`, -8, 4)
-      const earlyMinutes = ratio(`${baseKey}-early`) < 0.03 ? intBetween(`${baseKey}-early-min`, 8, 18) : -intBetween(`${baseKey}-late-out`, 0, 7)
-      const inStatus: AttendanceStatus = lateMinutes > 5 ? 'LATE' : 'PRESENT'
-      const outStatus: AttendanceStatus = earlyMinutes > 5 ? 'EARLY_EXIT' : 'EXIT'
-      const inNote = inStatus === 'LATE' ? pick(['Retraso por transporte', 'Ingreso tarde avisado a adscripcion', 'Demora en clase previa'], `${baseKey}-late-note`) : 'Entrada normal.'
-      const outNote = outStatus === 'EARLY_EXIT' ? pick(['Retiro por coordinacion', 'Salida autorizada por direccion', 'Traslado a otra actividad'], `${baseKey}-early-note`) : 'Salida normal.'
-      await createPresencePair(userId, event, date, startMinutes + lateMinutes, endMinutes - earlyMinutes, inStatus, outStatus, inNote, outNote)
-    }
-  }
-
-  console.log(`[demo] Asistencias presentes (pares entrada+salida): ${attendanceCount}`)
-  console.log(`[demo] Ausencias guardadas (justificada/no justificada/suplida): ${absenceCount}`)
-  console.log(`[demo] Marcaciones biometricas creadas: ${punchCount}`)
-  console.log(`[demo] Suplencias creadas: ${substitutionCount}`)
 }
 
 async function seedAudit(admin: User) {
@@ -897,12 +636,26 @@ async function main() {
   await seedStudents()
   await seedMedicalLeaves(teachers)
   await seedEvents(admin, teachers, staffUsers)
-  await seedAttendances({ teachers, device: biometric.device, mappings: biometric.mappings })
+  const dates = SCHOOL_YEAR_DATES[YEAR]
+  const asistencia = await sembrarAsistenciaDelPersonal({
+    db: prisma,
+    schoolYearId: (await prisma.schoolYear.findUniqueOrThrow({ where: { code: YEAR }, select: { id: true } })).id,
+    desde: dates.start,
+    hasta: dates.attendanceUntil,
+    docentes: teachers,
+    device: biometric.device,
+    mappings: biometric.mappings,
+    dataset: 'seed-demo-2025',
+  })
+  console.log(`[demo] Asistencias presentes (pares entrada+salida): ${asistencia.presentes}`)
+  console.log(`[demo] Ausencias guardadas (justificada/no justificada/suplida): ${asistencia.ausencias}`)
+  console.log(`[demo] Marcaciones biometricas creadas: ${asistencia.punches}`)
+  console.log(`[demo] Suplencias creadas: ${asistencia.suplencias}`)
 
   // Libreta y pase de lista: sin esto, el módulo que más cambió queda vacío en la demo.
   console.log('[demo] Libreta digital y pase de lista del ciclo...')
   const schoolYearRow = await prisma.schoolYear.findUniqueOrThrow({ where: { code: YEAR }, select: { id: true } })
-  const libreta = await seedDemoLibreta2025(prisma, { schoolYearId: schoolYearRow.id })
+  const libreta = await seedDemoLibreta(prisma, { schoolYearId: schoolYearRow.id })
 
   await seedAudit(admin)
 

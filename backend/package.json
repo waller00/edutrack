@@ -24,6 +24,7 @@
     "seed:bootstrap": "tsx prisma/seed-bootstrap.ts",
     "seed:realistic": "tsx prisma/seed-realistic-dataset.ts",
     "seed:demo": "tsx prisma/seed-demo-2025.ts",
+    "seed:demo:hoy": "tsx prisma/seed-demo-hoy.ts",
     "sync:keycloak": "tsx prisma/sync-keycloak-users.ts",
     "sync:keycloak:usernames": "tsx prisma/sync-keycloak-usernames.ts",
     "seed:biometric": "node prisma/seed-biometric-adms.mjs",

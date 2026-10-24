@@ -43,4 +43,8 @@ export const TEACHER_SPECIALTIES: Record<string, TeacherSpecialty> = {
   'valentina.morales': { areas: ['ciencias'] },
   'veronica.nunez': { areas: ['humanidades'] },
   'luciana.rios': { areas: ['lenguas'] },
+  // Docentes dados de alta desde la aplicación, no por el seed de docentes del liceo.
+  'jorge.marrero': { areas: ['ciencias'] },
+  'leopoldo.gimenez': { areas: ['humanidades'] },
+  'robert.taffura': { areas: ['gestion', 'informatica'] },
 }
