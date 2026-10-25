@@ -37,7 +37,7 @@ describe('AdminAttendance', () => {
 
     expect(await screen.findByRole('heading', { name: 'Asistencia del personal' })).toBeInTheDocument()
     expect((await screen.findAllByText('No hay registros de asistencia')).length).toBeGreaterThan(0)
-    expect(screen.getByText('registros totales')).toBeInTheDocument()
+    expect(screen.getByText('0 registros totales')).toBeInTheDocument()
   })
 
   it('muestra fila de asistencia', async () => {
@@ -95,8 +95,8 @@ describe('AdminAttendance', () => {
 
     render(<AdminAttendance />)
 
-    fireEvent.focus(await screen.findByPlaceholderText('Buscar por username...'))
-    fireEvent.click(await screen.findByRole('button', { name: '@pedro' }))
+    fireEvent.focus(await screen.findByPlaceholderText('Buscar por nombre o usuario'))
+    fireEvent.click(await screen.findByRole('option', { name: 'Pedro @pedro' }))
 
     await waitFor(() => {
       expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('/attendance/stats?'))
