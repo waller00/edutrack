@@ -3,13 +3,14 @@ import PaginationControls from '@/components/common/PaginationControls'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
 import RoleGuard from '@/components/auth/RoleGuard'
-import DateRangePicker from '@/components/forms/DateRangePicker'
+import AttendanceFilters from '@/components/admin/AttendanceFilters'
 import AttendanceExportMenu from '@/components/admin/AttendanceExportMenu'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api/client'
 import { apiBaseUrl } from '@/lib/api/base-url'
 import {
+  type AdminAttendanceListFilters,
   ADMIN_ATTENDANCE_LEGEND,
   buildAdminAttendanceAllQueryString,
   getAdminAttendanceDefaultStartDate,
@@ -29,7 +30,10 @@ import { withSchoolYear } from '@/lib/admin/school-year-query'
 import {
   ChevronDown,
   ChevronRight,
-  Search,
+  AlertTriangle,
+  ClipboardList,
+  RefreshCw,
+  X,
   Trash2,
 } from 'lucide-react'
 import StatusDistribution, { type DistributionItem } from '@/components/charts/StatusDistribution'
@@ -334,7 +338,7 @@ function renderAttendanceMark(
   return (
     <div className="space-y-2">
       <div>
-        <div className="font-medium text-gray-900">{formatTimeInUruguay(attendance.time)}</div>
+        <div className="font-semibold tabular-nums text-slate-900">{formatTimeInUruguay(attendance.time)}</div>
         {attendance.event && (
           <div className="text-xs text-gray-500">
             Planificado: {getAdminAttendancePlannedTimeLabel(attendance)}
@@ -346,7 +350,7 @@ function renderAttendanceMark(
       </span>
       {isDerivedAttendanceRow(attendance) || !onEdit ? null : (
         <div>
-          <button onClick={() => onEdit(attendance)} className="text-sm text-indigo-600 hover:text-indigo-900">
+          <button type="button" onClick={() => onEdit(attendance)} className="rounded text-xs font-medium text-emerald-700 hover:underline">
             Editar
           </button>
         </div>
@@ -382,7 +386,7 @@ function renderEventSummary(row: AttendancePairRow, expanded: boolean, onToggle:
         <div className="min-w-0">
           <div className="break-words font-medium">{row.eventSummary.title}</div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
-            <span>{row.eventSummary.type}</span>
+            <span>{getEventTypeLabel(row.eventSummary.type)}</span>
             {hasProjectedExit ? (
               <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-100">
                 Permanencia correlacionada
@@ -431,9 +435,25 @@ function renderUserCell(user: AttendanceRecord['user'], onUserClick: (user: Atte
       >
         {user.name}
       </button>
-      <div className="break-all text-gray-500">{user.email}</div>
-      <div className="text-xs text-gray-400">{user.role}</div>
+      <div className="mt-1 text-xs text-slate-500">{{ ADMIN: 'Administración', TEACHER: 'Docente', STAFF: 'Personal', STUDENT: 'Estudiante' }[user.role] || user.role}</div>
     </div>
+  )
+}
+
+function getEventTypeLabel(type: string) {
+  return { CLASE: 'Clase', REUNION: 'Reunión', JORNADA_LABORAL: 'Jornada laboral' }[type] || type
+}
+
+function renderRowNotes(row: AttendancePairRow) {
+  const notes = row.incident
+    ? row.incident.notes || row.incident.description
+    : [row.checkIn?.notes, row.checkOut?.notes].filter(Boolean).join(' / ')
+  if (!notes) return null
+  return (
+    <details className="mt-2 text-xs">
+      <summary className="w-fit cursor-pointer rounded text-slate-500 hover:text-emerald-700">Ver notas</summary>
+      <p className="mt-2 max-w-sm whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-2.5 leading-relaxed text-slate-600">{notes}</p>
+    </details>
   )
 }
 
@@ -457,10 +477,10 @@ function renderAttendancesTable(
 
   return (
     <ScrollRegion label="Tabla de asistencias" className="hidden overflow-x-auto sm:block">
-      <table className="w-full min-w-[980px]">
+      <table className="w-full min-w-[820px] text-left">
         <thead className="bg-gray-50">
           <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
               {canSelect && <input
                 type="checkbox"
                 checked={allSelected}
@@ -468,12 +488,11 @@ function renderAttendancesTable(
                 aria-label="Seleccionar todas las asistencias"
               />}
             </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuario</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entrada</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Salida</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Evento</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Persona</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entrada</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Salida</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Evento</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200">
@@ -489,8 +508,8 @@ function renderAttendancesTable(
             if (!primaryAttendance) return null
 
             return (
-              <tr key={row.key} className={row.incident ? 'bg-red-50/20' : undefined}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
+              <tr key={row.key} className={selected ? 'bg-emerald-50/60' : row.incident ? 'bg-red-50/20' : 'hover:bg-slate-50/60'}>
+                <td className="px-4 py-4 whitespace-nowrap text-sm">
                   {!selectable ? (
                     <span className="text-xs text-gray-400">—</span>
                   ) : (
@@ -507,31 +526,27 @@ function renderAttendancesTable(
                     />
                   )}
                 </td>
-                <td className="px-6 py-4 text-sm">{renderUserCell(row.user, onUserClick)}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td className="px-4 py-4 text-sm">{renderUserCell(row.user, onUserClick)}</td>
+                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                   {formatDateInUruguay(primaryAttendance.time)}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                   {row.incident ? (
                     <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceTypeStyle('INCIDENT')}`}>
                       {getAdminAttendanceTypeLabel('INCIDENT')}
                     </span>
                   ) : renderAttendanceMark(row.checkIn, 'Sin entrada', onEdit)}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                   {row.incident ? (
                     <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(row.incident.status)}`}>
                       {getAttendanceRowStatusLabel(row.incident)}
                     </span>
                   ) : renderAttendanceMark(row.checkOut, 'Sin salida', onEdit)}
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-900">
+                <td className="px-4 py-4 text-sm text-gray-900">
                   {renderEventSummary(row, expandedRowKeys.includes(row.key), () => onToggleExpandedRow(row.key))}
-                </td>
-                <td className="px-6 py-4 text-sm text-gray-900">
-                  {row.incident
-                    ? row.incident.notes || row.incident.description || '-'
-                    : [row.checkIn?.notes, row.checkOut?.notes].filter(Boolean).join(' / ') || '-'}
+                  {renderRowNotes(row)}
                 </td>
               </tr>
             )
@@ -546,6 +561,7 @@ function renderAttendanceCards(
   attendances: AttendanceRecord[],
   onEdit: ((attendance: AttendanceRecord) => void) | undefined,
   onUserClick: (user: AttendanceRecord['user']) => void,
+  selection?: { ids: string[]; onToggle: (id: string) => void },
 ) {
   if (attendances.length === 0) {
     return <div className="p-4 text-center text-gray-500 sm:hidden">No hay registros de asistencia</div>
@@ -558,17 +574,25 @@ function renderAttendanceCards(
       {rows.map((row) => {
         const primaryAttendance = row.incident ?? row.checkIn ?? row.checkOut
         if (!primaryAttendance) return null
+        const ids = getSelectableIdsForRows([row])
+        const selected = ids.length > 0 && ids.every(id => selection?.ids.includes(id))
         return (
-          <div key={row.key} className={`rounded-lg border p-3 ${row.incident ? 'border-red-200 bg-red-50/40' : 'border-gray-200'}`}>
+          <div key={row.key} className={`rounded-xl border p-4 ${selected ? 'border-emerald-200 bg-emerald-50/40' : row.incident ? 'border-red-200 bg-red-50/40' : 'border-slate-200'}`}>
             <div className="flex items-start justify-between gap-2">
-              {renderUserCell(row.user, onUserClick)}
+              <div className="flex min-w-0 items-start gap-3">
+                {selection && ids.length > 0 && <input type="checkbox" checked={selected}
+                  aria-label={`Seleccionar registro de ${row.user.name}`}
+                  className="mt-1 h-4 w-4 shrink-0 accent-emerald-600"
+                  onChange={() => ids.filter(id => selected ? selection.ids.includes(id) : !selection.ids.includes(id)).forEach(selection.onToggle)} />}
+                {renderUserCell(row.user, onUserClick)}
+              </div>
               <span className="shrink-0 text-xs text-gray-500">{formatDateInUruguay(primaryAttendance.time)}</span>
             </div>
             <div className="mt-2 text-sm text-gray-700">
               <span className="font-medium">{row.eventSummary?.title ?? 'Sin evento'}</span>
-              {row.eventSummary?.type ? <span className="ml-1 text-xs text-gray-500">({row.eventSummary.type})</span> : null}
+              {row.eventSummary?.type ? <span className="ml-1 text-xs text-gray-500">({getEventTypeLabel(row.eventSummary.type)})</span> : null}
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3">
               <div>
                 <div className="text-[11px] uppercase text-gray-400">Entrada</div>
                 {row.incident ? (
@@ -590,12 +614,7 @@ function renderAttendanceCards(
                 )}
               </div>
             </div>
-            {(() => {
-              const notes = row.incident
-                ? row.incident.notes || row.incident.description
-                : [row.checkIn?.notes, row.checkOut?.notes].filter(Boolean).join(' / ')
-              return notes ? <div className="mt-2 text-xs text-gray-500">{notes}</div> : null
-            })()}
+            {renderRowNotes(row)}
           </div>
         )
       })}
@@ -615,24 +634,20 @@ function AdminAttendanceContent() {
 
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([])
   const [users, setUsers] = useState<User[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [editing, setEditing] = useState<AttendanceRecord | null>(null)
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<AdminAttendanceListFilters>({
     startDate: '',
     endDate: '',
     userId: '',
     eventId: '',
-    eventType: '', // Nuevo filtro para tipo de evento
+    eventType: '',
     type: '',
     status: '',
-    role: '',
-    userSearch: ''
+    role: ''
   })
-  const [selectedUserName, setSelectedUserName] = useState('')
-  const [selectedEventName, setSelectedEventName] = useState('')
-  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false)
-  const [isEventDropdownOpen, setIsEventDropdownOpen] = useState(false)
-  const [userEvents, setUserEvents] = useState<any[]>([])
+  const [userEvents, setUserEvents] = useState<NonNullable<AttendanceRecord['event']>[]>([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
@@ -648,59 +663,25 @@ function AdminAttendanceContent() {
   const [statsLoading, setStatsLoading] = useState(false)
   const [novedadesExporting, setNovedadesExporting] = useState<'' | NovedadesFormat>('')
   const [reportExporting, setReportExporting] = useState<'' | 'excel' | 'pdf'>('')
+  const attendanceRequest = useRef(0)
+  const statsRequest = useRef(0)
+  const eventsRequest = useRef(0)
 
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
   const showingExitStats = filters.type === 'CHECK_OUT'
-  const activeFilterCount = [
-    filters.startDate || filters.endDate,
-    filters.userId,
-    filters.eventId,
-    filters.eventType,
-    filters.type,
-    filters.status,
-    filters.role,
-  ].filter(Boolean).length
+  const selectedUserName = users.find(user => user.id === filters.userId)?.name ?? ''
 
-  const additionalFilterCount = [filters.eventId, filters.eventType, filters.role].filter(Boolean).length
-
-  useEffect(() => {
-    loadAttendances()
-    loadUsers()
-  }, [page, filters, schoolYearQuery])
-
-  useEffect(() => {
-    if (filters.userId) {
-      loadUserEvents(filters.userId)
-    } else {
-      setUserEvents([])
-      setSelectedEventName('')
-      setFilters(prev => ({ ...prev, eventId: '' }))
-    }
-  }, [filters.userId, filters.startDate, filters.endDate, schoolYearQuery])
-
-  useEffect(() => {
-    loadStats()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    filters.startDate,
-    filters.endDate,
-    filters.userId,
-    filters.eventType,
-    filters.eventId,
-    filters.type,
-    filters.status,
-    filters.role,
-    schoolYearQuery,
-  ])
-
-  useEffect(() => {
+  function changeFilters(next: AdminAttendanceListFilters) {
+    setPage(1)
     setSelectedAttendanceIds([])
-    setExpandedAttendanceRows([])
-  }, [attendances])
+    setFilters(next)
+  }
 
-  async function loadAttendances() {
+  const loadAttendances = useCallback(async () => {
+    const request = ++attendanceRequest.current
     setLoading(true)
+    setLoadError(false)
     try {
       const qs = buildAdminAttendanceAllQueryString(page, filters)
       const qsWithIncidents = qs ? `${qs}&includeIncidents=true` : 'includeIncidents=true'
@@ -712,16 +693,20 @@ function AdminAttendanceContent() {
         data: AttendanceRecord[]
       }>(url)
       
+      if (request !== attendanceRequest.current) return
       setAttendances(data.data)
       setTotal(data.total)
     } catch (error) {
+      if (request !== attendanceRequest.current) return
       console.error('Error cargando asistencias:', error)
+      setLoadError(true)
     } finally {
-      setLoading(false)
+      if (request === attendanceRequest.current) setLoading(false)
     }
-  }
+  }, [page, filters, schoolYearQuery])
 
-  async function loadStats() {
+  const loadStats = useCallback(async () => {
+    const request = ++statsRequest.current
     setStatsLoading(true)
     try {
       const params = new URLSearchParams()
@@ -739,14 +724,15 @@ function AdminAttendanceContent() {
       const base = qs ? `/attendance/stats?${qs}` : '/attendance/stats'
       const url = withSchoolYear(base, schoolYearQuery)
       const data = await api<AttendanceStats>(url)
-      setStats(data)
+      if (request === statsRequest.current) setStats(data)
     } catch (error) {
+      if (request !== statsRequest.current) return
       console.error('Error cargando métricas:', error)
       setStats(null)
     } finally {
-      setStatsLoading(false)
+      if (request === statsRequest.current) setStatsLoading(false)
     }
-  }
+  }, [filters, schoolYearQuery])
 
   async function loadUsers() {
     try {
@@ -759,7 +745,8 @@ function AdminAttendanceContent() {
     }
   }
 
-  async function loadUserEvents(userId: string) {
+  const loadUserEvents = useCallback(async (userId: string) => {
+    const request = ++eventsRequest.current
     if (!userId) {
       setUserEvents([])
       return
@@ -773,13 +760,41 @@ function AdminAttendanceContent() {
       const q = params.toString()
       const base = q ? `/reports/user-events/${userId}?${q}` : `/reports/user-events/${userId}`
       const url = withSchoolYear(base, schoolYearQuery)
-      const data = await api<any[]>(url)
-      setUserEvents(data)
+      const data = await api<NonNullable<AttendanceRecord['event']>[]>(url)
+      if (request === eventsRequest.current) setUserEvents(data)
     } catch (error) {
+      if (request !== eventsRequest.current) return
       console.error('Error cargando eventos del usuario:', error)
       setUserEvents([])
     }
-  }
+  }, [filters.startDate, filters.endDate, schoolYearQuery])
+
+  useEffect(() => {
+    void loadAttendances()
+  }, [loadAttendances])
+
+  useEffect(() => {
+    void loadUsers()
+  }, [])
+
+  useEffect(() => {
+    if (filters.userId) {
+      setUserEvents([])
+      loadUserEvents(filters.userId)
+    } else {
+      eventsRequest.current += 1
+      setUserEvents([])
+    }
+  }, [filters.userId, loadUserEvents])
+
+  useEffect(() => {
+    void loadStats()
+  }, [loadStats])
+
+  useEffect(() => {
+    setSelectedAttendanceIds([])
+    setExpandedAttendanceRows([])
+  }, [attendances])
 
   async function updateAttendance(id: string, status: string, notes?: string) {
     try {
@@ -789,7 +804,7 @@ function AdminAttendanceContent() {
       })
       
       setMessage('✅ Asistencia actualizada correctamente')
-      await loadAttendances()
+      await Promise.all([loadAttendances(), loadStats()])
       setEditing(null)
     } catch (error: any) {
       setMessage(`❌ Error: ${error.message || 'Error al actualizar asistencia'}`)
@@ -1066,465 +1081,213 @@ function AdminAttendanceContent() {
           id="staff-attendance"
           actions={
             <>
-              <span className="text-sm text-slate-500"><strong className="font-semibold tabular-nums text-slate-800">{total}</strong> registros totales</span>
-              {canExport && <AttendanceExportMenu pending={!!(reportExporting || novedadesExporting)} onAttendance={exportReport} onPayroll={exportNovedades} />}
+              {canExport && activeTab === 'attendance' && <AttendanceExportMenu pending={!!(reportExporting || novedadesExporting)} onAttendance={exportReport} onPayroll={exportNovedades} />}
             </>
           }
         />
 
-        {/* Filtros modernos */}
-        <div className="card">
-          <div className="card-header">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-                  <Search className="h-4 w-4 text-emerald-600" aria-hidden />
+        <div role="group" aria-label="Vistas de asistencia" className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:max-w-lg">
+          {[
+            { id: 'attendance' as const, label: 'Registros', description: 'Entradas, salidas y faltas', icon: ClipboardList },
+            { id: 'incidents' as const, label: 'Incidencias', description: 'Ausencias por revisar', icon: AlertTriangle },
+          ].map(({ id, label, description, icon: Icon }) => (
+            <button key={id} type="button" aria-pressed={activeTab === id} aria-controls={`attendance-view-${id}`}
+              onClick={() => setActiveTab(id)}
+              className={`flex min-h-12 items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${activeTab === id ? 'bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-100' : 'text-slate-500 hover:bg-slate-50'}`}>
+              <Icon className="h-4 w-4 shrink-0" aria-hidden />
+              <span><span className="block text-sm font-semibold">{label}</span><span className="hidden text-xs sm:block">{description}</span></span>
+            </button>
+          ))}
+        </div>
+
+        {message && <div role="status" className={`flex items-start justify-between gap-3 rounded-xl p-3 text-sm ${getAdminFlashMessageClass(message)}`}>
+          <span>{message}</span>
+          <button type="button" onClick={() => setMessage('')} aria-label="Cerrar aviso" className="rounded p-1"><X className="h-4 w-4" aria-hidden /></button>
+        </div>}
+
+        <div id="attendance-view-attendance" hidden={activeTab !== 'attendance'} className="space-y-4">
+          <AttendanceFilters filters={filters} users={users} events={userEvents} onChange={changeFilters} />
+
+          <section aria-label="Resumen de asistencia" className="space-y-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 px-1">
+              <h2 className="text-sm font-semibold text-slate-800">Resumen del período</h2>
+              <p className="text-xs text-slate-500">Según los filtros seleccionados · incluye todas las páginas</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="text-sm text-gray-500">{showingExitStats ? 'Tasa de salida' : 'Tasa de presencia'}</div>
+                <div className="my-1 text-2xl font-semibold tabular-nums text-emerald-700">
+                  {statsLoading || !stats ? '—' : formatRate(showingExitStats ? stats.exitRate : stats.attendanceRate)}
                 </div>
-                <h2 className="text-lg font-semibold text-gray-900">Buscar asistencias</h2>
+                <div className="text-xs text-gray-500">
+                  {showingExitStats
+                    ? 'Salidas en el período elegido'
+                    : 'Entradas registradas sobre el filtro completo'}
+                </div>
               </div>
-              <div>
-                <button
-                  onClick={() => {
-                    setPage(1)
-                    setFilters({
-                      startDate: '',
-                      endDate: '',
-                      userId: '',
-                      eventId: '',
-                      eventType: '',
-                      type: '',
-                      status: '',
-                      role: '',
-                      userSearch: ''
-                    })
-                    setSelectedUserName('')
-                    setSelectedEventName('')
-                    setIsUserDropdownOpen(false)
-                    setIsEventDropdownOpen(false)
-                    setUserEvents([])
-                  }}
-                  className="btn-secondary inline-flex items-center gap-1.5 text-sm"
-                >
-                  <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
-                  Limpiar filtros
-                  {activeFilterCount > 0 ? (
-                    <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-600 px-1 text-xs font-semibold text-white">
-                      {activeFilterCount}
-                    </span>
-                  ) : null}
-                </button>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="text-sm text-gray-500">{showingExitStats ? 'Salidas' : 'Presentes'}</div>
+                <div className="my-1 text-2xl font-semibold tabular-nums text-emerald-700">
+                  {statsLoading || !stats ? '—' : showingExitStats ? stats.exitCount : stats.presentCount}
+                </div>
+                <div className="text-xs text-gray-500">{showingExitStats ? 'Salidas normales' : 'Entradas presentes'}</div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="text-sm text-gray-500">{showingExitStats ? 'Anticipadas' : 'Tarde'}</div>
+                <div className="my-1 text-2xl font-semibold tabular-nums text-amber-700">
+                  {statsLoading || !stats ? '—' : showingExitStats ? stats.earlyExitCount : stats.lateCount}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {statsLoading || !stats ? '' : `${formatRate(showingExitStats ? stats.earlyExitRate : stats.lateRate)} tasa`}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="text-sm text-gray-500">{showingExitStats ? 'Total salidas' : 'Ausentes'}</div>
+                <div className="my-1 text-2xl font-semibold tabular-nums text-red-700">
+                  {statsLoading || !stats ? '—' : showingExitStats ? stats.totalAttendances : stats.absentCount}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {statsLoading || !stats || showingExitStats
+                    ? ''
+                    : `Justificadas: ${stats.medicalLeaveCount} · Previstas: ${stats.expectedAbsenceCount ?? 0}`}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <DateRangePicker
-              startDate={filters.startDate}
-              endDate={filters.endDate}
-              onChange={(range) => {
-                setPage(1)
-                setFilters((previous) => ({ ...previous, ...range }))
-              }}
-            />
-            <div>
-              <label htmlFor="attendance-user" className="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
-              <div className="relative">
-                <input
-                  id="attendance-user"
-                  type="text"
-                  value={filters.userSearch}
-                  onChange={(e) => {
-                    setFilters({ ...filters, userSearch: e.target.value, userId: '' })
-                    setSelectedUserName('')
-                  }}
-                  onFocus={() => setIsUserDropdownOpen(true)}
-                  placeholder="Buscar por username..."
-                  className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 pr-8 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                />
+            {/* Gráfico (simple) de distribución de estados */}
+            <details className="rounded-xl border border-slate-200 bg-white">
+              <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-emerald-600">Ver distribución de estados</summary>
+              <div className="border-t border-slate-100 p-4 sm:p-6">
+                <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <h3 className="text-base font-semibold text-slate-900">Distribución de estados</h3>
+                  <div className="text-sm text-gray-500">
+                    {statsLoading
+                      ? 'Cargando…'
+                      : stats
+                        ? `${showingExitStats ? 'Salidas' : 'Entradas'}: ${stats.totalAttendances}`
+                        : ''}
+                  </div>
+                </div>
+                {statsLoading || !stats ? (
+                  <div className="text-sm text-gray-500">—</div>
+                ) : (
+                  (() => {
+                    // Un contador ausente en la respuesta dibujaba las barras con NaN (y sin barra).
+                    const items: DistributionItem[] = showingExitStats
+                      ? [
+                          { key: 'exit', label: 'Salida', count: stats.exitCount ?? 0, colorClass: 'bg-emerald-600' },
+                          { key: 'early', label: 'Anticipada', count: stats.earlyExitCount ?? 0, colorClass: 'bg-amber-500' },
+                        ]
+                      : [
+                          { key: 'present', label: 'Presente', count: stats.presentCount ?? 0, colorClass: 'bg-emerald-600' },
+                          { key: 'late', label: 'Tarde', count: stats.lateCount ?? 0, colorClass: 'bg-amber-500' },
+                          { key: 'absent', label: 'Ausente', count: stats.absentCount ?? 0, colorClass: 'bg-red-600' },
+                        ]
+                    return <StatusDistribution items={items} label="Distribución de estados" />
+                  })()
+                )}
+              </div>
+            </details>
+
+          </section>
+
+          {/* Tabla de asistencias */}
+          <section aria-labelledby="attendance-records-title" className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between sm:p-6">
+              <div className="min-w-0">
+                <h2 id="attendance-records-title" className="text-base font-semibold text-slate-900">Registros de asistencia</h2>
+                <p className="mt-1 text-xs text-slate-500">Entrada y salida juntas por persona y actividad. Tocá un nombre para ver su detalle.</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-4">
+                <span aria-live="polite" className="text-xs tabular-nums text-slate-500">{loading ? 'Cargando…' : `${total} registros totales`}</span>
+                <button type="button" disabled={loading} onClick={() => { void loadAttendances(); void loadStats() }} aria-label="Actualizar asistencias" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden /></button>
                 <button
                   type="button"
-                  aria-label="Mostrar/ocultar lista de usuarios"
-                  className="absolute inset-y-0 right-0 flex items-center pr-2 cursor-pointer"
-                  onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
+                  onClick={() => setShowLegend((v) => !v)}
+                  className="text-xs font-medium text-emerald-700 hover:underline"
+                  aria-expanded={showLegend}
                 >
-                  <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+                  {showLegend ? 'Ocultar leyenda' : 'Ver leyenda'}
                 </button>
               </div>
-              {isUserDropdownOpen && !selectedUserName && (
-                <div className="mt-1 max-h-40 overflow-y-auto border border-gray-300 rounded bg-white shadow-lg z-10">
-                  {users
-                    .filter(user =>
-                      !filters.userSearch ||
-                      (user.username && user.username.toLowerCase().includes(filters.userSearch.toLowerCase())) ||
-                      (user.name && user.name.toLowerCase().includes(filters.userSearch.toLowerCase()))
-                    )
-                    .map(user => (
-                      <button
-                        type="button"
-                        key={user.id}
-                        onClick={() => {
-                          setFilters({ ...filters, userId: user.id, userSearch: user.username || user.name || '' })
-                          setSelectedUserName(user.username || user.name || '')
-                          setIsUserDropdownOpen(false)
-                        }}
-                        className="block w-full text-left px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
-                      >
-                        {user.username ? `@${user.username}` : (user.name || 'Sin nombre')}
-                      </button>
-                    ))}
-                </div>
-              )}
-              {selectedUserName && (
-                <div className="mt-1 px-3 py-2 bg-gray-100 rounded text-sm">
-                  Seleccionado: {selectedUserName.startsWith('@') ? selectedUserName : `@${selectedUserName}`}
-                  <button
-                    onClick={() => {
-                      setFilters({ ...filters, userId: '', userSearch: '' })
-                      setSelectedUserName('')
-                      setIsUserDropdownOpen(false)
-                    }}
-                    className="ml-2 text-red-600 hover:text-red-800"
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
             </div>
-            <div>
-              <label htmlFor="attendance-type" className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
-              <select
-                id="attendance-type"
-                value={filters.type}
-                onChange={(e) => setFilters({ ...filters, type: e.target.value, status: '' })}
-                className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              >
-                <option value="">Todos</option>
-                <option value="CHECK_IN">Entrada</option>
-                <option value="CHECK_OUT">Salida</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="attendance-status" className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
-              <select
-                id="attendance-status"
-                value={filters.status}
-                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                disabled={!filters.type}
-                className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              >
-                <option value="">Todos</option>
-                {filters.type === 'CHECK_IN' && (
-                  <>
-                    <option value="ABSENCES">Todas las ausencias</option>
-                    <option value="PRESENT">Presente</option>
-                    <option value="LATE">Tarde</option>
-                    <option value="ABSENT_NOT_JUSTIFIED">Ausente sin justificar</option>
-                    <option value="SUBSTITUTED">Suplida (ausencia cubierta)</option>
-                    <option value="JUSTIFIED">Justificado</option>
-                    <option value="ABSENT_JUSTIFIED">Ausente justificada</option>
-                  </>
-                )}
-                {filters.type === 'CHECK_OUT' && (
-                  <>
-                    <option value="EXIT">Salida</option>
-                    <option value="EARLY_EXIT">Salida anticipada</option>
-                  </>
-                )}
-              </select>
-            </div>
-          </div>
-          <details className="mt-4 rounded-xl border border-slate-200">
-            <summary className="cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-emerald-600">
-              Más filtros{additionalFilterCount > 0 ? ` · ${additionalFilterCount} activos` : ''}
-            </summary>
-            <div className="grid grid-cols-1 gap-4 border-t border-slate-100 p-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div>
-                <label htmlFor="attendance-event" className="block text-sm font-medium text-gray-700 mb-1">Evento</label>
-                <div className="relative">
-                  <input
-                    id="attendance-event"
-                    type="text"
-                    value={selectedEventName}
-                    onChange={(e) => {
-                      setSelectedEventName(e.target.value)
-                      setFilters({ ...filters, eventId: '' })
-                    }}
-                    onFocus={() => setIsEventDropdownOpen(true)}
-                    placeholder="Buscar evento..."
-                    disabled={!filters.userId}
-                    className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 pr-8 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Mostrar/ocultar lista de eventos"
-                    className="absolute inset-y-0 right-0 flex items-center pr-2 cursor-pointer"
-                    onClick={() => setIsEventDropdownOpen(!isEventDropdownOpen)}
-                  >
-                    <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                </div>
-                {isEventDropdownOpen && !selectedEventName && filters.userId && (
-                  <div className="mt-1 max-h-40 overflow-y-auto border border-gray-300 rounded bg-white shadow-lg z-10">
-                    {userEvents.map(event => (
-                      <button
-                        type="button"
-                        key={event.id}
-                        onClick={() => {
-                          setFilters({ ...filters, eventId: event.id })
-                          setSelectedEventName(event.title)
-                          setIsEventDropdownOpen(false)
-                        }}
-                        className="block w-full text-left px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
-                      >
-                        {event.title} ({event.type})
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {selectedEventName && (
-                  <div className="mt-1 px-3 py-2 bg-gray-100 rounded text-sm">
-                    Seleccionado: {selectedEventName}
-                    <button
-                      onClick={() => {
-                        setFilters({ ...filters, eventId: '' })
-                        setSelectedEventName('')
-                        setIsEventDropdownOpen(false)
-                      }}
-                      className="ml-2 text-red-600 hover:text-red-800"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )}
-                {!filters.userId && (
-                  <p className="text-xs text-gray-500 mt-1">Seleccioná una persona primero</p>
-                )}
-              </div>
-              <div>
-                <label htmlFor="attendance-event-type" className="block text-sm font-medium text-gray-700 mb-1">Tipo de actividad</label>
-                <select
-                    id="attendance-event-type"
-                  value={filters.eventType}
-                  onChange={(e) => setFilters({ ...filters, eventType: e.target.value })}
-                  className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                >
-                  <option value="">Todos</option>
-                  <option value="JORNADA_LABORAL">Jornada laboral</option>
-                  <option value="REUNION">Reunión</option>
-                  <option value="CLASE">Clase</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="attendance-role" className="block text-sm font-medium text-gray-700 mb-1">Perfil</label>
-                <select
-                    id="attendance-role"
-                  value={filters.role}
-                  onChange={(e) => setFilters({ ...filters, role: e.target.value })}
-                  className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                >
-                  <option value="">Todos</option>
-                  <option value="ADMIN">Administración</option>
-                  <option value="TEACHER">Docente</option>
-                  <option value="STAFF">Personal</option>
-                </select>
-              </div>
-            </div>
-          </details>
-        </div>
-
-        {/* Métricas (KPIs) */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">{showingExitStats ? 'Tasa de Salida' : 'Tasa de Presencia'}</div>
-            <div className="text-2xl font-bold text-emerald-600">
-              {statsLoading || !stats ? '—' : formatRate(showingExitStats ? stats.exitRate : stats.attendanceRate)}
-            </div>
-            <div className="text-xs text-gray-500">
-              {showingExitStats
-                ? 'Salidas en el período elegido'
-                : 'Entradas registradas sobre el filtro completo'}
-            </div>
-          </div>
-
-          <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">{showingExitStats ? 'Salidas' : 'Presentes'}</div>
-            <div className="text-2xl font-bold text-emerald-600">
-              {statsLoading || !stats ? '—' : showingExitStats ? stats.exitCount : stats.presentCount}
-            </div>
-            <div className="text-xs text-gray-500">{showingExitStats ? 'Salidas normales' : 'Entradas presentes'}</div>
-          </div>
-
-          <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">{showingExitStats ? 'Anticipadas' : 'Tarde'}</div>
-            <div className="text-2xl font-bold text-yellow-600">
-              {statsLoading || !stats ? '—' : showingExitStats ? stats.earlyExitCount : stats.lateCount}
-            </div>
-            <div className="text-xs text-gray-500">
-              {statsLoading || !stats ? '' : `${formatRate(showingExitStats ? stats.earlyExitRate : stats.lateRate)} tasa`}
-            </div>
-          </div>
-
-          <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">{showingExitStats ? 'Total salidas' : 'Ausentes'}</div>
-            <div className="text-2xl font-bold text-red-600">
-              {statsLoading || !stats ? '—' : showingExitStats ? stats.totalAttendances : stats.absentCount}
-            </div>
-            <div className="text-xs text-gray-500">
-              {statsLoading || !stats || showingExitStats
-                ? ''
-                : `Justificadas: ${stats.medicalLeaveCount} · Previstas: ${stats.expectedAbsenceCount ?? 0}`}
-            </div>
-          </div>
-        </div>
-
-        {/* Gráfico (simple) de distribución de estados */}
-        <details className="rounded-xl border border-slate-200 bg-white">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-emerald-600">Ver distribución de estados</summary>
-          <div className="border-t border-slate-100 p-4 sm:p-6">
-            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="text-base font-semibold text-slate-900">Distribución de estados</h3>
-              <div className="text-sm text-gray-500">
-                {statsLoading
-                  ? 'Cargando…'
-                  : stats
-                    ? `${showingExitStats ? 'Salidas' : 'Entradas'}: ${stats.totalAttendances}`
-                    : ''}
-              </div>
-            </div>
-            {statsLoading || !stats ? (
-              <div className="text-sm text-gray-500">—</div>
-            ) : (
-              (() => {
-                // Un contador ausente en la respuesta dibujaba las barras con NaN (y sin barra).
-                const items: DistributionItem[] = showingExitStats
-                  ? [
-                      { key: 'exit', label: 'Salida', count: stats.exitCount ?? 0, colorClass: 'bg-emerald-600' },
-                      { key: 'early', label: 'Anticipada', count: stats.earlyExitCount ?? 0, colorClass: 'bg-amber-500' },
-                    ]
-                  : [
-                      { key: 'present', label: 'Presente', count: stats.presentCount ?? 0, colorClass: 'bg-emerald-600' },
-                      { key: 'late', label: 'Tarde', count: stats.lateCount ?? 0, colorClass: 'bg-amber-500' },
-                      { key: 'absent', label: 'Ausente', count: stats.absentCount ?? 0, colorClass: 'bg-red-600' },
-                    ]
-                return <StatusDistribution items={items} label="Distribución de estados" />
-              })()
-            )}
-          </div>
-        </details>
-
-        {message && (
-          <div className={`p-3 rounded ${getAdminFlashMessageClass(message)}`}>
-            {message}
-          </div>
-        )}
-
-        <div className="flex gap-2 border-b border-slate-200">
-          <button
-            type="button"
-            onClick={() => setActiveTab('attendance')}
-            className={`px-4 py-2 text-sm font-medium ${
-              activeTab === 'attendance'
-                ? 'border-b-2 border-emerald-600 text-emerald-700'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Registros
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('incidents')}
-            className={`px-4 py-2 text-sm font-medium ${
-              activeTab === 'incidents'
-                ? 'border-b-2 border-emerald-600 text-emerald-700'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Incidencias
-          </button>
-        </div>
-
-        {activeTab === 'incidents' ? (
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-            <AdminIncidentsPanel onMessage={setMessage} />
-          </div>
-        ) : null}
-
-        {/* Tabla de asistencias */}
-        {activeTab === 'attendance' ? (
-        <div className="bg-white border rounded-lg shadow-sm">
-          <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between sm:p-6">
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold">Registros de Asistencia</h2>
-              <button
-                type="button"
-                onClick={() => setShowLegend((v) => !v)}
-                className="text-xs font-medium text-emerald-700 hover:underline"
-                aria-expanded={showLegend}
-              >
-                {showLegend ? 'Ocultar leyenda' : 'Ver leyenda'}
-              </button>
-            </div>
-            {canDelete && <div className="flex flex-wrap items-center gap-3">
+            {canDelete && selectedAttendanceIds.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50/60 px-4 py-3 sm:px-6">
               <span className="text-sm text-gray-500">
-                {selectedAttendanceIds.length === 0
-                  ? 'Selecciona registros para eliminarlos'
-                  : `${selectedAttendanceIds.length} seleccionadas`}
+                {`${selectedAttendanceIds.length} seleccionadas`}
               </span>
               <button
                 type="button"
                 onClick={deleteSelectedAttendances}
-                disabled={selectedAttendanceIds.length === 0 || deletingSelected}
+                disabled={deletingSelected}
                 className="inline-flex items-center gap-2 rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" aria-hidden />
                 {deletingSelected ? 'Eliminando...' : 'Eliminar seleccionadas'}
               </button>
+              <button type="button" onClick={() => setSelectedAttendanceIds([])} className="text-xs font-medium text-slate-600 hover:underline">Cancelar selección</button>
             </div>}
-          </div>
 
-          {showLegend ? (
-            <div className="flex flex-wrap gap-x-4 gap-y-2 border-b bg-slate-50/60 px-4 py-3 sm:px-6">
-              {ADMIN_ATTENDANCE_LEGEND.map((item) => (
-                <div key={item.label ?? item.status} className="flex items-center gap-1.5 text-xs text-gray-600">
-                  <span className={`inline-flex rounded-full px-2 py-0.5 font-medium ${getAdminAttendanceStatusStyle(item.status)}`}>
-                    {getAdminAttendanceLegendLabel(item)}
-                  </span>
-                  <span>{item.description}</span>
-                </div>
-              ))}
-            </div>
-          ) : null}
+            {showLegend ? (
+              <div className="flex flex-wrap gap-x-4 gap-y-2 border-b bg-slate-50/60 px-4 py-3 sm:px-6">
+                {ADMIN_ATTENDANCE_LEGEND.map((item) => (
+                  <div key={item.label ?? item.status} className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <span className={`inline-flex rounded-full px-2 py-0.5 font-medium ${getAdminAttendanceStatusStyle(item.status)}`}>
+                      {getAdminAttendanceLegendLabel(item)}
+                    </span>
+                    <span>{item.description}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
-          {loading ? (
-            <div className="p-4 text-center text-gray-500 sm:p-6">Cargando...</div>
-          ) : (
-            <>
-              {renderAttendancesTable(
-                attendances,
-                selectedAttendanceIds,
-                toggleAllAttendancesSelection,
-                toggleAttendanceSelection,
-                expandedAttendanceRows,
-                toggleExpandedAttendanceRow,
-                canUpdate ? openAttendanceEditor : undefined,
-                (() => {
-                  const selectableIds = getSelectableIdsForRows(buildAttendancePairRows(attendances))
-                  return selectableIds.length > 0 && selectableIds.every((id) => selectedAttendanceIds.includes(id))
-                })(),
-                openPersonDrawer,
-                canDelete,
-              )}
-              {renderAttendanceCards(attendances, canUpdate ? openAttendanceEditor : undefined, openPersonDrawer)}
-            </>
-          )}
+            {loading ? (
+              <div className="p-4 text-center text-gray-500 sm:p-6">Cargando...</div>
+            ) : loadError ? (
+              <div role="alert" className="space-y-3 p-8 text-center">
+                <p className="text-sm text-red-700">No se pudieron cargar las asistencias.</p>
+                <button type="button" onClick={() => void loadAttendances()} className="btn-secondary text-sm">Reintentar</button>
+              </div>
+            ) : attendances.length === 0 ? (
+              <div className="flex flex-col items-center px-4 py-12 text-center">
+                <ClipboardList className="mb-3 h-8 w-8 text-slate-300" aria-hidden />
+                <p className="text-sm font-medium text-slate-800">No hay registros de asistencia</p>
+                <p className="mt-1 max-w-sm text-sm text-slate-500">Probá con otro período o quitá filtros para ampliar la búsqueda.</p>
+              </div>
+            ) : (
+              <>
+                {renderAttendancesTable(
+                  attendances,
+                  selectedAttendanceIds,
+                  toggleAllAttendancesSelection,
+                  toggleAttendanceSelection,
+                  expandedAttendanceRows,
+                  toggleExpandedAttendanceRow,
+                  canUpdate ? openAttendanceEditor : undefined,
+                  (() => {
+                    const selectableIds = getSelectableIdsForRows(buildAttendancePairRows(attendances))
+                    return selectableIds.length > 0 && selectableIds.every((id) => selectedAttendanceIds.includes(id))
+                  })(),
+                  openPersonDrawer,
+                  canDelete,
+                )}
+                {renderAttendanceCards(attendances, canUpdate ? openAttendanceEditor : undefined, openPersonDrawer, canDelete ? { ids: selectedAttendanceIds, onToggle: toggleAttendanceSelection } : undefined)}
+              </>
+            )}
 
-          <PaginationControls page={page} total={total} onPageChange={setPage} />
+            {!loadError && <PaginationControls page={page} total={total} onPageChange={setPage} />}
+          </section>
         </div>
-        ) : null}
+
+        <section id="attendance-view-incidents" hidden={activeTab !== 'incidents'} aria-labelledby="attendance-incidents-title" className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+          <div>
+            <h2 id="attendance-incidents-title" className="text-base font-semibold text-slate-900">Incidencias de asistencia</h2>
+            <p className="mt-1 text-sm text-slate-500">Revisá las ausencias pendientes de justificación y resolvé cada caso.</p>
+          </div>
+          {activeTab === 'incidents' && <AdminIncidentsPanel onMessage={setMessage} />}
+        </section>
 
         {canUpdate && justifyTarget ? (
           <AttendanceJustifyModal
