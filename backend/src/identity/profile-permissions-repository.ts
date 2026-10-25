@@ -1,7 +1,8 @@
 import type { PermissionScope as PrismaPermissionScope, PrismaClient } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
-import { ensureBuiltinOrgRoles } from './org-role-seed.js'
+import { ensureBuiltinOrgRoles, RETIRED_ORG_ROLE_CODES } from './org-role-seed.js'
 import {
+  type PermissionLock,
   type ProfilePermissionRow,
   type ProfilePermissionsByCodeStore,
   type BuiltinProfileRole,
@@ -9,7 +10,11 @@ import {
   DEFAULT_PROFILE_PERMISSIONS,
   ENFORCED_PROFILE_PERMISSION_SCOPES,
   normalizePermissionId,
+  permissionLocksFor,
+  policyLockFor,
+  REMOVED_PERMISSION_REASON,
   REMOVED_PROFILE_PERMISSION_IDS,
+  RETIRED_PERMISSION_CODES,
   REVOKED_PROFILE_PERMISSION_IDS,
   RENAMED_PERMISSION_MODULES,
   permissionSourceResolved,
@@ -23,16 +28,30 @@ function scopeFromDb(s: PrismaPermissionScope): 'own' | 'all' {
   return s === 'ALL' ? 'all' : 'own'
 }
 
+/** Perfiles activos para Roles / Perfiles. Los retirados (Inspección) no se listan. */
 export async function listActiveRolesMetaOrdered() {
   return prisma.orgRole.findMany({
-    where: { active: true },
+    where: { active: true, code: { notIn: [...RETIRED_ORG_ROLE_CODES] } },
     orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
-    select: { code: true, label: true },
+    select: { code: true, label: true, builtIn: true },
   })
+}
+
+/**
+ * ¿El sistema fija este cambio? Lo que la política fuerza o apaga no se toca desde Roles / Perfiles,
+ * y un permiso que dejó de ser del perfil sólo se puede apagar. `null` si el cambio está permitido.
+ */
+function lockedChange(roleCode: string, permissionId: string, enabled: boolean | undefined): PermissionLock | null {
+  const lock = policyLockFor(roleCode, permissionId)
+  if (lock) return lock
+  const removed = REMOVED_PROFILE_PERMISSION_IDS[roleCode as BuiltinProfileRole]?.has(permissionId) ?? false
+  if (removed && enabled !== false) return { enabled: false, scope: null, reason: REMOVED_PERMISSION_REASON }
+  return null
 }
 
 export async function listPermissionCatalog() {
   const rows = await prisma.permission.findMany({
+    where: { code: { notIn: [...RETIRED_PERMISSION_CODES] } },
     orderBy: [{ module: 'asc' }, { code: 'asc' }],
     select: {
       code: true,
@@ -144,35 +163,41 @@ async function ensureCanonicalProfilePermissionsPresent(client: PrismaClient = p
 }
 
 /**
- * Apaga en la base los permisos de `REVOKED_PROFILE_PERMISSION_IDS`. La autorización lee las filas
- * de `RolePermission`, así que dejar de sembrar un permiso no se lo saca a quien ya lo tenía.
+ * Apaga en la base los permisos de `REVOKED_PROFILE_PERMISSION_IDS`, y los de `RETIRED_PERMISSION_CODES`
+ * en todos los perfiles. La autorización lee las filas de `RolePermission`, así que dejar de sembrar
+ * un permiso no se lo saca a quien ya lo tenía.
  */
 export async function revokeRetiredProfilePermissions(client: PrismaClient = prisma): Promise<number> {
   let revoked = 0
-  for (const [roleCode, permissionCodes] of Object.entries(REVOKED_PROFILE_PERMISSION_IDS)) {
-    if (!permissionCodes?.length) continue
+  for (const [roleCode, reasons] of Object.entries(REVOKED_PROFILE_PERMISSION_IDS)) {
+    const permissionCodes = Object.keys(reasons ?? {})
+    if (!permissionCodes.length) continue
     const result = await client.rolePermission.updateMany({
       where: {
         enabled: true,
         orgRole: { code: roleCode },
-        permission: { code: { in: [...permissionCodes] } },
+        permission: { code: { in: permissionCodes } },
       },
       data: { enabled: false },
     })
     revoked += result.count
   }
-  return revoked
+  const retired = await client.rolePermission.updateMany({
+    where: { enabled: true, permission: { code: { in: [...RETIRED_PERMISSION_CODES] } } },
+    data: { enabled: false },
+  })
+  return revoked + retired.count
 }
 
 /**
- * Aplica en la base los alcances de `ENFORCED_PROFILE_PERMISSION_SCOPES`: el sync de defaults sólo
- * crea filas faltantes, así que un cambio de alcance en la matriz no llegaría a quien ya tiene la fila.
- * Idempotente: sólo toca filas que no estén ya habilitadas con ese alcance.
+ * Aplica en la base los permisos de `ENFORCED_PROFILE_PERMISSION_SCOPES`: el sync de defaults sólo
+ * crea filas faltantes, así que un permiso apagado o un cambio de alcance en la matriz no llegaría a
+ * quien ya tiene la fila. Idempotente: sólo toca filas que no estén ya habilitadas con ese alcance.
  */
 export async function enforceProfilePermissionScopes(client: PrismaClient = prisma): Promise<number> {
   let updated = 0
-  for (const [roleCode, scopes] of Object.entries(ENFORCED_PROFILE_PERMISSION_SCOPES)) {
-    for (const [permissionCode, scope] of Object.entries(scopes ?? {})) {
+  for (const [roleCode, grants] of Object.entries(ENFORCED_PROFILE_PERMISSION_SCOPES)) {
+    for (const [permissionCode, { scope }] of Object.entries(grants ?? {})) {
       const target = scopeToDb(scope)
       const result = await client.rolePermission.updateMany({
         where: {
@@ -220,7 +245,10 @@ export async function loadProfilePermissionsStore(): Promise<ProfilePermissionsB
   for (const row of rows) {
     const code = row.orgRole.code
     if (!(code in store)) continue
-    if (REMATCH_REMOVED(code, row.permission.code)) continue
+    if (RETIRED_PERMISSION_CODES.includes(row.permission.code)) continue
+    // Un permiso que dejó de ser del perfil se oculta sólo si está apagado: prendido, autoriza, así
+    // que la pantalla tiene que mostrarlo para poder apagarlo.
+    if (!row.enabled && isRemovedFromRole(code, row.permission.code)) continue
     store[code].push({
       id: row.permission.code,
       module: row.permission.module,
@@ -234,25 +262,33 @@ export async function loadProfilePermissionsStore(): Promise<ProfilePermissionsB
   return store
 }
 
-function REMATCH_REMOVED(roleCode: string, permCode: string) {
-  const k = roleCode as BuiltinProfileRole
-  const set = REMOVED_PROFILE_PERMISSION_IDS[k]
-  return set?.has(permCode) ?? false
+function isRemovedFromRole(roleCode: string, permCode: string) {
+  return REMOVED_PROFILE_PERMISSION_IDS[roleCode as BuiltinProfileRole]?.has(permCode) ?? false
 }
 
+/**
+ * Perfiles con sus permisos y, por perfil, los permisos que fija el sistema (`locks`): la pantalla
+ * los muestra con su estado y su motivo, y no deja cambiarlos.
+ */
 export function profilePermissionsResponse(
   store: ProfilePermissionsByCodeStore,
-  rolesMeta: { code: string; label: string }[],
+  rolesMeta: { code: string; label: string; builtIn?: boolean }[],
 ) {
   return {
-    roles: rolesMeta.map(({ code, label }) => ({
-      role: code,
-      label,
-      permissions: (store[code] ?? []).map((permission: ProfilePermissionRow) => ({
-        ...permission,
-        source: permissionSourceResolved(code, permission.id),
-      })),
-    })),
+    roles: rolesMeta.map(({ code, label, builtIn }) => {
+      const permissions = store[code] ?? []
+      const enabledIds = new Set(permissions.filter((p) => p.enabled).map((p) => p.id))
+      return {
+        role: code,
+        label,
+        builtIn: builtIn ?? false,
+        permissions: permissions.map((permission: ProfilePermissionRow) => ({
+          ...permission,
+          source: permissionSourceResolved(code, permission.id),
+        })),
+        locks: Object.fromEntries(permissionLocksFor(code, enabledIds)),
+      }
+    }),
   }
 }
 
@@ -270,6 +306,11 @@ export async function updateRolePermissionGrant(
     where: { roleId_permissionId: { roleId: org.id, permissionId: permRow.id } },
   })
   if (!existing) return null
+
+  // Cambiar el nombre visible no toca el acceso; prenderlo, apagarlo o cambiarle el alcance sí.
+  const changesAccess = patch.enabled !== undefined || patch.scope !== undefined
+  const lock = changesAccess ? lockedChange(roleCode, permissionCode, patch.enabled) : null
+  if (lock) return { locked: lock }
 
   await prisma.rolePermission.update({
     where: { roleId_permissionId: { roleId: org.id, permissionId: permRow.id } },
@@ -295,8 +336,11 @@ export async function replaceRolePermissionGrants(
   const missing = codes.filter((code) => !byCode.has(code))
   if (missing.length > 0) return { error: 'NO_PERMISSION' as const, missing }
 
+  // Lo que fija el sistema se deja como está: la pantalla manda todos los permisos del catálogo.
+  const editable = grants.filter((grant) => !lockedChange(roleCode, grant.id, grant.enabled))
+
   await prisma.$transaction(
-    grants.map((grant) => {
+    editable.map((grant) => {
       const permission = byCode.get(grant.id)!
       return prisma.rolePermission.upsert({
         where: { roleId_permissionId: { roleId: org.id, permissionId: permission.id } },
@@ -381,6 +425,8 @@ export async function createCustomPermissionForRole(
   if (!org) return { error: 'NO_ROLE' as const }
 
   const code = normalizePermissionId(input.module, input.action)
+  const lock = lockedChange(roleCode, code, input.enabled)
+  if (lock) return { error: 'LOCKED' as const, reason: lock.reason }
 
   let permRow = await prisma.permission.findUnique({ where: { code } })
   if (!permRow) {

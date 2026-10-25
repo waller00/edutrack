@@ -90,7 +90,12 @@ export type AppModule = {
   related?: readonly RelatedModule[]
   /** Orden en los accesos rápidos de Inicio; sin él, el módulo no aparece ahí. */
   quickAccess?: number
+  /** `false`: no va en el menú lateral, ni en Inicio ni en la Guía; se abre desde otro lado. */
+  menu?: false
 }
+
+/** Quien mira el menú: sus permisos y su perfil. */
+export type NavViewer = (NonNullable<WithPermissions> & { role?: string | null }) | null | undefined
 
 export type NavGroupMeta = {
   title: string
@@ -250,6 +255,8 @@ export const APP_MODULES: readonly AppModule[] = [
     icon: MessageCircle,
     permission: 'messaging.use',
     related: [{ id: 'my-gradebooks', text: '¿Buscás lo que Dirección te observó en una libreta? Está en cada libreta:' }],
+    // Se abre desde el ícono junto a la campana, no desde el menú.
+    menu: false,
   },
 
   // Personal: docentes y funcionarios, vistos por la institución.
@@ -511,24 +518,48 @@ export function canSeeModule(
   })
 }
 
-export function visibleModules(me: WithPermissions): AppModule[] {
-  return APP_MODULES.filter((entry) => canSeeModule(me, entry))
+/**
+ * La cuenta de Administración es del sistema (nace del bootstrap), no de alguien que trabaja en el
+ * liceo: no tiene agenda, asistencias ni licencias propias, así que no tiene "Mi trabajo".
+ */
+function isSystemAdministrator(me: NavViewer): boolean {
+  return me?.role === 'ADMIN'
+}
+
+/** Lo que va en el menú, en Inicio y en la Guía. `canSeeModule` es el acceso; esto, el menú. */
+export function visibleModules(me: NavViewer): AppModule[] {
+  return APP_MODULES.filter(
+    (entry) =>
+      entry.menu !== false &&
+      !(entry.group === 'mine' && isSystemAdministrator(me)) &&
+      canSeeModule(me, entry),
+  )
 }
 
 export type VisibleNavGroup = NavGroupMeta & { id: NavGroupId; modules: AppModule[] }
 
-/** Los grupos del menú con lo que el usuario puede abrir; sin grupos vacíos. */
-export function visibleNavGroups(me: WithPermissions): VisibleNavGroup[] {
+/**
+ * Los grupos del menú con lo que el usuario puede abrir; sin grupos vacíos. Quien sólo tiene lo
+ * suyo (Personal: sus asistencias y sus licencias) ve únicamente "Mi trabajo": Inicio, la Guía y su
+ * perfil siguen en el botón de la cuenta, y el logo lleva a Inicio.
+ */
+export function visibleNavGroups(me: NavViewer): VisibleNavGroup[] {
   const modules = visibleModules(me)
-  return NAV_GROUP_ORDER.map((id) => ({
-    id,
-    ...NAV_GROUP_META[id],
-    modules: modules.filter((entry) => entry.group === id),
-  })).filter((group) => group.modules.length > 0)
+  const onlyOwnWork =
+    modules.some((entry) => entry.group === 'mine') &&
+    modules.every((entry) => entry.group === 'mine' || !entry.permission)
+  const groups: readonly NavGroupId[] = onlyOwnWork ? ['mine'] : NAV_GROUP_ORDER
+  return groups
+    .map((id) => ({
+      id,
+      ...NAV_GROUP_META[id],
+      modules: modules.filter((entry) => entry.group === id),
+    }))
+    .filter((group) => group.modules.length > 0)
 }
 
 /** Accesos rápidos de Inicio, en su orden. */
-export function quickAccessModules(me: WithPermissions): AppModule[] {
+export function quickAccessModules(me: NavViewer): AppModule[] {
   return visibleModules(me)
     .filter((entry) => entry.quickAccess !== undefined)
     .sort((a, b) => (a.quickAccess ?? 0) - (b.quickAccess ?? 0))

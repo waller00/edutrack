@@ -19,7 +19,7 @@ export function getRoleLabel(role?: string | null): string {
   }
 }
 
-export type SelectableRole = 'TEACHER' | 'STAFF' | 'ADMIN' | 'STUDENT' | 'ADSCRIPTO' | 'DIRECCION' | 'INSPECCION'
+export type SelectableRole = 'TEACHER' | 'STAFF' | 'ADMIN' | 'STUDENT' | 'ADSCRIPTO' | 'DIRECCION'
 
 export function getRoleOptionLabel(role: SelectableRole | ''): string {
   if (!role) return 'Seleccioná un perfil'

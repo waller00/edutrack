@@ -75,7 +75,6 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('attendance.read', 'Asistencia del personal', 'read', 'Ver asistencia del personal', true, 'all'),
     perm('attendance.update', 'Asistencia del personal', 'update', 'Editar asistencia del personal', true, 'all'),
     perm('attendance.delete', 'Asistencia del personal', 'delete', 'Eliminar asistencia del personal', true, 'all'),
-    perm('attendance.biometric', 'Asistencia del personal', 'biometric', 'Registrar asistencia biométrica', true, 'all'),
     perm('events.read', 'Agenda y clases', 'read', 'Ver eventos', true, 'all'),
     perm('events.create', 'Agenda y clases', 'create', 'Crear eventos', true, 'all'),
     perm('events.update', 'Agenda y clases', 'update', 'Editar eventos', true, 'all'),
@@ -95,8 +94,12 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('students.accommodations', 'Estudiantes', 'accommodations', 'Cargar adecuaciones', true, 'all'),
     perm('academic-config.manage', 'Configuración académica', 'manage', 'Gestionar escalas, períodos y tipos de actividad', true, 'all'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver libretas', true, 'all'),
-    // Sin `gradebook.grade`, `gradebook.plan` ni `gradebook.close`: la libreta es del docente.
-    // Administración la ve, reabre un período si hay que corregir y le escribe; no carga por él.
+    // Administración edita todo, también la libreta del docente: notas, C y R, juicios,
+    // planificación, desarrollo y cierre. Lo que escribe quien no es el docente queda auditado
+    // como corrección (`periodGradeOrigin`, `isSupervisorWrite`).
+    perm('gradebook.grade', 'Libreta', 'grade', 'Calificar en las libretas', true, 'all'),
+    perm('gradebook.plan', 'Libreta', 'plan', 'Planificar y registrar el desarrollo en las libretas', true, 'all'),
+    perm('gradebook.close', 'Libreta', 'close', 'Cerrar los períodos de las libretas', true, 'all'),
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
     perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all'),
     perm('gradebook.inspect', 'Libreta', 'inspect', 'Consultar libretas y registrar visitas de inspección', true, 'all'),
@@ -111,6 +114,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('settings.manage', 'Configuración', 'manage', 'Gestionar configuración del sistema', true, 'all'),
     perm('audit.read', 'Auditoría', 'read', 'Ver auditoría', true, 'all'),
     perm('profiles.manage', 'Perfiles', 'manage', 'Gestionar perfiles', true, 'all'),
+    perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
     perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
   ],
   TEACHER: [
@@ -135,8 +139,8 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
     perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
   ],
-  // Adscripto: ve todo el centro como Administración; controla el avance de las libretas y
-  // justifica faltas, pero NO visa.
+  // Adscripto: ve todo el centro como Administración; controla y observa las libretas y justifica
+  // faltas, pero NO visa ni edita la libreta del docente.
   ADSCRIPTO: [
     ...supervisionReadAll(),
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
@@ -153,8 +157,9 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
   // Ese permiso, y no un `if` en una ruta, es lo que cumple la nota funcional del pliego ("el
   // visado formal corresponde al rol Director").
   //
-  // Sin `gradebook.grade`, `gradebook.close` ni `gradebook.plan`: el director ve la libreta del
-  // docente, la visa y le deja mensajes, pero no la edita. Si algo está mal cargado se lo avisa.
+  // Sin `gradebook.grade`, `gradebook.close`, `gradebook.plan` ni `gradebook.manage` (se apagan en
+  // `REVOKED_PROFILE_PERMISSION_IDS`): el director ve la libreta del docente y la visa, pero no la
+  // edita. Si algo está mal cargado, lo observa o le escribe.
   DIRECCION: [
     ...supervisionReadAll(),
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
@@ -168,15 +173,40 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
   ],
 } as const
 
+/** Un permiso que el arranque deja prendido, con su alcance, y por qué. */
+export type EnforcedGrant = { scope: 'own' | 'all'; reason: string }
+
+function enforce(ids: readonly string[], scope: 'own' | 'all', reason: string): Record<string, EnforcedGrant> {
+  return Object.fromEntries(ids.map((id) => [id, { scope, reason }]))
+}
+
+function revoke(ids: readonly string[], reason: string): Record<string, string> {
+  return Object.fromEntries(ids.map((id) => [id, reason]))
+}
+
+/** Escribir en la libreta: notas, C y R, juicios, planificación, desarrollo y cierre. */
+const GRADEBOOK_EDIT_PERMISSION_IDS = ['gradebook.grade', 'gradebook.plan', 'gradebook.close'] as const
+
+/** Lo que la supervisión no hace sobre la libreta del docente: tampoco reabrir un período. */
+const SUPERVISION_GRADEBOOK_WRITE_IDS = [...GRADEBOOK_EDIT_PERMISSION_IDS, 'gradebook.manage'] as const
+
+const SUPERVISION_SEES_ALL_IDS = ['attendance.read', 'events.read', 'licenses.read'] as const
+
 /**
- * Alcances que el arranque **fuerza** en bases existentes. El sync de defaults sólo crea los permisos
- * que faltan (`update: {}`): cambiar el alcance de uno que ya existe en la matriz no llega a
- * producción. Lo que se agregue acá pisa lo que haya en esa fila (habilitado + alcance).
+ * Permisos que el arranque **fuerza** en bases existentes, con su alcance. El sync de defaults sólo
+ * crea los permisos que faltan (`update: {}`): cambiar el alcance de uno que ya existe en la matriz
+ * no llega a producción. Lo que se agregue acá pisa lo que haya en esa fila (habilitado + alcance),
+ * y en Roles / Perfiles se muestra fijo, con su motivo: si no, el cambio se perdía al arrancar.
  */
-export const ENFORCED_PROFILE_PERMISSION_SCOPES: Partial<Record<BuiltinProfileRole, Readonly<Record<string, 'own' | 'all'>>>> = {
+export const ENFORCED_PROFILE_PERMISSION_SCOPES: Partial<Record<BuiltinProfileRole, Readonly<Record<string, EnforcedGrant>>>> = {
+  // Administración edita todo, también la libreta (25/10/2026). Hasta entonces se le apagaba.
+  ADMIN: {
+    ...enforce(GRADEBOOK_EDIT_PERMISSION_IDS, 'all', 'Administración edita todo, también las libretas.'),
+    ...enforce(['notifications.read'], 'own', 'Todos los perfiles ven sus propios avisos.'),
+  },
   // Dirección y Adscripción pasaron de ver lo propio a ver todo el centro (20/10/2026).
-  DIRECCION: { 'attendance.read': 'all', 'events.read': 'all', 'licenses.read': 'all' },
-  ADSCRIPTO: { 'attendance.read': 'all', 'events.read': 'all', 'licenses.read': 'all' },
+  DIRECCION: enforce(SUPERVISION_SEES_ALL_IDS, 'all', 'Dirección ve todo el centro, como Administración.'),
+  ADSCRIPTO: enforce(SUPERVISION_SEES_ALL_IDS, 'all', 'Adscripción ve todo el centro, como Administración.'),
 }
 
 /**
@@ -194,9 +224,6 @@ export const RENAMED_PERMISSION_MODULES: Readonly<Record<string, string>> = {
 }
 
 /** Lo que Personal (STAFF) tenía cuando compartía la matriz del docente. */
-/** Escribir en la libreta: sólo el docente (titular o suplente). */
-const ADMIN_GRADEBOOK_EDIT_PERMISSION_IDS = ['gradebook.grade', 'gradebook.plan', 'gradebook.close'] as const
-
 const STAFF_ACADEMIC_PERMISSION_IDS = [
   'events.read',
   'courses.read',
@@ -209,29 +236,76 @@ const STAFF_ACADEMIC_PERMISSION_IDS = [
   'gradebook.export',
 ] as const
 
+/**
+ * Permisos que dejaron de ser de un perfil: no se siembran y no se pueden prender desde Roles /
+ * Perfiles. Si una base vieja todavía los tiene prendidos, la pantalla los muestra (la autorización
+ * los usa) y se pueden apagar; apagados, quedan fijos.
+ */
 export const REMOVED_PROFILE_PERMISSION_IDS: Record<BuiltinProfileRole, Set<string>> = {
-  ADMIN: new Set(['licenses.approve', ...ADMIN_GRADEBOOK_EDIT_PERMISSION_IDS]),
+  ADMIN: new Set(),
   TEACHER: new Set(['attendance.create', 'events.create', 'events.update', 'licenses.create']),
   STAFF: new Set(['attendance.create', 'licenses.create', ...STAFF_ACADEMIC_PERMISSION_IDS]),
   ADSCRIPTO: new Set(),
   DIRECCION: new Set(['gradebook.plan']),
 }
 
+/** Motivo de un permiso que ya no es del perfil y está apagado. */
+export const REMOVED_PERMISSION_REASON = 'No corresponde a este perfil.'
+
 /**
- * Permisos que además de dejar de sembrarse hay que **apagar** en bases que ya los tienen.
- *
- * `REMOVED_PROFILE_PERMISSION_IDS` sólo deja de sembrar y oculta el permiso en la pantalla de
- * perfiles; la autorización lee la base, así que una fila vieja seguiría habilitada. Va aparte y
- * explícito porque apagar un permiso en producción cambia lo que alguien puede hacer hoy.
+ * Permisos que además de dejar de sembrarse hay que **apagar** en bases que ya los tienen, con su
+ * motivo. La autorización lee la base, así que una fila vieja seguiría habilitada. Va aparte y
+ * explícito porque apagar un permiso en producción cambia lo que alguien puede hacer hoy; en Roles /
+ * Perfiles se muestran fijos, apagados y con el motivo.
  */
-export const REVOKED_PROFILE_PERMISSION_IDS: Partial<Record<BuiltinProfileRole, readonly string[]>> = {
-  // El director ve la libreta y avisa al docente, pero no la edita (ni planificación ni desarrollo).
-  DIRECCION: ['gradebook.plan'],
+export const REVOKED_PROFILE_PERMISSION_IDS: Partial<Record<BuiltinProfileRole, Readonly<Record<string, string>>>> = {
+  // Dirección y Adscripción ven la libreta del docente; Dirección la visa y Adscripción la observa.
+  // Ninguna la edita ni reabre sus períodos (25/10/2026).
+  DIRECCION: revoke(SUPERVISION_GRADEBOOK_WRITE_IDS, 'Dirección ve las libretas y las visa; no las edita.'),
+  ADSCRIPTO: revoke(SUPERVISION_GRADEBOOK_WRITE_IDS, 'Adscripción ve las libretas y las observa; no las edita.'),
   // Personal no es docente: sin agenda de clases, cursos, pase de lista ni libretas (20/10/2026).
-  STAFF: STAFF_ACADEMIC_PERMISSION_IDS,
-  // Administración ve la libreta del docente pero no la edita: ni notas, ni juicios, ni cierres,
-  // ni planificación (21/10/2026). Conserva `gradebook.manage` para reabrir un período.
-  ADMIN: ADMIN_GRADEBOOK_EDIT_PERMISSION_IDS,
+  STAFF: revoke(STAFF_ACADEMIC_PERMISSION_IDS, 'Personal sólo ve sus asistencias y sus licencias.'),
+}
+
+/**
+ * Permisos que ninguna ruta consulta. No se ofrecen en Roles / Perfiles (prenderlos no hacía
+ * nada) y el arranque los apaga en todos los perfiles.
+ */
+export const RETIRED_PERMISSION_CODES: readonly string[] = ['licenses.approve', 'attendance.biometric']
+
+/** Un permiso que el sistema fija en un perfil: Roles / Perfiles lo muestra y no deja cambiarlo. */
+export type PermissionLock = { enabled: boolean; scope: 'own' | 'all' | null; reason: string }
+
+/** Lo que la política fija sin mirar la base: un permiso que el arranque fuerza o apaga. */
+export function policyLockFor(roleCode: string, permissionId: string): PermissionLock | null {
+  const role = roleCode as BuiltinProfileRole
+  const enforced = ENFORCED_PROFILE_PERMISSION_SCOPES[role]?.[permissionId]
+  if (enforced) return { enabled: true, scope: enforced.scope, reason: enforced.reason }
+  const revoked = REVOKED_PROFILE_PERMISSION_IDS[role]?.[permissionId]
+  if (revoked) return { enabled: false, scope: null, reason: revoked }
+  return null
+}
+
+/**
+ * Permisos fijos de un perfil del sistema: los que la política fuerza o apaga, y los que dejaron de
+ * ser del perfil y ya están apagados (`enabledIds` son los que hoy están prendidos). Un perfil
+ * personalizado no tiene permisos fijos.
+ */
+export function permissionLocksFor(roleCode: string, enabledIds: ReadonlySet<string>): Map<string, PermissionLock> {
+  const role = roleCode as BuiltinProfileRole
+  const ids = new Set([
+    ...(REMOVED_PROFILE_PERMISSION_IDS[role] ?? []),
+    ...Object.keys(REVOKED_PROFILE_PERMISSION_IDS[role] ?? {}),
+    ...Object.keys(ENFORCED_PROFILE_PERMISSION_SCOPES[role] ?? {}),
+  ])
+  const locks = new Map<string, PermissionLock>()
+  for (const id of ids) {
+    const lock =
+      policyLockFor(roleCode, id) ??
+      (enabledIds.has(id) ? null : { enabled: false, scope: null, reason: REMOVED_PERMISSION_REASON })
+    if (lock) locks.set(id, lock)
+  }
+  return locks
 }
 
 export function normalizePermissionId(module: string, action: string) {

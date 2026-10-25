@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, BookOpen, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, FilePenLine, GraduationCap, LayoutList, Loader2, MessageSquare, NotebookPen, UserRoundCheck, Users } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, BookOpen, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, FilePenLine, GraduationCap, LayoutList, Loader2, NotebookPen, UserRoundCheck, Users } from 'lucide-react'
 import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
 import { useLibreta } from '@/contexts/LibretaContext'
 import { useOptionalAuth } from '@/contexts/AuthContext'
@@ -18,13 +18,13 @@ const SECTION_ICONS = {
   desarrollo: FilePenLine,
   evaluaciones: ClipboardList,
   cierre: CalendarDays,
-  mensajes: MessageSquare,
   visado: CheckCheck,
 }
 
 /**
  * ¿Mira la libreta como supervisor? El titular y el suplente la trabajan; quien entra con alcance
- * de control (Dirección, adscripción, inspección) la recorre para visarla y avisar.
+ * de control (Dirección, adscripción, administración) tiene además "Visado y seguimiento". Dirección
+ * y Adscripción la ven de sólo lectura; Administración también la edita (`canGrade`, `canPlan`).
  */
 export function supervisesLibreta(
   level: GradeBookAccessLevel | undefined,

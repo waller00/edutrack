@@ -10,7 +10,10 @@ const { prismaMock } = vi.hoisted(() => ({
 }))
 
 vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
-vi.mock('./org-role-seed.js', () => ({ ensureBuiltinOrgRoles: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('./org-role-seed.js', () => ({
+  ensureBuiltinOrgRoles: vi.fn().mockResolvedValue(undefined),
+  RETIRED_ORG_ROLE_CODES: ['INSPECCION'],
+}))
 
 import {
   listPermissionCatalog,
@@ -51,6 +54,29 @@ describe('profilePermissionsResponse (puro)', () => {
     const out = profilePermissionsResponse({}, [{ code: 'STAFF', label: 'Staff' }])
     expect(out.roles[0].permissions).toEqual([])
   })
+
+  it('dice qué permisos fija el sistema en cada perfil, con su motivo', () => {
+    const out = profilePermissionsResponse({}, [
+      { code: 'ADMIN', label: 'Administrador', builtIn: true },
+      { code: 'DIRECCION', label: 'Dirección', builtIn: true },
+      { code: 'COORD', label: 'Coordinación', builtIn: false },
+    ])
+    const [admin, direccion, coord] = out.roles
+    expect(admin.builtIn).toBe(true)
+    expect(admin.locks['gradebook.grade']).toMatchObject({ enabled: true, scope: 'all' })
+    expect(direccion.locks['gradebook.grade']).toMatchObject({ enabled: false, reason: expect.stringMatching(/no las edita/) })
+    expect(coord.builtIn).toBe(false)
+    expect(coord.locks).toEqual({})
+  })
+
+  it('un permiso que dejó de ser del perfil y sigue prendido no queda fijo: se puede apagar', () => {
+    const store = {
+      TEACHER: [{ id: 'events.update', module: 'Agenda', action: 'update', label: 'Editar', enabled: true, scope: 'own' as const }],
+    }
+    const out = profilePermissionsResponse(store, [{ code: 'TEACHER', label: 'Docente', builtIn: true }])
+    expect(out.roles[0].locks['events.update']).toBeUndefined()
+    expect(out.roles[0].locks['events.create']).toMatchObject({ enabled: false, reason: 'No corresponde a este perfil.' })
+  })
 })
 
 describe('listPermissionCatalog', () => {
@@ -62,6 +88,14 @@ describe('listPermissionCatalog', () => {
     const out = await listPermissionCatalog()
     expect(out[0]).toMatchObject({ id: 'users.read', label: 'Ver usuarios', source: 'system' })
     expect(out[1]).toMatchObject({ id: 'x.y', label: 'x.y', source: 'custom' })
+  })
+
+  it('no ofrece los permisos que ninguna ruta consulta', async () => {
+    prismaMock.permission.findMany.mockResolvedValueOnce([])
+    await listPermissionCatalog()
+    expect(prismaMock.permission.findMany.mock.calls[0][0].where).toEqual({
+      code: { notIn: ['licenses.approve', 'attendance.biometric'] },
+    })
   })
 })
 
@@ -90,6 +124,22 @@ describe('updateRolePermissionGrant', () => {
     expect(res).not.toBeNull()
     expect(prismaMock.rolePermission.update).toHaveBeenCalled()
   })
+  it('no toca un permiso que fija el sistema, salvo su nombre visible', async () => {
+    const existing = () => {
+      prismaMock.orgRole.findFirst.mockResolvedValueOnce({ id: 'r1' })
+      prismaMock.permission.findUnique.mockResolvedValueOnce({ id: 'p1' })
+      prismaMock.rolePermission.findUnique.mockResolvedValueOnce({ roleId: 'r1', permissionId: 'p1' })
+    }
+    existing()
+    const locked = await updateRolePermissionGrant('DIRECCION', 'gradebook.grade', { enabled: true })
+    expect(locked).toMatchObject({ locked: { reason: expect.stringMatching(/no las edita/) } })
+    expect(prismaMock.rolePermission.update).not.toHaveBeenCalled()
+
+    existing()
+    prismaMock.rolePermission.update.mockResolvedValueOnce({})
+    await updateRolePermissionGrant('DIRECCION', 'gradebook.grade', { label: 'Calificar' })
+    expect(prismaMock.rolePermission.update).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('replaceRolePermissionGrants', () => {
@@ -114,6 +164,31 @@ describe('replaceRolePermissionGrants', () => {
     const res = await replaceRolePermissionGrants('ADMIN', [{ id: 'a.b', enabled: true, scope: 'all', label: 'AB' }])
     expect(res).toEqual({ ok: true })
     expect(prismaMock.rolePermission.upsert).toHaveBeenCalled()
+  })
+  it('deja como están los permisos que fija el sistema', async () => {
+    prismaMock.orgRole.findFirst.mockResolvedValueOnce({ id: 'r1' })
+    prismaMock.permission.findMany.mockResolvedValueOnce([
+      { code: 'gradebook.grade', id: 'p-grade' },
+      { code: 'users.read', id: 'p-users' },
+    ])
+    prismaMock.rolePermission.upsert.mockResolvedValue({})
+    await replaceRolePermissionGrants('DIRECCION', [
+      { id: 'gradebook.grade', enabled: true, scope: 'all' },
+      { id: 'users.read', enabled: true, scope: 'all' },
+    ])
+    const touched = prismaMock.rolePermission.upsert.mock.calls.map(([args]: any) => args.where.roleId_permissionId.permissionId)
+    expect(touched).toEqual(['p-users'])
+  })
+  it('un permiso que dejó de ser del perfil se puede apagar, pero no prender', async () => {
+    prismaMock.orgRole.findFirst.mockResolvedValue({ id: 'r1' })
+    prismaMock.permission.findMany.mockResolvedValue([{ code: 'events.update', id: 'p-ev' }])
+    prismaMock.rolePermission.upsert.mockResolvedValue({})
+
+    await replaceRolePermissionGrants('TEACHER', [{ id: 'events.update', enabled: true, scope: 'own' }])
+    expect(prismaMock.rolePermission.upsert).not.toHaveBeenCalled()
+
+    await replaceRolePermissionGrants('TEACHER', [{ id: 'events.update', enabled: false }])
+    expect(prismaMock.rolePermission.upsert).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -159,6 +234,12 @@ describe('createCustomPermissionForRole', () => {
     prismaMock.rolePermission.create.mockRejectedValueOnce({ code: 'P2002' })
     const res = await createCustomPermissionForRole('COORD', { module: 'M', action: 'a', label: 'L', enabled: true, scope: 'own' })
     expect(res).toEqual({ error: 'EXISTS' })
+  })
+  it('LOCKED si el permiso lo fija el sistema en ese perfil', async () => {
+    prismaMock.orgRole.findFirst.mockResolvedValueOnce({ id: 'r1' })
+    const res = await createCustomPermissionForRole('ADSCRIPTO', { module: 'gradebook', action: 'grade', label: 'Calificar', enabled: true, scope: 'all' })
+    expect(res).toMatchObject({ error: 'LOCKED', reason: expect.stringMatching(/no las edita/) })
+    expect(prismaMock.rolePermission.create).not.toHaveBeenCalled()
   })
 })
 
@@ -224,14 +305,46 @@ describe('seed de matriz canónica', () => {
     expect(attendanceRead?.[0].update.module).toBe('Asistencia del personal')
   })
 
-  it('al arrancar apaga `gradebook.plan` de Dirección en una base que ya lo tenía', async () => {
+  it('al arrancar le apaga a Dirección y a Adscripción todo lo que edita la libreta', async () => {
+    seedMocks()
+    prismaMock.rolePermission.count.mockResolvedValue(10)
+    await ensureDefaultProfilePermissionsIfNeeded()
+    for (const role of ['DIRECCION', 'ADSCRIPTO']) {
+      expect(prismaMock.rolePermission.updateMany).toHaveBeenCalledWith({
+        where: {
+          enabled: true,
+          orgRole: { code: role },
+          permission: { code: { in: ['gradebook.grade', 'gradebook.plan', 'gradebook.close', 'gradebook.manage'] } },
+        },
+        data: { enabled: false },
+      })
+    }
+  })
+
+  it('al arrancar apaga en todos los perfiles los permisos que ninguna ruta consulta', async () => {
     seedMocks()
     prismaMock.rolePermission.count.mockResolvedValue(10)
     await ensureDefaultProfilePermissionsIfNeeded()
     expect(prismaMock.rolePermission.updateMany).toHaveBeenCalledWith({
-      where: { enabled: true, orgRole: { code: 'DIRECCION' }, permission: { code: { in: ['gradebook.plan'] } } },
+      where: { enabled: true, permission: { code: { in: ['licenses.approve', 'attendance.biometric'] } } },
       data: { enabled: false },
     })
+  })
+
+  it('al arrancar le devuelve a Administración la edición de las libretas', async () => {
+    seedMocks()
+    prismaMock.rolePermission.count.mockResolvedValue(10)
+    await ensureDefaultProfilePermissionsIfNeeded()
+    for (const permission of ['gradebook.grade', 'gradebook.plan', 'gradebook.close']) {
+      expect(prismaMock.rolePermission.updateMany).toHaveBeenCalledWith({
+        where: {
+          orgRole: { code: 'ADMIN' },
+          permission: { code: permission },
+          OR: [{ enabled: false }, { scope: { not: 'ALL' } }],
+        },
+        data: { enabled: true, scope: 'ALL' },
+      })
+    }
   })
 
   it('ensureDefaultProfilePermissionsIfNeeded sin filas hace el seed canónico', async () => {
@@ -287,5 +400,23 @@ describe('loadProfilePermissionsStore', () => {
     expect(store.ADMIN[0]).toMatchObject({ id: 'users.read', scope: 'all', enabled: true })
     expect(store.STAFF[0]).toMatchObject({ id: 'licenses.read', scope: 'own' })
     expect(store.GHOST).toBeUndefined()
+  })
+
+  it('no lista perfiles retirados', async () => {
+    prismaMock.orgRole.findMany.mockResolvedValueOnce([])
+    prismaMock.rolePermission.findMany.mockResolvedValueOnce([])
+    await loadProfilePermissionsStore()
+    expect(prismaMock.orgRole.findMany.mock.calls[0][0].where).toEqual({ active: true, code: { notIn: ['INSPECCION'] } })
+  })
+
+  it('muestra un permiso retirado del perfil si sigue prendido, porque autoriza', async () => {
+    prismaMock.orgRole.findMany.mockResolvedValueOnce([{ code: 'TEACHER', label: 'Docente' }])
+    prismaMock.rolePermission.findMany.mockResolvedValueOnce([
+      { label: 'Editar', enabled: true, scope: 'OWN', permission: { code: 'events.update', module: 'Agenda', action: 'update' }, orgRole: { code: 'TEACHER' } },
+      { label: 'Crear', enabled: false, scope: 'OWN', permission: { code: 'events.create', module: 'Agenda', action: 'create' }, orgRole: { code: 'TEACHER' } },
+      { label: 'Bio', enabled: true, scope: 'ALL', permission: { code: 'attendance.biometric', module: 'A', action: 'b' }, orgRole: { code: 'TEACHER' } },
+    ])
+    const store = await loadProfilePermissionsStore()
+    expect(store.TEACHER.map((p) => p.id)).toEqual(['events.update'])
   })
 })

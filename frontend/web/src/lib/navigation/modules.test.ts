@@ -83,8 +83,9 @@ describe('catálogo de módulos', () => {
 
 describe('qué ve cada uno', () => {
   it('el docente tiene todo lo suyo en "Mi trabajo" y no ve la gestión del personal', () => {
-    const groups = visibleNavGroups(teacher)
-    expect(groups.map((group) => group.title)).toEqual(['Inicio', 'Mi trabajo', 'Configuración'])
+    // Como la matriz de fábrica: además de lo suyo, lee el catálogo de cursos.
+    const groups = visibleNavGroups({ permissions: [...teacher.permissions, { id: 'courses.read', scope: 'all' }] })
+    expect(groups.map((group) => group.title)).toEqual(['Inicio', 'Mi trabajo', 'Académico', 'Configuración'])
     expect(groups[1].modules.map((entry) => entry.label)).toEqual([
       'Mi agenda',
       'Pase de lista',
@@ -125,17 +126,61 @@ describe('qué ve cada uno', () => {
     }
   })
 
-  it('Personal ve sus ingresos, sus licencias y los mensajes', () => {
-    const personal = {
-      permissions: [
-        { id: 'attendance.read', scope: 'own' as const },
-        { id: 'licenses.read', scope: 'own' as const },
-        { id: 'notifications.read', scope: 'own' as const },
-        { id: 'messaging.use', scope: 'own' as const },
-      ],
-    }
+  const personal = {
+    role: 'STAFF',
+    permissions: [
+      { id: 'attendance.read', scope: 'own' as const },
+      { id: 'licenses.read', scope: 'own' as const },
+      { id: 'notifications.read', scope: 'own' as const },
+      { id: 'messaging.use', scope: 'own' as const },
+    ],
+  }
+
+  it('Personal ve sus ingresos y sus licencias', () => {
     const withPermission = visibleModules(personal).filter((m) => m.permission).map((m) => m.id)
-    expect(withPermission.sort()).toEqual(['messages', 'my-attendance', 'my-licenses'])
+    expect(withPermission.sort()).toEqual(['my-attendance', 'my-licenses'])
+  })
+
+  it('Personal ve en el menú sólo "Mi trabajo"', () => {
+    // Inicio, la Guía y su perfil siguen en el botón de la cuenta; el logo lleva a Inicio.
+    const groups = visibleNavGroups(personal)
+    expect(groups.map((group) => group.title)).toEqual(['Mi trabajo'])
+    expect(groups[0].modules.map((entry) => entry.label)).toEqual(['Mis asistencias', 'Mis licencias'])
+  })
+
+  it('Mensajes no va en el menú: se abre desde el ícono junto a la campana', () => {
+    const messages = moduleById('messages')
+    expect(messages.menu).toBe(false)
+    // La pantalla /mensajes sigue existiendo y se puede abrir.
+    expect(canSeeModule(personal, messages)).toBe(true)
+    for (const viewer of [personal, teacher, direccion, admin]) {
+      const labels = visibleNavGroups(viewer).flatMap((group) => group.modules.map((entry) => entry.id))
+      expect(labels).not.toContain('messages')
+    }
+  })
+
+  describe('la cuenta de Administración no tiene "Mi trabajo"; los demás perfiles sí', () => {
+    const seesAll = [
+      { id: 'attendance.read', scope: 'all' as const },
+      { id: 'events.read', scope: 'all' as const },
+      { id: 'licenses.read', scope: 'all' as const },
+      { id: 'messaging.use', scope: 'own' as const },
+      { id: 'gradebook.read', scope: 'all' as const },
+    ]
+
+    it('Administración no ve "Mi trabajo" en el menú ni en los accesos de Inicio', () => {
+      const viewer = { role: 'ADMIN', permissions: seesAll }
+      expect(visibleNavGroups(viewer).map((group) => group.id)).not.toContain('mine')
+      expect(quickAccessModules(viewer).some((entry) => entry.group === 'mine')).toBe(false)
+      // Es sólo el menú: si entra a una de esas pantallas, la puede abrir.
+      expect(canSeeModule(viewer, moduleById('my-agenda'))).toBe(true)
+    })
+
+    it('Dirección, con los mismos permisos, conserva "Mi trabajo" (sin Mensajes)', () => {
+      const groups = visibleNavGroups({ role: 'DIRECCION', permissions: seesAll })
+      const mine = groups.find((group) => group.id === 'mine')
+      expect(mine?.modules.map((entry) => entry.label)).toEqual(['Mi agenda', 'Mis asistencias', 'Mis licencias'])
+    })
   })
 
   it('acepta la forma vieja de permisos (`permissionIds`, sin alcance) como propia', () => {

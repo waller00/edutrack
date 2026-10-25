@@ -242,17 +242,28 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 
 > **`gradebook.grade` y `gradebook.plan` son permisos distintos a propósito.** El primero cubre
 > evaluaciones, notas y juicios conceptuales; el segundo, planificación y desarrollo del curso.
-> **Sólo el docente tiene `grade`, `plan` y `close`.** Dirección, Adscripción y **Administración**
-> ven la libreta y le escriben al docente, pero no la editan: Dirección visa y Administración sólo
-> reabre un período (`gradebook.manage`). Para sacarle un permiso a un rol que ya lo tiene en producción no
-> alcanza con los defaults: la autorización lee la base, así que va en `REVOKED_PROFILE_PERMISSION_IDS`.
-> Cambiar el **alcance** de uno que ya existe tampoco llega (el sync sólo crea filas faltantes): va en
-> `ENFORCED_PROFILE_PERMISSION_SCOPES`.
+> **Editan la libreta el docente (lo suyo, `own`) y Administración (todas, `all`).** `grade`, `plan`
+> y `close`; Administración además reabre un período (`gradebook.manage`) y corrige fuera de plazo,
+> y lo que escribe quien no es el docente queda auditado como corrección. **Dirección y Adscripción
+> la ven y no la editan**: Dirección visa, Adscripción observa (el arranque les apaga grade, plan,
+> close y manage). Para sacarle un permiso a un rol que ya lo tiene en producción no alcanza con
+> los defaults: la autorización lee la base, así que va en `REVOKED_PROFILE_PERMISSION_IDS` (con su
+> motivo). Prender uno apagado o cambiar el **alcance** de uno que ya existe tampoco llega (el sync
+> sólo crea filas faltantes): va en `ENFORCED_PROFILE_PERMISSION_SCOPES`.
 
 > **Perfiles:** Administrador; Docente; **Personal** (`STAFF`, no docente: sólo sus ingresos y sus
 > licencias); **Dirección** y **Adscripción** ven todo el centro como Administración pero sólo
-> editan lo suyo (visar / justificar). Inspección se retiró (`RETIRED_ORG_ROLE_CODES`). Los "Mis …"
-> del menú (agenda, asistencias, licencias) no fijan alcance: quien ve todo conserva lo propio.
+> editan lo suyo (visar / justificar). Inspección se retiró (`RETIRED_ORG_ROLE_CODES`): no se lista
+> y el arranque la borra en cuanto queda sin usuarios. Los "Mis …" del menú (agenda, asistencias,
+> licencias) no fijan alcance: quien ve todo conserva lo propio. **La cuenta de Administración no
+> tiene "Mi trabajo"** (es la del sistema) y **Personal ve en el menú sólo "Mi trabajo"**: quien no
+> puede abrir nada más que lo suyo no recibe Inicio ni Configuración (`visibleNavGroups`).
+
+> **Roles / Perfiles muestra lo que la base autoriza.** Lo que fija la política (lo que se apaga, lo
+> que se fuerza y lo que dejó de ser del perfil) llega en `locks` con su motivo y la pantalla no lo
+> deja cambiar; el backend tampoco. La matriz se siembra y se ajusta sólo al arrancar: re-sembrarla
+> en cada `GET /admin/profiles` revertía lo recién guardado. Los perfiles del sistema no se
+> renombran, y los permisos que ninguna ruta consulta (`RETIRED_PERMISSION_CODES`) no se ofrecen.
 
 > **El menú de la libreta depende de quién mira** (`sectionsFor`, `lib/libreta/menu.ts`). Quien
 > supervisa tiene "Visado y seguimiento"; visar no es del docente. La libreta **no tiene sección de
@@ -330,7 +341,8 @@ Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 ter
 
 Mensajes privados 1 a 1 entre todo el personal (`messaging.use`, alcance `own`, en los cinco perfiles),
 al estilo Moodle: ícono al lado de la campana, panel lateral con "Destacados" y "Privado", y la página
-`/mensajes`. Es aparte de los mensajes de cada libreta (`GradeBookMessage`), que siguen allá.
+`/mensajes`. **No va en el menú lateral** (`menu: false` en el catálogo): se entra por el ícono. Es
+aparte de los mensajes viejos de cada libreta (`GradeBookMessage`), que ya no tienen pantalla.
 
 Backend: `routes/messages.ts` y `services/messaging/`. Modelos `Conversation` (`pairKey` único: un par,
 una conversación), `ConversationMember` (`lastReadAt`, `starred`) y `DirectMessage`. Frontend:

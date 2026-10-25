@@ -17,7 +17,6 @@ import { normalizePermissionId } from '../identity/profile-permissions-defaults.
 import {
   createProfileRoleWithPermissions,
   createCustomPermissionForRole,
-  ensureDefaultProfilePermissionsIfNeeded,
   listActiveRolesMetaOrdered,
   listPermissionCatalog,
   loadProfilePermissionsStore,
@@ -28,7 +27,7 @@ import {
 } from '../identity/profile-permissions-repository.js'
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js'
 import { normalizeOrgRoleCode, resolveRoleIdByCode, validateOrgRoleCode } from '../identity/org-role-service.js'
-import { BUILTIN_ORG_ROLE_CODES } from '../identity/org-role-seed.js'
+import { BUILTIN_ORG_ROLE_CODES, RETIRED_ORG_ROLE_CODES } from '../identity/org-role-seed.js'
 import {
   AUDIT_ACTION_LABELS,
   getAuditActionCatalog,
@@ -269,8 +268,10 @@ async function replyProfilePayload(res: { json: (b: unknown) => void }) {
 }
 
 // --- Roles de organización (CRUD liviano para roles custom) ---
+// Los retirados (Inspección) no se listan: el arranque los borra en cuanto quedan sin usuarios.
 r.get('/org-roles', requirePermission('profiles.manage', 'all'), async (_req, res) => {
   const rows = await prisma.orgRole.findMany({
+    where: { code: { notIn: [...RETIRED_ORG_ROLE_CODES] } },
     orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
     select: { id: true, code: true, label: true, builtIn: true, active: true, sortOrder: true },
   })
@@ -319,6 +320,11 @@ r.patch('/org-roles/:code', requirePermission('profiles.manage', 'all'), async (
     if (!existing) return res.status(404).json({ message: 'Rol no encontrado' })
     if (existing.builtIn && parsed.data.active === false) {
       return res.status(403).json({ message: 'No se puede desactivar un rol del sistema.' })
+    }
+    // El arranque vuelve a poner el nombre de cada perfil del sistema: renombrarlo duraba hasta
+    // el próximo deploy. Su nombre es fijo.
+    if (existing.builtIn && parsed.data.label !== undefined && parsed.data.label !== existing.label) {
+      return res.status(403).json({ message: 'Los perfiles del sistema no se renombran.' })
     }
     const row = await prisma.orgRole.update({
       where: { code },
@@ -438,8 +444,9 @@ r.get('/users', requirePermission('users.read', 'all'), async (req, res) => {
 })
 
 // Gestión de perfiles: tabla Permission + RolePermission (por código de OrgRole en la URL).
+// La matriz se siembra y se ajusta a la política una vez, al arrancar (`server.ts`, antes de
+// escuchar). Antes se re-sembraba en cada carga: era lento y revertía lo que se acababa de guardar.
 r.get('/profiles', requirePermission('profiles.manage', 'all'), async (_req, res) => {
-  await ensureDefaultProfilePermissionsIfNeeded()
   return replyProfilePayload(res)
 })
 
@@ -467,7 +474,6 @@ function profileGrantsFromBody(grants: Array<z.infer<typeof profileGrantSchema>>
 }
 
 r.post('/profiles', requirePermission('profiles.manage', 'all'), async (req, res) => {
-  await ensureDefaultProfilePermissionsIfNeeded()
   const parsed = z.object({
     code: z.string().min(2).max(48),
     label: z.string().min(2).max(80),
@@ -505,8 +511,8 @@ r.post('/profiles', requirePermission('profiles.manage', 'all'), async (req, res
 // contra la BD en cada request (requirePermission → userPermissionScope) y en cada
 // GET /auth/me, así que el cambio tiene efecto inmediato. Solo el cambio de rol del
 // usuario invalida sesión, porque ahí sí se cachea `session.role`.
+// Los permisos que fija el sistema (`locks` de cada perfil) se dejan como están.
 r.put('/profiles/:role/permissions', requirePermission('profiles.manage', 'all'), async (req, res) => {
-  await ensureDefaultProfilePermissionsIfNeeded()
   const exists = await resolveActiveOrgRole(req.params.role)
   if (!exists) return res.status(404).json({ message: 'Rol no encontrado' })
 
@@ -540,6 +546,9 @@ r.put('/profiles/:role/permissions/:permissionId', requirePermission('profiles.m
   const roleCode = exists.code
   const result = await updateRolePermissionGrant(roleCode, req.params.permissionId, parsed.data)
   if (!result) return res.status(404).json({ message: 'Permiso no encontrado' })
+  if ('locked' in result) {
+    return res.status(409).json({ message: `Lo fija el sistema: ${result.locked.reason}`, code: 'PERMISSION_LOCKED' })
+  }
   return replyProfilePayload(res)
 })
 
@@ -573,6 +582,9 @@ r.post('/profiles/:role/permissions', requirePermission('profiles.manage', 'all'
   }
   if (created && 'error' in created && created.error === 'EXISTS') {
     return res.status(409).json({ message: 'Ese permiso ya existe para el rol' })
+  }
+  if (created && 'error' in created && created.error === 'LOCKED') {
+    return res.status(409).json({ message: `Lo fija el sistema: ${created.reason}`, code: 'PERMISSION_LOCKED' })
   }
   const rolesMeta = await listActiveRolesMetaOrdered()
   const store = await loadProfilePermissionsStore()

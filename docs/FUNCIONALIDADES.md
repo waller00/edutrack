@@ -39,19 +39,18 @@ EduTrack es una **plataforma de gestión administrativa integral** orientada a i
 
 | Código | Etiqueta habitual | Uso principal |
 |--------|-------------------|---------------|
-| `ADMIN` | Administrador | Gestión completa del sistema |
-| `TEACHER` | Docente | Consulta de propias asistencias, eventos y licencias |
-| `STAFF` | Staff | Igual que docente en módulos “propios” |
-| `ADSCRIPTO` | Adscripto | Control de libretas y observaciones; **no visa** |
-| `DIRECCION` | Dirección | Único rol que **visa** libretas; indicadores académicos |
-| `INSPECCION` | Inspección | Consulta libretas y registra observaciones; **no puede visar ni modificar visados** |
+| `ADMIN` | Administrador | Gestión completa del sistema, **incluida la edición de las libretas**; sin "Mi trabajo" |
+| `TEACHER` | Docente | Su agenda, pase de lista y libretas; sus asistencias y licencias |
+| `STAFF` | Personal | Sólo "Mi trabajo": sus asistencias y sus licencias |
+| `ADSCRIPTO` | Adscripto | Ve todo el centro; observa las libretas, **no las edita ni visa** |
+| `DIRECCION` | Dirección | Ve todo el centro; único rol que **visa** libretas, **no las edita** |
 | `STUDENT` | Estudiante | Rol reconocido en modelo; **sin panel operativo** en home (lista vacía) |
 | Perfiles personalizados | Configurables | Matriz de permisos editable por administrador |
 
-> **Nota:** Los roles built-in de permisos son **ADMIN, TEACHER, STAFF, ADSCRIPTO, DIRECCION e INSPECCION**. `STUDENT` existe en el modelo pero sin panel operativo. No hay rol `PADRE` ni `DOCENTE` (ese era nomenclatura antigua).
+> **Nota:** Los roles built-in de permisos son **ADMIN, TEACHER, STAFF, ADSCRIPTO y DIRECCION**. Inspección se retiró: no se lista y el arranque la borra en cuanto queda sin usuarios. `STUDENT` existe en el modelo pero sin panel operativo. No hay rol `PADRE` ni `DOCENTE` (ese era nomenclatura antigua).
 
 > **Por qué built-in y no perfiles personalizados:** que el visado quede sólo en Dirección y que
-> Inspección no pueda tocarlo es una regla del reglamento, no una preferencia de configuración.
+> nadie más pueda tocarlo es una regla del reglamento, no una preferencia de configuración.
 > Vive en el catálogo de permisos (`gradebook.endorse` sólo lo tiene `DIRECCION`), no en un `if`
 > de una ruta ni en cómo un administrador arme una matriz a mano. La lista canónica está en
 > `backend/src/identity/org-role-seed.ts` y su matriz en `profile-permissions-defaults.ts`.
@@ -73,6 +72,9 @@ Los permisos se expresan como `módulo.acción` con alcance **`own`** (solo lo p
 **Docente y staff (por defecto):** lectura de propias asistencias, eventos, licencias y notificaciones.
 
 Los administradores pueden **crear perfiles personalizados** y asignar permisos adicionales o distintos desde **Roles / Perfiles**.
+Lo que fija el sistema en un perfil del sistema (por ejemplo, que Dirección no califica o que
+Administración edita las libretas) se muestra fijo, con su motivo, y no se puede cambiar; los
+perfiles del sistema tampoco se renombran.
 
 ### 3.3 Ciclo lectivo en contexto admin
 
@@ -423,9 +425,9 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
   dicta qué sólo existe en el horario. Es idempotente, sólo reescribe el titular si cambió, no
   revive libretas archivadas y respeta la oferta del ciclo (un curso no ofertado no genera
   libretas). El resumen avisa las clases sin asignatura o curso, que no generan libreta.
-- **Acceso:** el titular, y por un tiempo el suplente que cubrió alguna de sus clases. Adscripción,
-  Dirección e Inspección leen todas las del centro pero **no** califican: leer y escribir son
-  permisos distintos (`gradebook.read` vs `gradebook.grade`).
+- **Acceso:** el titular, y por un tiempo el suplente que cubrió alguna de sus clases. Adscripción
+  y Dirección leen todas las del centro pero **no** califican: leer y escribir son permisos
+  distintos (`gradebook.read` vs `gradebook.grade`). Administración lee y edita todas.
 - **Acceso del suplente: provisorio y sólo a lo suyo.**
   - Dura desde su primera clase cubierta hasta **7 días después de la última**. Después la libreta
     desaparece de "Mis libretas" y no la puede abrir. La tarjeta y la libreta dicen hasta cuándo.
@@ -437,12 +439,14 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
     y las puede corregir como las suyas.
 - **Calificar y planificar también son permisos distintos.** `gradebook.grade` cubre evaluaciones,
   notas y juicios conceptuales; `gradebook.plan`, la planificación y el desarrollo del curso.
-  **Dirección no tiene ninguno de los dos:** ve la libreta, la visa y le avisa al docente lo que
-  está mal cargado, pero no la edita. Como la autorización lee los permisos de la base, el permiso
-  `plan` que Dirección tenía se apaga solo al arrancar (`REVOKED_PROFILE_PERMISSION_IDS`). Las
-  pantallas lo respetan (`access.canPlan` en `GET /gradebook/:id`). Si administración corrige la
-  planificación de otro, queda en la auditoría (`GRADEBOOK_PLANNING_UPDATED`) y la planificación
-  muestra quién la modificó por última vez. Un registro del desarrollo se corrige en la misma fila
+  **Dirección y Adscripción no tienen ninguno de los dos:** ven la libreta, Dirección la visa y
+  Adscripción la observa, y le avisan al docente lo que está mal cargado, pero no la editan. Como
+  la autorización lee los permisos de la base, esos permisos se les apagan solos al arrancar
+  (`REVOKED_PROFILE_PERMISSION_IDS`). **Administración tiene los dos** (y cierra y reabre
+  períodos): corrige cualquier libreta. Las pantallas lo respetan (`access.canGrade` y
+  `access.canPlan` en `GET /gradebook/:id`). Si administración corrige la planificación de otro,
+  queda en la auditoría (`GRADEBOOK_PLANNING_UPDATED`) y la planificación muestra quién la modificó
+  por última vez. Un registro del desarrollo se corrige en la misma fila
   (`PATCH /gradebook/:id/development/:entryId`); corregirlo y borrarlo quedan auditados.
 - **Pasar lista desde la libreta** ya no tiene pantalla propia: se pasa en `/me/roll-call`. El
   endpoint `PUT /gradebook/:id/absences/day` sigue las mismas reglas (ventana del docente, planilla
@@ -966,7 +970,7 @@ El menú lateral (`UserNav`) muestra cada entrada según **permisos**, no por ro
 | Grupo | Qué tiene |
 |-------|-----------|
 | Inicio | Inicio y la **Guía** (`/guia`) |
-| Mi trabajo | Lo propio: Mi agenda, Pase de lista, Mis libretas, Mis asistencias, Mis licencias |
+| Mi trabajo | Lo propio: Mi agenda, Pase de lista, Mis libretas, Mis asistencias, Mis licencias. No lo tiene la cuenta de Administración; Personal ve sólo este grupo |
 | Personal | Asistencia del personal, Licencias, Agenda y clases, Usuarios, Indicadores del personal |
 | Estudiantes | Estudiantes, Asistencia de estudiantes, Mensualidades |
 | Académico | Ciclos lectivos, Cursos |
@@ -975,6 +979,7 @@ El menú lateral (`UserNav`) muestra cada entrada según **permisos**, no por ro
 
 - **Nombres y descripciones:** salen de un solo catálogo (`frontend/web/src/lib/navigation/modules.ts`),
   que también usan Inicio, el encabezado de cada pantalla (`ModuleHeader`) y la Guía.
+- **Mensajes no va en el menú:** se abre desde el ícono junto a la campana.
 - **Encabezado:** cada pantalla dice de qué grupo es y para qué sirve. Si tiene una pantalla parecida
   con la que se confunde, ofrece el enlace ("¿Buscás las faltas de los estudiantes?").
 - **La Guía:** explica la diferencia entre las dos asistencias y lista sólo lo que la persona

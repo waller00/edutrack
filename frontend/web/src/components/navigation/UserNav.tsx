@@ -290,9 +290,11 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     if (!me) return
     setOpenGroups((current) => {
       const next = { ...current }
-      for (const group of visibleGroups(me)) {
+      const list = visibleGroups(me)
+      for (const group of list) {
         const active = group.modules.some((item) => pathIsActive(pathname, item.href))
-        if (active || next[group.title] == null) next[group.title] = active || group.title === 'Inicio'
+        // Con un solo grupo (Personal: "Mi trabajo") no hay nada que elegir: arranca abierto.
+        if (active || next[group.title] == null) next[group.title] = active || group.title === 'Inicio' || list.length === 1
       }
       return next
     })
@@ -435,7 +437,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
               )
             }
             const groupActive = group.modules.some((item) => pathIsActive(pathname, item.href))
-            const expanded = openGroups[group.title] ?? (groupActive || group.title === 'Inicio')
+            const expanded = openGroups[group.title] ?? (groupActive || group.title === 'Inicio' || groups.length === 1)
             return (
               <SidebarGroup
                 key={group.title}

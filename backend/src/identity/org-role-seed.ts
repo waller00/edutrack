@@ -17,19 +17,31 @@ export const BUILTIN_ORG_ROLE_ROWS = [
 export const BUILTIN_ORG_ROLE_CODES: readonly string[] = BUILTIN_ORG_ROLE_ROWS.map((r) => r.code)
 
 /**
- * Perfiles del sistema que el liceo dejó de usar. Se desactivan (sus usuarios quedan sin permisos
- * hasta que administración les asigne otro) y pasan a personalizados para poder eliminarlos desde
- * Perfiles una vez sin usuarios. No se borran: `User.roleId` es `Restrict` y visados y mensajes
- * guardan el código.
+ * Perfiles que el liceo dejó de usar. No se listan en Roles / Perfiles ni en Usuarios. Al arrancar,
+ * uno sin usuarios se borra (sus permisos caen en cascada); con usuarios queda inactivo, ellos sin
+ * permisos hasta que administración los reasigne, y se borra en el arranque siguiente. Visados y
+ * mensajes guardan el código como texto, así que borrar el rol no los toca.
  */
 export const RETIRED_ORG_ROLE_CODES: readonly string[] = ['INSPECCION']
 
-export async function ensureBuiltinOrgRoles(): Promise<void> {
-  // Sólo los que todavía figuran como del sistema: si después un admin lo reactiva, no se pisa.
-  await prisma.orgRole.updateMany({
-    where: { code: { in: [...RETIRED_ORG_ROLE_CODES] }, builtIn: true },
-    data: { active: false, builtIn: false },
+async function retireOrgRoles(): Promise<void> {
+  const roles = await prisma.orgRole.findMany({
+    where: { code: { in: [...RETIRED_ORG_ROLE_CODES] } },
+    select: { id: true, code: true, _count: { select: { users: true } } },
   })
+  for (const role of roles) {
+    if (role._count.users === 0) {
+      await prisma.orgRole.delete({ where: { id: role.id } })
+      continue
+    }
+    // `User.roleId` es `Restrict`: mientras tenga usuarios, el rol queda apagado.
+    await prisma.orgRole.update({ where: { id: role.id }, data: { active: false, builtIn: false } })
+    console.warn(`[roles] ${role.code} está retirado y tiene ${role._count.users} usuario(s) para reasignar`)
+  }
+}
+
+export async function ensureBuiltinOrgRoles(): Promise<void> {
+  await retireOrgRoles()
   for (const r of BUILTIN_ORG_ROLE_ROWS) {
     await prisma.orgRole.upsert({
       where: { code: r.code },

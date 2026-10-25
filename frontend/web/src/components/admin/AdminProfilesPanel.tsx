@@ -35,10 +35,19 @@ type ProfilePermission = PermissionCatalogItem & {
   scope: PermissionScope
 }
 
+/** Un permiso que fija el sistema en ese perfil: se muestra con su motivo y no se puede cambiar. */
+type PermissionLock = {
+  enabled: boolean
+  scope: PermissionScope | null
+  reason: string
+}
+
 type Profile = {
   role: string
   label: string
+  builtIn?: boolean
   permissions: ProfilePermission[]
+  locks?: Record<string, PermissionLock>
 }
 
 type ProfilesResponse = {
@@ -128,12 +137,14 @@ function buildDraft(
   return Object.fromEntries(
     catalog.map((permission) => {
       const current = assigned.get(permission.id)
+      // Lo que fija el sistema se muestra como queda en la base después de cada arranque.
+      const lock = profile.locks?.[permission.id]
       return [
         permission.id,
         {
           id: permission.id,
-          enabled: current?.enabled ?? false,
-          scope: current?.scope ?? 'own',
+          enabled: lock ? lock.enabled : (current?.enabled ?? false),
+          scope: lock?.scope ?? current?.scope ?? 'own',
           label: current?.label ?? defaultLabel(permission),
         },
       ]
@@ -317,6 +328,7 @@ export default function AdminProfilesPanel({
     ? (roleMeta[selectedProfile.role]?.active ?? true)
     : false
   const draft = selectedProfile ? (drafts[selectedProfile.role] ?? {}) : {}
+  const locks = selectedProfile?.locks ?? {}
   const activePermissions = Object.values(draft).filter(
     (permission) => permission.enabled,
   )
@@ -391,7 +403,9 @@ export default function AdminProfilesPanel({
     if (!selectedProfile) return
     const role = selectedProfile.role
     const ids = new Set(
-      groupedCatalog[module].map((permission) => permission.id),
+      groupedCatalog[module]
+        .map((permission) => permission.id)
+        .filter((id) => !locks[id]),
     )
     setDrafts((current) => ({
       ...current,
@@ -423,7 +437,10 @@ export default function AdminProfilesPanel({
         `/admin/profiles/${role}/permissions`,
         {
           method: 'PUT',
-          body: JSON.stringify({ permissions: Object.values(draft) }),
+          // Lo que fija el sistema no se manda: el backend lo deja como está.
+          body: JSON.stringify({
+            permissions: Object.values(draft).filter((item) => !locks[item.id]),
+          }),
         },
       )
       applyProfiles(data, role)
@@ -536,6 +553,12 @@ export default function AdminProfilesPanel({
 
   function renderPermission(permission: PermissionCatalogItem) {
     const item = draft[permission.id]
+    const lock = locks[permission.id]
+    const lockNote = lock ? (
+      <span className="mt-0.5 block text-xs text-slate-500">
+        Fijado por el sistema: {lock.reason}
+      </span>
+    ) : null
     return (
       <div
         key={permission.id}
@@ -546,14 +569,14 @@ export default function AdminProfilesPanel({
             id={`grant-${selectedRole}-${permission.id}`}
             type="checkbox"
             checked={item?.enabled ?? false}
-            disabled={busy}
+            disabled={busy || Boolean(lock)}
             onChange={(event) =>
               updateDraft(permission.id, { enabled: event.target.checked })
             }
-            className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+            className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-60"
             aria-label={`Activar ${permission.id}`}
           />
-          {editLabels ? (
+          {editLabels && !lock ? (
             <div className="min-w-0 flex-1">
               <input
                 value={item?.label ?? defaultLabel(permission)}
@@ -572,15 +595,16 @@ export default function AdminProfilesPanel({
           ) : (
             <label
               htmlFor={`grant-${selectedRole}-${permission.id}`}
-              className="min-w-0 flex-1 cursor-pointer text-sm text-slate-800"
+              className={`min-w-0 flex-1 text-sm text-slate-800 ${lock ? '' : 'cursor-pointer'}`}
             >
               {item?.label ?? defaultLabel(permission)}
+              {lockNote}
             </label>
           )}
         </div>
         <select
           value={item?.scope ?? 'own'}
-          disabled={busy || !item?.enabled}
+          disabled={busy || !item?.enabled || Boolean(lock)}
           onChange={(event) =>
             updateDraft(permission.id, {
               scope: event.target.value as PermissionScope,
@@ -1047,6 +1071,13 @@ export default function AdminProfilesPanel({
                           const enabledCount = allItems.filter(
                             (permission) => draft[permission.id]?.enabled,
                           ).length
+                          // "Activar todo el módulo" mueve sólo lo editable: lo fijo queda como está.
+                          const editableItems = allItems.filter(
+                            (permission) => !locks[permission.id],
+                          )
+                          const editableEnabled = editableItems.filter(
+                            (permission) => draft[permission.id]?.enabled,
+                          ).length
                           return (
                             <details
                               key={`${selectedProfile.role}-${module}`}
@@ -1074,17 +1105,20 @@ export default function AdminProfilesPanel({
                                 </span>
                               </summary>
                               <div className="border-t border-slate-100">
-                                {!query && (
+                                {!query && editableItems.length > 0 && (
                                   <label className="flex min-h-11 items-center gap-2 bg-slate-50 px-4 py-2 text-xs font-medium text-slate-600">
                                     <input
                                       type="checkbox"
-                                      checked={enabledCount === allItems.length}
+                                      checked={
+                                        editableEnabled === editableItems.length
+                                      }
                                       disabled={busy}
                                       ref={(el) =>
                                         applyIndeterminate(
                                           el,
-                                          enabledCount > 0 &&
-                                            enabledCount < allItems.length,
+                                          editableEnabled > 0 &&
+                                            editableEnabled <
+                                              editableItems.length,
                                         )
                                       }
                                       onChange={(event) =>
@@ -1148,79 +1182,83 @@ export default function AdminProfilesPanel({
                   title="Opciones del perfil"
                   description="Nombre, estado y otras acciones."
                 >
-                  {selectedDirty && (
+                  {selectedDirty && !selectedBuiltIn && (
                     <p className="text-sm text-amber-800">
                       Guardá o deshacé los cambios de permisos antes de
                       modificar el perfil.
                     </p>
                   )}
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      void roleAction('rename')
-                    }}
-                    className="space-y-2"
-                  >
-                    <label
-                      htmlFor="profile-rename-input"
-                      className="block text-sm font-medium text-slate-700"
-                    >
-                      Nombre del perfil
-                    </label>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <input
-                        id="profile-rename-input"
-                        value={renameDraft}
-                        required
-                        minLength={2}
-                        maxLength={80}
-                        disabled={busy || selectedDirty}
-                        onChange={(event) => setRenameDraft(event.target.value)}
-                        className="input-field text-sm"
-                        aria-label="Nuevo nombre del perfil"
-                      />
-                      <button
-                        type="submit"
-                        disabled={
-                          busy ||
-                          selectedDirty ||
-                          renameDraft.trim().length < 2 ||
-                          renameDraft.trim() === selectedProfile.label
-                        }
-                        className="btn-secondary shrink-0 disabled:opacity-50"
-                      >
-                        Guardar nombre
-                      </button>
-                    </div>
-                  </form>
                   {selectedBuiltIn ? (
-                    <p className="text-xs text-slate-500">
-                      Los perfiles del sistema no se pueden desactivar ni
-                      eliminar.
+                    <p className="text-sm text-slate-600">
+                      Los perfiles del sistema no se renombran, desactivan ni
+                      eliminan. Sus permisos fijos dicen por qué lo son.
                     </p>
                   ) : (
-                    <div className="flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row">
-                      <button
-                        type="button"
-                        disabled={busy || selectedDirty}
-                        onClick={() => roleAction('toggle')}
-                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    <>
+                      <form
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          void roleAction('rename')
+                        }}
+                        className="space-y-2"
                       >
-                        <Power className="h-4 w-4" aria-hidden />
-                        {selectedActive
-                          ? 'Desactivar perfil'
-                          : 'Activar perfil'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy || selectedDirty}
-                        onClick={() => roleAction('delete')}
-                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        <Trash2 className="h-4 w-4" aria-hidden />
-                        Eliminar perfil
-                      </button>
-                    </div>
+                        <label
+                          htmlFor="profile-rename-input"
+                          className="block text-sm font-medium text-slate-700"
+                        >
+                          Nombre del perfil
+                        </label>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <input
+                            id="profile-rename-input"
+                            value={renameDraft}
+                            required
+                            minLength={2}
+                            maxLength={80}
+                            disabled={busy || selectedDirty}
+                            onChange={(event) =>
+                              setRenameDraft(event.target.value)
+                            }
+                            className="input-field text-sm"
+                            aria-label="Nuevo nombre del perfil"
+                          />
+                          <button
+                            type="submit"
+                            disabled={
+                              busy ||
+                              selectedDirty ||
+                              renameDraft.trim().length < 2 ||
+                              renameDraft.trim() === selectedProfile.label
+                            }
+                            className="btn-secondary shrink-0 disabled:opacity-50"
+                          >
+                            Guardar nombre
+                          </button>
+                        </div>
+                      </form>
+                      <div className="flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row">
+                        <button
+                          type="button"
+                          disabled={busy || selectedDirty}
+                          onClick={() => roleAction('toggle')}
+                          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          <Power className="h-4 w-4" aria-hidden />
+                          {selectedActive
+                            ? 'Desactivar perfil'
+                            : 'Activar perfil'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy || selectedDirty}
+                          onClick={() => roleAction('delete')}
+                          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                          Eliminar perfil
+                        </button>
+                      </div>
+                    </>
                   )}
                 </SettingsDetails>
               </section>

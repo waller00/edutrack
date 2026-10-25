@@ -108,12 +108,13 @@ export function isSubstituteAccessOpen(span: SubstitutionSpan, now = new Date())
 /**
  * Resuelve el acceso combinando el alcance del permiso con el vínculo real con la libreta.
  *
- * `scope === 'all'` (administración, adscripción, dirección, inspección) siempre lee, pero **no**
- * califica por eso: escribir notas exige `gradebook.grade`, que esos roles no tienen. Separar las
- * dos preguntas evita que un rol de supervisión termine escribiendo por tener alcance amplio.
+ * `scope === 'all'` (administración, adscripción, dirección) siempre lee, pero **no** califica por
+ * eso: escribir notas exige además `gradebook.grade` con alcance `all`. Separar las dos preguntas
+ * evita que un rol de supervisión termine escribiendo por tener alcance amplio.
  *
- * Planificar se resuelve igual pero con su propio permiso (`gradebook.plan`). Dirección no tiene
- * ninguno de los dos: entra a cualquier libreta, la lee y la visa, pero no la edita.
+ * Planificar se resuelve igual pero con su propio permiso (`gradebook.plan`). Administración tiene
+ * los dos y corrige cualquier libreta; Dirección y Adscripción no tienen ninguno: entran a cualquier
+ * libreta, la leen y la visan u observan, pero no la editan.
  */
 export async function resolveGradeBookAccess(
   params: {

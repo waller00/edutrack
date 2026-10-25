@@ -26,7 +26,8 @@ export function resolveGradeEditPermissions(params: {
   gradeScope: 'own' | 'all' | null
   /**
    * ¿Tiene `gradebook.manage`? Habilita escribir fuera de plazo, pero sólo a quien además califica:
-   * Administración tiene `manage` (para reabrir períodos) y no `gradebook.grade`, así que no edita.
+   * Administración tiene los dos, así que corrige fuera de plazo (auditado). Dirección y Adscripción
+   * no tienen ninguno: ven la libreta, no la editan.
    */
   canManage: boolean
   /** Titular o suplente de la libreta. */

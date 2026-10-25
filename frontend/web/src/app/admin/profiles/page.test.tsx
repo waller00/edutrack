@@ -228,6 +228,86 @@ describe('AdminProfilesPanel', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('no ofrece renombrar un perfil del sistema: el arranque le vuelve a poner su nombre', async () => {
+    render(<AdminProfilesPanel />)
+    await screen.findByText('Roles / Perfiles')
+    fireEvent.click(screen.getByText('Opciones del perfil'))
+    expect(
+      screen.queryByLabelText('Nuevo nombre del perfil'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/no se renombran, desactivan ni eliminan/),
+    ).toBeInTheDocument()
+  })
+
+  it('un permiso fijo se ve con su motivo, no se puede cambiar y no viaja al guardar', async () => {
+    const withLocks = {
+      ...response,
+      roles: response.roles.map((role) =>
+        role.role === 'ADMIN'
+          ? {
+              ...role,
+              locks: {
+                'attendance.read': {
+                  enabled: true,
+                  scope: 'all',
+                  reason: 'Administración ve todo.',
+                },
+              },
+            }
+          : role,
+      ),
+    }
+    mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/admin/org-roles') return orgRoles as never
+      if (url === '/admin/profiles' && method === 'GET') return withLocks as never
+      if (String(url).includes('/permissions') && method === 'PUT')
+        return withLocks as never
+      return {} as never
+    })
+
+    render(<AdminProfilesPanel />)
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Configurar Administrador' }),
+    )
+    fireEvent.click(screen.getByText('Asistencias'))
+    const locked = screen.getByRole('checkbox', {
+      name: 'Activar attendance.read',
+    })
+    expect(locked).toBeChecked()
+    expect(locked).toBeDisabled()
+    expect(
+      screen.getByText('Fijado por el sistema: Administración ve todo.'),
+    ).toBeVisible()
+    // Con todo lo editable del módulo fijo, no hay "Activar todo el módulo".
+    expect(
+      screen.queryByRole('checkbox', {
+        name: 'Activar todo el módulo Asistencias',
+      }),
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Reportes'))
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Activar reportes.read' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith(
+        '/admin/profiles/ADMIN/permissions',
+        expect.objectContaining({ method: 'PUT' }),
+      ),
+    )
+    const put = mockedApi.mock.calls.find(
+      ([url, init]) =>
+        url === '/admin/profiles/ADMIN/permissions' && init?.method === 'PUT',
+    )
+    const sent = JSON.parse(String(put?.[1]?.body)).permissions as {
+      id: string
+    }[]
+    expect(sent.map((item) => item.id)).toEqual(['reportes.read'])
+  })
+
   it('busca perfiles y permite limpiar una búsqueda sin resultados', async () => {
     render(<AdminProfilesPanel />)
     await screen.findByRole('button', { name: 'Configurar Docente' })

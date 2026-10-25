@@ -602,7 +602,7 @@ describe('PUT /:id/assessments/:assessmentId/grades', () => {
     expect(saveGradesMock).not.toHaveBeenCalled()
   })
 
-  it('administración no carga notas en la libreta del docente: no tiene gradebook.grade', async () => {
+  it('administración carga notas en la libreta del docente: tiene gradebook.grade', async () => {
     scopeMock.mockResolvedValue('all')
 
     const res = await request(app())
@@ -610,7 +610,20 @@ describe('PUT /:id/assessments/:assessmentId/grades', () => {
       .set('Authorization', `Bearer ${tok('ADMIN', 'a-1')}`)
       .send({ entries, reason: 'reclamo del estudiante' })
 
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(200)
+    expect(saveGradesMock).toHaveBeenCalled()
+  })
+
+  it('dirección y adscripción no cargan notas: no tienen gradebook.grade', async () => {
+    scopeMock.mockResolvedValue('all')
+
+    for (const role of ['DIRECCION', 'ADSCRIPTO']) {
+      const res = await request(app())
+        .put(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
+        .set('Authorization', `Bearer ${tok(role, `${role}-1`)}`)
+        .send({ entries, reason: 'reclamo del estudiante' })
+      expect(res.status, role).toBe(403)
+    }
     expect(saveGradesMock).not.toHaveBeenCalled()
   })
 
@@ -1536,7 +1549,7 @@ describe('ciclo archivado (RF-110, RF-111)', () => {
   })
 })
 
-describe('dirección: ve la libreta pero no la edita', () => {
+describe('supervisión: Dirección y Adscripción ven la libreta pero no la editan', () => {
   const STUDENT_ID = '99999999-9999-4999-8999-999999999999'
   const DIR = () => tok('DIRECCION', 'd-1')
 
@@ -1640,17 +1653,37 @@ describe('dirección: ve la libreta pero no la edita', () => {
     expect(development.body.canEdit).toBe(false)
   })
 
-  it('administración tampoco edita la planificación del docente', async () => {
+  it('adscripción tampoco edita la planificación ni crea evaluaciones', async () => {
+    asDireccion()
+    const ADS = tok('ADSCRIPTO', 'a-1')
+
+    const planning = await request(app())
+      .put(`/gradebook/${GB_ID}/planning`)
+      .set('Authorization', `Bearer ${ADS}`)
+      .send({ formative: 'Ajuste' })
+    const assessment = await request(app())
+      .post(`/gradebook/${GB_ID}/assessments`)
+      .set('Authorization', `Bearer ${ADS}`)
+      .send({ periodId: PERIOD_ID, date: '2026-05-10', title: 'Escrito', gradingScaleId: SCALE_ID })
+
+    expect(planning.status).toBe(403)
+    expect(assessment.status).toBe(403)
+    expect(prismaMock.gradeBookPlanning.upsert).not.toHaveBeenCalled()
+    expect(prismaMock.assessment.create).not.toHaveBeenCalled()
+  })
+
+  it('administración sí edita la planificación del docente, y queda auditado', async () => {
     prismaMock.gradeBook.findUnique.mockResolvedValue({ ...ROW, teacherUserId: 'otro-docente' })
-    accessMock.mockResolvedValue({ level: 'SUPERVISION', canRead: true, canGrade: false, canPlan: false })
+    accessMock.mockResolvedValue({ level: 'SUPERVISION', canRead: true, canGrade: true, canPlan: true })
+    prismaMock.gradeBookPlanning.upsert.mockResolvedValue({ gradeBookId: GB_ID })
 
     const res = await request(app())
       .put(`/gradebook/${GB_ID}/planning`)
       .set('Authorization', `Bearer ${tok('ADMIN', 'admin-1')}`)
       .send({ formative: 'Ajuste' })
 
-    expect(res.status).toBe(403)
-    expect(prismaMock.gradeBookPlanning.upsert).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    expect(prismaMock.gradeBookPlanning.upsert).toHaveBeenCalled()
   })
 
   it('el docente sigue pudiendo las dos cosas', async () => {

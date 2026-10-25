@@ -368,6 +368,35 @@ describe("admin routes (prisma mock)", () => {
       );
     });
 
+    it("GET /admin/profiles no re-siembra la matriz: eso es del arranque", async () => {
+      // Re-sembrar en cada carga era lento y revertía lo recién guardado (permisos y nombres).
+      const res = await request(app()).get("/admin/profiles").set(adminHdr());
+      expect(res.status).toBe(200);
+      expect(prismaMock.permission.upsert).not.toHaveBeenCalled();
+      expect(prismaMock.rolePermission.updateMany).not.toHaveBeenCalled();
+      expect(prismaMock.orgRole.upsert).not.toHaveBeenCalled();
+    });
+
+    it("GET /admin/profiles dice qué permisos fija el sistema en cada perfil", async () => {
+      const res = await request(app()).get("/admin/profiles").set(adminHdr());
+      const admin = res.body.roles.find((role: { role: string }) => role.role === "ADMIN");
+      expect(admin.locks["gradebook.grade"]).toEqual({
+        enabled: true,
+        scope: "all",
+        reason: "Administración edita todo, también las libretas.",
+      });
+    });
+
+    it("PUT /admin/profiles/:role/permissions/:id 409 si el permiso lo fija el sistema", async () => {
+      const res = await request(app())
+        .put("/admin/profiles/ADMIN/permissions/gradebook.grade")
+        .set(adminHdr())
+        .send({ enabled: false });
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("PERMISSION_LOCKED");
+      expect(prismaMock.rolePermission.update).not.toHaveBeenCalled();
+    });
+
     it("PUT /admin/profiles/:role/permissions/:id actualiza la matriz sin tocar usuarios", async () => {
       const snapshot = structuredClone(rowsFromDefaultProfileMatrix());
       const teacherRead = snapshot.find((r) => r.orgRole.code === "TEACHER" && r.permission.code === "attendance.read");
@@ -1012,6 +1041,8 @@ describe("admin routes (prisma mock)", () => {
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(2);
       expect(res.body[1].code).toBe("COORD");
+      // Inspección se retiró: no se lista aunque todavía exista en la base.
+      expect(prismaMock.orgRole.findMany.mock.calls[0][0].where).toEqual({ code: { notIn: ["INSPECCION"] } });
     });
 
     it("POST 400 body inválido", async () => {
@@ -1061,6 +1092,14 @@ describe("admin routes (prisma mock)", () => {
       prismaMock.orgRole.findUnique.mockResolvedValueOnce({ id: "rid-ADMIN", code: "ADMIN", builtIn: true });
       const res = await request(app()).patch("/admin/org-roles/ADMIN").set(adminHdr()).send({ active: false });
       expect(res.status).toBe(403);
+    });
+
+    it("PATCH 403 no renombrar un perfil del sistema", async () => {
+      // El arranque le vuelve a poner su nombre: renombrarlo duraba hasta el próximo deploy.
+      prismaMock.orgRole.findUnique.mockResolvedValueOnce({ id: "rid-DIRECCION", code: "DIRECCION", label: "Dirección", builtIn: true });
+      const res = await request(app()).patch("/admin/org-roles/DIRECCION").set(adminHdr()).send({ label: "Directora" });
+      expect(res.status).toBe(403);
+      expect(prismaMock.orgRole.update).not.toHaveBeenCalled();
     });
 
     it("PATCH 200 actualiza label", async () => {
