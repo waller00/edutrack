@@ -46,7 +46,7 @@ resolve_container() {
     docker ps -q --no-trunc --filter "id=$id" | head -n1
     return
   fi
-  docker ps --filter "ancestor=docker.io/bitnamilegacy/moodle:5.0.2" --format '{{.ID}}' | head -n1
+  docker ps --filter "label=com.docker.compose.service=moodle" --format '{{.ID}}' | head -n1
 }
 
 echo "== 1/2 Keycloak: client OIDC moodle =="

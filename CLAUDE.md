@@ -168,6 +168,14 @@ Detalle completo: [docs/MOODLE_INTEGRACION.md](docs/MOODLE_INTEGRACION.md)
 > **El SSO de Moodle no crea cuentas** (`authpreventaccountcreation`, en
 > `scripts/moodle-config-keycloak-sso.php`): sólo entra a las que creó el sync, vinculadas por
 > correo. Una cuenta de Keycloak sin aprobar en EduTrack no tiene que poder abrirse una en Moodle.
+> El método `none` ("Sin autenticación") nunca se activa: acepta cualquier contraseña y crea la
+> cuenta que no existe.
+
+> **El PHP de Moodle lo pone `moodlehq/moodle-php-apache`, no Bitnami.** `bitnamilegacy/moodle`
+> quedó congelada en agosto de 2025 y no recibió el parche de PHP2Shell (CVE-2026-109618/109619).
+> El código sigue en el volumen `/bitnami/moodle` (lo instaló Bitnami) y la config de Apache y PHP
+> está en `moodle/runtime/`. El deploy no toca Moodle: tras un parche de PHP se hace `pull` y
+> `up -d moodle` a mano en el servidor.
 
 ---
 
@@ -405,6 +413,6 @@ Variables Moodle relevantes:
 
 - Dominio: https://edutrack-uy.com/
 - Compose cloud: `docker-compose.cloud.yml`
-- Moodle en servidor aparte: https://moodle.edutrack-uy.com (Bitnami, `docker-compose.moodle.yml`)
+- Moodle en el mismo droplet: https://moodle.edutrack-uy.com (`docker-compose.moodle.yml`, fuera del deploy automático)
 - Observabilidad: Sentry (backend + frontend), Grafana + Loki (`docker-compose.monitoring.yml`)
 - Proxy: Cloudflare (SSL termination)

@@ -152,9 +152,32 @@ Activá el protocolo **REST** y generá el token (ver cabecera de `docker-compos
 
 ## Despliegue en VPS (producción)
 
-Moodle corre en un servidor aparte con `docker-compose.moodle.yml` (Bitnami). Si al abrir
-`https://moodle.edutrack-uy.com` te redirige a `localhost:8080`, el `config.php` quedó con el
-`wwwroot` de desarrollo.
+Moodle corre en el mismo droplet que EduTrack con `docker-compose.moodle.yml`, fuera del deploy
+automático. Si al abrir `https://moodle.edutrack-uy.com` te redirige a `localhost:8080`, el
+`config.php` quedó con el `wwwroot` de desarrollo.
+
+### PHP de Moodle
+
+Desde el 25/10/2026 el PHP lo pone `moodlehq/moodle-php-apache:8.3`, la imagen de Moodle HQ, que se
+reconstruye con cada versión de PHP. `bitnamilegacy/moodle` quedó congelada en agosto de 2025
+(PHP 8.2.29) y nunca recibió el parche de PHP2Shell (CVE-2026-109618/109619). El código de Moodle
+sigue en el volumen `/bitnami/moodle`, el que instaló Bitnami. La configuración de Apache (puerto
+8080, bloqueos de `vendor/`, `.git`, etc.) y la de PHP están en `moodle/runtime/`. El cron lo corre
+el crontab del host con `docker exec`.
+
+Cuando PHP saca un parche de seguridad, en el servidor:
+
+```bash
+cd /root/edutrack
+CF="-f docker-compose.yml -f docker-compose.moodle.yml -f docker-compose.proxy.yml \
+    -f docker-compose.close-ports.prod.yml -f docker-compose.close-ports.moodle.prod.yml \
+    --env-file .env --env-file .env.moodle"
+docker compose $CF pull moodle && docker compose $CF up -d --no-deps moodle
+docker exec edutrack-moodle-1 php -v | head -1
+```
+
+Sin `docker-compose.close-ports.moodle.prod.yml`, el contenedor publica 8080/8443 en todas las
+interfaces, y Docker saltea UFW.
 
 1. Variables de Moodle en un archivo **aparte** (no pisar el `.env` de producción de EduTrack):
    [`docs/moodle.env.example`](moodle.env.example) → `.env.moodle` en el VPS.
@@ -165,7 +188,7 @@ Moodle corre en un servidor aparte con `docker-compose.moodle.yml` (Bitnami). Si
    git pull
    # NUNCA: cp ... .env  (sobrescribe el .env principal de EduTrack)
    cp -n docs/moodle.env.example .env.moodle   # -n = no sobrescribir si ya existe
-   docker compose -f docker-compose.moodle.yml --env-file .env.moodle up -d --force-recreate moodle
+   docker compose -f docker-compose.moodle.yml -f docker-compose.close-ports.moodle.prod.yml --env-file .env.moodle up -d --force-recreate moodle
    MOODLE_PUBLIC_URL=https://moodle.edutrack-uy.com MOODLE_ENV_FILE=.env.moodle ./scripts/moodle-apply-edutrack-theme.sh
    ```
 
@@ -299,5 +322,5 @@ plugins, fija `theme=edutrack` y limpia cachés. Si sólo tocás SCSS/visual, al
 nuevo o, como mínimo:
 
 ```bash
-docker exec -u daemon <contenedor-moodle> php /opt/bitnami/moodle/admin/cli/purge_caches.php
+docker exec -u daemon <contenedor-moodle> php /bitnami/moodle/admin/cli/purge_caches.php
 ```

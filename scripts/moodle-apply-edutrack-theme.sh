@@ -24,7 +24,7 @@ resolve_container() {
   local id
   id="$("${COMPOSE[@]}" ps -q moodle 2>/dev/null || true)"
   [[ -n "$id" ]] && docker ps -q --filter "id=$id" | head -n1 && return
-  docker ps --filter "ancestor=docker.io/bitnamilegacy/moodle:5.0.2" --format '{{.ID}}' | head -n1
+  docker ps --filter "label=com.docker.compose.service=moodle" --format '{{.ID}}' | head -n1
 }
 
 CONTAINER="$(resolve_container)"
@@ -35,39 +35,22 @@ fi
 
 echo "Contenedor Moodle: $CONTAINER"
 
-resolve_moodle_dir() {
-  if docker exec "$CONTAINER" test -f /bitnami/moodle/admin/cli/cfg.php 2>/dev/null; then
-    echo "/bitnami/moodle"
-    return
-  fi
-  if docker exec "$CONTAINER" test -f /opt/bitnami/moodle/admin/cli/cfg.php 2>/dev/null; then
-    echo "/opt/bitnami/moodle"
-    return
-  fi
-}
+# El código vive en el volumen /bitnami/moodle con las dos imágenes (Bitnami lo enlaza desde
+# /opt/bitnami/moodle; moodlehq/moodle-php-apache lo sirve directo).
+MOODLE_DIR=/bitnami/moodle
 
 echo "Esperando config.php de Moodle..."
 for i in $(seq 1 90); do
-  if docker exec "$CONTAINER" test -f /opt/bitnami/moodle/config.php 2>/dev/null; then
-    break
-  fi
-  if docker exec "$CONTAINER" test -f /bitnami/moodle/config.php 2>/dev/null; then
-    docker exec -u root "$CONTAINER" ln -sf /bitnami/moodle/config.php /opt/bitnami/moodle/config.php 2>/dev/null || true
+  if docker exec "$CONTAINER" test -f "$MOODLE_DIR/config.php" 2>/dev/null; then
     break
   fi
   sleep 2
 done
 
-if ! docker exec "$CONTAINER" test -f /opt/bitnami/moodle/config.php 2>/dev/null; then
-  echo "Moodle todavia no tiene /opt/bitnami/moodle/config.php." >&2
+if ! docker exec "$CONTAINER" test -f "$MOODLE_DIR/admin/cli/cfg.php" 2>/dev/null \
+  || ! docker exec "$CONTAINER" test -f "$MOODLE_DIR/config.php" 2>/dev/null; then
+  echo "Moodle todavia no tiene $MOODLE_DIR/config.php." >&2
   echo "Revisa logs: ${COMPOSE[*]} logs --tail=80 moodle" >&2
-  exit 1
-fi
-
-MOODLE_DIR="$(resolve_moodle_dir)"
-if [[ -z "$MOODLE_DIR" ]]; then
-  echo "No se encontro el CLI de Moodle dentro del contenedor." >&2
-  echo "Revisa si existe /bitnami/moodle/admin/cli/cfg.php o /opt/bitnami/moodle/admin/cli/cfg.php." >&2
   exit 1
 fi
 echo "Directorio Moodle: $MOODLE_DIR"

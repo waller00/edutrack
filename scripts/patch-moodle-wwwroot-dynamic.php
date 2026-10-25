@@ -5,7 +5,7 @@
  * en la red Docker sin redirecciones a localhost dentro del contenedor auth.
  *
  * Copiar al contenedor y ejecutar: docker cp scripts/patch-moodle-wwwroot-dynamic.php edutrack-moodle-1:/tmp/p.php && docker exec edutrack-moodle-1 php /tmp/p.php
- * Luego: docker exec edutrack-moodle-1 php /opt/bitnami/moodle/admin/cli/purge_caches.php
+ * Luego: docker exec edutrack-moodle-1 php /bitnami/moodle/admin/cli/purge_caches.php
  */
 $configFile = '/bitnami/moodle/config.php';
 $t = file_get_contents($configFile);

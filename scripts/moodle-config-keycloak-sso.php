@@ -189,6 +189,9 @@ moodle_sso_replace_endpoints($issuerId, $discovery, $publicOrigin, $internalOrig
 moodle_sso_replace_field_mappings($issuerId);
 
 $authMethods = array_values(array_filter(array_map('trim', explode(',', (string) get_config('core', 'auth')))));
+// "none" ("Sin autenticación") acepta cualquier contraseña y crea la cuenta del usuario que no
+// existe: así se abrieron jorge.marrero y zap en producción. Nunca queda activo.
+$authMethods = array_values(array_diff($authMethods, ['none']));
 if (!in_array('oauth2', $authMethods, true)) {
     array_unshift($authMethods, 'oauth2');
 }

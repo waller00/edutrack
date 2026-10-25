@@ -28,7 +28,7 @@ resolve_container() {
     docker ps -q --no-trunc --filter "id=$id" | head -n1
     return
   fi
-  docker ps --filter "ancestor=docker.io/bitnamilegacy/moodle:5.0.2" --format '{{.Names}}' | head -n1
+  docker ps --filter "label=com.docker.compose.service=moodle" --format '{{.Names}}' | head -n1
 }
 
 CONTAINER="$(resolve_container)"

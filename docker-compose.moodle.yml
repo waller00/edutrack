@@ -107,12 +107,24 @@ services:
       - moodle-net
 
   moodle:
-    image: docker.io/bitnamilegacy/moodle:5.0.2
+    # El PHP lo pone moodlehq/moodle-php-apache, la imagen de Moodle HQ que se reconstruye con cada
+    # versión de PHP. bitnamilegacy/moodle quedó congelada en agosto de 2025 (PHP 8.2.29) y no recibió
+    # el parche de PHP2Shell (CVE-2026-109618/109619). El código de Moodle vive en `moodle_app_data`
+    # (lo instaló Bitnami) y se sirve con las mismas rutas /bitnami/*: config.php y los scripts no cambian.
+    # Instalación desde cero (volúmenes vacíos): una vez con
+    #   MOODLE_IMAGE=docker.io/bitnamilegacy/moodle:5.0.2 docker compose -f docker-compose.moodle.yml up -d
+    # y después `up -d` sin la variable. Las variables MOODLE_* de abajo sólo las lee ese instalador.
+    # El cron de Moodle lo corre el host (crontab: docker exec ... admin/cli/cron.php): esta imagen no trae cron.
+    image: ${MOODLE_IMAGE:-docker.io/moodlehq/moodle-php-apache:8.3}
     restart: unless-stopped
     ports:
       - "8080:8080"
       - "8443:8443"
     environment:
+      APACHE_DOCUMENT_ROOT: /bitnami/moodle
+      # Los archivos de los volúmenes son de daemon (uid 1), el usuario de Bitnami.
+      APACHE_RUN_USER: daemon
+      APACHE_RUN_GROUP: daemon
       MOODLE_DATABASE_HOST: moodle-db
       MOODLE_DATABASE_PORT_NUMBER: "3306"
       MOODLE_DATABASE_USER: bn_moodle
@@ -137,10 +149,19 @@ services:
       # Bitnami inicializa directorios vacíos en el primer arranque (no uses carpeta host vacía manual).
       - moodle_app_data:/bitnami/moodle
       - moodle_moodledata:/bitnami/moodledata
+      - ./moodle/runtime/edutrack-moodle.conf:/etc/apache2/conf-enabled/edutrack-moodle.conf:ro
+      - ./moodle/runtime/zz-edutrack-moodle.ini:/usr/local/etc/php/conf.d/zz-edutrack-moodle.ini:ro
       # El tema institucional se copia despues de que Moodle instala config.php:
       #   ./scripts/moodle-apply-edutrack-theme.sh
       # No montarlo aca: un bind mount interno hace que Bitnami vea /bitnami/moodle
       # como no vacio en el primer arranque y entre en un falso modo "restore".
+    healthcheck:
+      # version.php pasa por PHP sin abrir sesión ni base: el login dejaría un archivo de sesión cada 30 s.
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:8080/version.php || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     depends_on:
       moodle-db:
         condition: service_healthy

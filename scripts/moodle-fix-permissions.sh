@@ -21,7 +21,7 @@ resolve_container() {
   local id
   id="$("${COMPOSE[@]}" ps -q moodle 2>/dev/null || true)"
   [[ -n "$id" ]] && docker ps -q --filter "id=$id" | head -n1 && return
-  docker ps --filter "ancestor=docker.io/bitnamilegacy/moodle:5.0.2" --format '{{.ID}}' | head -n1
+  docker ps --filter "label=com.docker.compose.service=moodle" --format '{{.ID}}' | head -n1
 }
 
 VOL="$(docker volume ls -q | grep moodle_moodledata | head -1)"
@@ -73,7 +73,7 @@ done
 
 docker exec -u root "$CONTAINER" chown -R "${APACHE_UID}:${APACHE_GID}" /bitnami/moodledata /bitnami/moodle 2>/dev/null || true
 docker exec -u root "$CONTAINER" rm -rf /bitnami/moodledata/localcache/* /bitnami/moodledata/temp/* /bitnami/moodledata/cache/* 2>/dev/null || true
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/purge_caches.php 2>/dev/null || true
+docker exec -u daemon "$CONTAINER" php /bitnami/moodle/admin/cli/purge_caches.php 2>/dev/null || true
 
 echo "Probar:"
 echo "  curl -sI 'http://127.0.0.1:8080/theme/styles.php/boost/1/all' | head -3"

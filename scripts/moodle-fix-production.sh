@@ -28,7 +28,7 @@ resolve_container() {
     docker ps -q --no-trunc --filter "id=$id" | head -n1
     return
   fi
-  docker ps --filter "ancestor=docker.io/bitnamilegacy/moodle:5.0.2" --format '{{.Names}}' | head -n1
+  docker ps --filter "label=com.docker.compose.service=moodle" --format '{{.Names}}' | head -n1
 }
 
 CONTAINER="$(resolve_container)"
@@ -55,7 +55,7 @@ echo "wwwroot en config.php:"
 docker exec "$CONTAINER" grep wwwroot /bitnami/moodle/config.php
 
 docker exec -u root "$CONTAINER" chown -R daemon:daemon /bitnami/moodledata /bitnami/moodle
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/purge_caches.php
+docker exec -u daemon "$CONTAINER" php /bitnami/moodle/admin/cli/purge_caches.php
 
 if [[ -f "$MOODLE_ENV_FILE" ]]; then
   echo "Recreando moodle con --env-file $MOODLE_ENV_FILE ..."
