@@ -164,6 +164,14 @@ describe('supervisión: Dirección y Adscripción ven lo mismo que Administraci�
     }
   })
 
+  it('cargan adecuaciones sin gestionar estudiantes; el docente no', () => {
+    for (const role of [...SUPERVISION, 'ADMIN'] as const) {
+      expect(scopeOf(role, 'students.accommodations'), `${role} carga adecuaciones`).toBe('all')
+    }
+    expect(scopeOf('TEACHER', 'students.accommodations')).toBeNull()
+    expect(scopeOf('STAFF', 'students.accommodations')).toBeNull()
+  })
+
   it('el alcance nuevo se fuerza en bases que tenían la línea base propia', () => {
     for (const role of SUPERVISION) {
       expect(ENFORCED_PROFILE_PERMISSION_SCOPES[role]).toEqual({

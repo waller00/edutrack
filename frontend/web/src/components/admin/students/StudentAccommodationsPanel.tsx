@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react'
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import FormField, { fieldInputClass } from '@/components/forms/FormField'
@@ -36,6 +36,14 @@ function formatStamp(iso: string | null | undefined): string | null {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
+export type StudentAccommodationsPanelHandle = {
+  /**
+   * Guarda la adecuación escrita y todavía sin agregar. `true` si no había nada pendiente o se
+   * guardó; `false` si falló (el error queda a la vista en el panel).
+   */
+  flush: () => Promise<boolean>
+}
+
 /**
  * Adecuaciones del estudiante.
  *
@@ -43,14 +51,21 @@ function formatStamp(iso: string | null | undefined): string | null {
  * cuenta al calificar, y el enlace a donde el documento vive. Guardar acá un diagnóstico o un
  * informe psicológico sería guardar datos de salud de un menor en la base y en los backups, que es
  * justamente lo que la política de privacidad del proyecto no permite.
+ *
+ * Lo usan la ficha del estudiante (Administración) y la hoja del alumno en la libreta (Dirección y
+ * Adscripción, con `students.accommodations`).
  */
-export default function StudentAccommodationsPanel({ studentId }: { studentId: string }) {
+const StudentAccommodationsPanel = forwardRef<
+  StudentAccommodationsPanelHandle,
+  { studentId: string; onChanged?: () => void }
+>(function StudentAccommodationsPanel({ studentId, onChanged }, ref) {
   const [rows, setRows] = useState<StudentAccommodation[]>([])
   const [draft, setDraft] = useState(emptyDraft)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -73,6 +88,7 @@ export default function StudentAccommodationsPanel({ studentId }: { studentId: s
     setEditingId(row.id)
     setDraft(draftFromRow(row))
     setError(null)
+    setNotice(null)
   }
 
   function cancelEdit() {
@@ -80,13 +96,14 @@ export default function StudentAccommodationsPanel({ studentId }: { studentId: s
     setDraft(emptyDraft())
   }
 
-  async function save() {
+  async function save(): Promise<boolean> {
     if (draft.summary.trim() === '') {
       setError('Escribí qué tener en cuenta al calificar.')
-      return
+      return false
     }
     setSaving(true)
     setError(null)
+    setNotice(null)
     const body = {
       kind: draft.kind,
       summary: draft.summary.trim(),
@@ -106,21 +123,33 @@ export default function StudentAccommodationsPanel({ studentId }: { studentId: s
         })
       }
       cancelEdit()
+      setNotice(editingId ? 'Adecuación actualizada.' : 'Adecuación guardada.')
       await load()
+      onChanged?.()
+      return true
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar la adecuación')
+      return false
     } finally {
       setSaving(false)
     }
   }
 
+  // Quien guarda la ficha con una adecuación escrita y sin agregar espera que se guarde también.
+  useImperativeHandle(ref, () => ({
+    flush: () => (draft.summary.trim() === '' ? Promise.resolve(true) : save()),
+  }))
+
   async function remove(id: string) {
     setSaving(true)
     setError(null)
+    setNotice(null)
     try {
       await api(`/admin/students/${studentId}/accommodations/${id}`, { method: 'DELETE' })
       if (editingId === id) cancelEdit()
+      setNotice('Adecuación quitada.')
       await load()
+      onChanged?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo quitar la adecuación')
     } finally {
@@ -147,6 +176,11 @@ export default function StudentAccommodationsPanel({ studentId }: { studentId: s
       {error && (
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          {notice}
         </p>
       )}
 
@@ -312,4 +346,6 @@ export default function StudentAccommodationsPanel({ studentId }: { studentId: s
       </section>
     </div>
   )
-}
+})
+
+export default StudentAccommodationsPanel

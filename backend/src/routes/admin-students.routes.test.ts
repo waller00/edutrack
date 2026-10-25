@@ -29,7 +29,7 @@ const {
     user: { findFirst: vi.fn(), findUnique: vi.fn() },
     course: { findUnique: vi.fn() },
     studentPhoto: { findUnique: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
-    studentAccommodation: { findMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn() },
+    studentAccommodation: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     studentPendingSubject: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
     schoolYear: { findMany: vi.fn() },
     studentEnrollment: {
@@ -73,6 +73,7 @@ vi.mock("../services/school-year-service.js", () => ({
 }));
 
 import adminStudentsRoutes from "./admin-students.js";
+import adminStudentAccommodationsRoutes from "./admin-student-accommodations.js";
 import { authGuard, requirePermission } from "../middlewares/auth.js";
 
 function app() {
@@ -80,6 +81,12 @@ function app() {
   a.use(express.json());
   a.use(cookieParser());
   // Montado igual que en admin.ts.
+  a.use(
+    "/admin/students/:id/accommodations",
+    authGuard,
+    requirePermission("students.accommodations", "all"),
+    adminStudentAccommodationsRoutes,
+  );
   a.use("/admin/students", authGuard, requirePermission("students.manage", "all"), adminStudentsRoutes);
   return a;
 }
@@ -668,6 +675,59 @@ describe('adecuaciones', () => {
       .send({ summary: 'Algo que tener en cuenta.' })
 
     expect(res.status).toBe(404)
+  })
+
+  it.each(['DIRECCION', 'ADSCRIPTO'])('%s carga adecuaciones aunque no gestione estudiantes', async (role) => {
+    prismaMock.studentAccommodation.create.mockResolvedValue({ id: 'ad-3' })
+
+    const res = await request(app())
+      .post(`/admin/students/${STUDENT_ID}/accommodations`)
+      .set('Authorization', `Bearer ${tok(role, `${role.toLowerCase()}-1`)}`)
+      .send({ summary: 'Más tiempo en las pruebas escritas.' })
+
+    expect(res.status).toBe(201)
+    expect(prismaMock.studentAccommodation.create.mock.calls[0][0].data).toMatchObject({
+      studentId: STUDENT_ID,
+      createdByUserId: `${role.toLowerCase()}-1`,
+    })
+  })
+
+  it.each(['DIRECCION', 'ADSCRIPTO'])('%s edita y quita adecuaciones', async (role) => {
+    prismaMock.studentAccommodation.findFirst.mockResolvedValue({ id: 'ad-1' })
+    prismaMock.studentAccommodation.update.mockResolvedValue({ id: 'ad-1' })
+    prismaMock.studentAccommodation.deleteMany.mockResolvedValue({ count: 1 })
+
+    const put = await request(app())
+      .put(`/admin/students/${STUDENT_ID}/accommodations/ad-1`)
+      .set('Authorization', `Bearer ${tok(role)}`)
+      .send({ summary: 'Se sienta adelante.' })
+    const del = await request(app())
+      .delete(`/admin/students/${STUDENT_ID}/accommodations/ad-1`)
+      .set('Authorization', `Bearer ${tok(role)}`)
+
+    expect(put.status).toBe(200)
+    expect(del.status).toBe(204)
+    expect(prismaMock.studentAccommodation.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'ad-1', studentId: STUDENT_ID },
+    })
+  })
+
+  it('Dirección no llega al resto de la ficha por el permiso de adecuaciones', async () => {
+    const res = await request(app())
+      .get(`/admin/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok('DIRECCION')}`)
+
+    expect(res.status).toBe(403)
+  })
+
+  it('el docente no carga adecuaciones', async () => {
+    const res = await request(app())
+      .post(`/admin/students/${STUDENT_ID}/accommodations`)
+      .set('Authorization', `Bearer ${tok('TEACHER', 'teacher-1')}`)
+      .send({ summary: 'Algo.' })
+
+    expect(res.status).toBe(403)
+    expect(prismaMock.studentAccommodation.create).not.toHaveBeenCalled()
   })
 })
 

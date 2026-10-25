@@ -15,9 +15,9 @@ import {
 type Row = EndorsementRow & { reopenReason: string | null; history: EndorsementHistoryEntry[] }
 
 /**
- * Lo que Dirección le observó al docente en el visado, arriba de sus mensajes. Es lo que antes
- * vivía en la sección "Visados" del docente: visar no es suyo, pero lo que le observaron sí le
- * importa, porque es lo que tiene que corregir.
+ * Lo que Dirección le observó al docente en el visado, arriba de "Cierre de períodos": visar no es
+ * suyo, pero lo que le observaron sí le importa, porque es lo que tiene que corregir y volver a
+ * cerrar.
  *
  * Lee `/gradebook/:id/endorsements`, que es de esta libreta y respeta su acceso.
  */
@@ -29,7 +29,7 @@ export default function ObservacionesDireccion({ gradeBookId }: { gradeBookId: s
       const res = await api<{ data: Row[] }>(`/gradebook/${gradeBookId}/endorsements`)
       setRows(res.data)
     } catch {
-      // Sin el estado de visado los mensajes siguen sirviendo: no se bloquea la pantalla.
+      // Sin el estado de visado el cierre sigue sirviendo: no se bloquea la pantalla.
       setRows([])
     }
   }, [gradeBookId])

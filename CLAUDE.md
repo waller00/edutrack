@@ -246,10 +246,11 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > editan lo suyo (visar / justificar). Inspección se retiró (`RETIRED_ORG_ROLE_CODES`). Los "Mis …"
 > del menú (agenda, asistencias, licencias) no fijan alcance: quien ve todo conserva lo propio.
 
-> **El menú de la libreta depende de quién mira** (`sectionsFor`, `lib/libreta/menu.ts`). El
-> docente tiene "Mensajes de Dirección y Adscripción" (los hilos que abrió cualquier rol de
-> `SUPERVISION_MESSAGE_ROLES`: Dirección, Administración, Adscripción); quien supervisa tiene
-> "Visado y seguimiento". Visar no es del docente.
+> **El menú de la libreta depende de quién mira** (`sectionsFor`, `lib/libreta/menu.ts`). Quien
+> supervisa tiene "Visado y seguimiento"; visar no es del docente. La libreta **no tiene sección de
+> mensajes**: lo que el visado le observó al docente lo ve arriba de "Cierre de períodos"
+> (`ObservacionesDireccion`), y la supervisión le escribe por la mensajería 1 a 1 ("Escribirle al
+> docente" en Visado). `/libreta/:id/mensajes` sólo redirige, por los avisos viejos de la campana.
 
 > **El suplente tiene un acceso provisorio y ve sólo lo suyo** (`services/gradebook/access.ts`).
 > Entra desde su primera clase cubierta hasta `SUBSTITUTE_ACCESS_DAYS_AFTER` (7) días después de la
@@ -307,7 +308,11 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > la usan; `assessmentPeriodsFor` da los tramos cuyas evaluaciones informa.
 
 > **Las adecuaciones guardan un enlace, nunca el informe.** Un informe psicológico de un menor es un
-> documento clínico, y la política de privacidad lo prohíbe (§4 bis).
+> documento clínico, y la política de privacidad lo prohíbe (§4 bis). Las cargan Administración,
+> Dirección y Adscripción con `students.accommodations` (no `students.manage`: su router,
+> `admin-student-accommodations.ts`, se monta aparte), desde la ficha o desde la hoja del alumno en
+> la libreta. El chip ADEC abre sólo las adecuaciones, como Gen abre las observaciones. "Visto por
+> docente" lo marca sólo el titular o el suplente al abrir la hoja.
 
 Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 ter
 

@@ -1048,7 +1048,7 @@ function StudentCard({
   detailOpen: boolean
   onToggleAdd: (preset?: AddPreset) => void
   onToggleDetail: () => void
-  onOpenSheet: (focus: StudentBadgeFocus) => void
+  onOpenSheet: (focus?: StudentBadgeFocus) => void
   onSaved: () => Promise<void>
   onSavePeriodGrade: (periodId: string, patch: PeriodGradePatch) => Promise<void>
 }) {
@@ -1130,7 +1130,17 @@ function StudentCard({
                 onSelect={(_code, focus) => onOpenSheet(focus)}
               />
             </div>
-            <h3 className="mt-1 text-base font-semibold tracking-tight text-slate-900 sm:text-lg">{studentFullName(student)}</h3>
+            <h3 className="mt-1 text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
+              {/* La hoja completa: adecuaciones, materias que arrastra, observaciones. */}
+              <button
+                type="button"
+                onClick={() => onOpenSheet()}
+                title="Ver la hoja del estudiante"
+                className="text-left hover:text-emerald-700 hover:underline"
+              >
+                {studentFullName(student)}
+              </button>
+            </h3>
             <p className="mt-1 text-xs text-slate-500">
               {student.documentId && <span className="mr-3 font-mono">{student.documentId}</span>}
               {courseLabel}
@@ -1265,9 +1275,12 @@ function StudentCard({
 export default function EvaluationsBoard({
   gradeBookId,
   detail,
+  onStudentsChanged,
 }: {
   gradeBookId: string
   detail: GradeBookDetail
+  /** Cambió algo de un alumno que va en `detail` (una adecuación → el chip ADEC). */
+  onStudentsChanged?: () => void
 }) {
   const searchParams = useSearchParams()
   const alumnoParam = searchParams.get('alumno')
@@ -1287,7 +1300,7 @@ export default function EvaluationsBoard({
   const [groupPanelKey, setGroupPanelKey] = useState(0)
   const [sheetStudent, setSheetStudent] = useState<{
     studentId: string
-    focus: StudentBadgeFocus
+    focus?: StudentBadgeFocus
   } | null>(null)
 
   const courseLabel = useMemo(
@@ -1618,6 +1631,7 @@ export default function EvaluationsBoard({
           studentId={sheetStudent.studentId}
           focusSection={sheetStudent.focus}
           onClose={() => setSheetStudent(null)}
+          onChanged={onStudentsChanged}
         />
       )}
 

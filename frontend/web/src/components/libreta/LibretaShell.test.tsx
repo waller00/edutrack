@@ -105,7 +105,7 @@ describe('<LibretaShell />', () => {
     expect(await screen.findByText(/— Ciencias de la Vida/)).toBeInTheDocument()
   })
 
-  it('al docente le lista sus secciones con su explicación, con los mensajes del director', async () => {
+  it('al docente le lista sus secciones con su explicación, sin sección de mensajes', async () => {
     mockedApi.mockResolvedValue(DETAIL)
 
     renderShell()
@@ -115,12 +115,12 @@ describe('<LibretaShell />', () => {
       expect(within(nav).getByText(section.label)).toBeInTheDocument()
       expect(within(nav).getByText(section.hint)).toBeInTheDocument()
     }
-    expect(within(nav).getByText('Mensajes de Dirección y Adscripción')).toBeInTheDocument()
+    expect(within(nav).queryByText('Mensajes de Dirección y Adscripción')).not.toBeInTheDocument()
     expect(within(nav).queryByText('Visado y seguimiento')).not.toBeInTheDocument()
     expect(within(nav).queryByText('Inasistencias')).not.toBeInTheDocument()
   })
 
-  it('a Dirección le muestra el visado y no los mensajes del director', async () => {
+  it('a Dirección le muestra el visado', async () => {
     me.mockReturnValue(DIRECCION_ME)
     mockedApi.mockResolvedValue({ ...DETAIL, access: { level: 'SUPERVISION', canGrade: false, canPlan: false } })
 
@@ -128,7 +128,6 @@ describe('<LibretaShell />', () => {
 
     const nav = await screen.findByRole('navigation', { name: 'Secciones de la libreta' })
     expect(within(nav).getByText('Visado y seguimiento')).toBeInTheDocument()
-    expect(within(nav).queryByText('Mensajes de Dirección y Adscripción')).not.toBeInTheDocument()
   })
 
   it('el docente que abre el visado vuelve a la portada de su libreta', async () => {
@@ -144,12 +143,12 @@ describe('<LibretaShell />', () => {
 
   it('marca la sección abierta con aria-current', async () => {
     mockedApi.mockResolvedValue(DETAIL)
-    pathname.mockReturnValue('/libreta/gb-1/mensajes')
+    pathname.mockReturnValue('/libreta/gb-1/cierre')
 
     renderShell()
 
     const current = await screen.findByRole('link', { current: 'page' })
-    expect(current).toHaveTextContent('Mensajes de Dirección y Adscripción')
+    expect(current).toHaveTextContent('Cierre de períodos')
   })
 
   it('avisa que un ciclo cerrado es sólo consulta', async () => {

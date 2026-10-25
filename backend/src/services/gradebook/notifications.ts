@@ -74,8 +74,8 @@ export function observationNotification(params: {
     type: 'GRADEBOOK_OBSERVATION',
     title: `Observación en ${scope}`,
     body: `${params.sectionLabel}: ${excerpt(params.observations)}`,
-    // El docente ve lo que le observaron en "Mensajes del director".
-    actionUrl: `/libreta/${params.gradeBookId}/mensajes`,
+    // El docente ve lo que le observaron arriba de "Cierre de períodos".
+    actionUrl: `/libreta/${params.gradeBookId}/cierre`,
   }
 }
 
@@ -93,7 +93,7 @@ export function reopenedNotification(params: {
     type: 'GRADEBOOK_PERIOD_REOPENED',
     title: `Se reabrió ${params.subjectName} · ${params.periodName}`,
     body: `Podés corregir y volver a cerrar. Motivo: ${excerpt(params.reason)}`,
-    actionUrl: `/libreta/${params.gradeBookId}/mensajes`,
+    actionUrl: `/libreta/${params.gradeBookId}/cierre`,
   }
 }
 
@@ -106,14 +106,14 @@ export function endorsedNotification(params: {
     type: 'GRADEBOOK_ENDORSED',
     title: `Libreta visada: ${params.subjectName}`,
     body: `Dirección visó el período ${params.periodName}.`,
-    actionUrl: `/libreta/${params.gradeBookId}/mensajes`,
+    actionUrl: `/libreta/${params.gradeBookId}/cierre`,
   }
 }
 
 /**
- * Aviso de un mensaje de la libreta. Al docente lo lleva a "Mensajes del director"; a quien
- * supervisa (la respuesta del docente a un mensaje suyo), a "Visado y seguimiento", que es donde
- * escribe.
+ * Aviso de un mensaje de la libreta (`GradeBookMessage`, el canal viejo: hoy la supervisión le
+ * escribe al docente por la mensajería 1 a 1). Al docente lo lleva a "Cierre de períodos", donde ve
+ * lo observado; a quien supervisa, a "Visado y seguimiento".
  */
 export function messageNotification(params: {
   subjectName: string
@@ -122,7 +122,7 @@ export function messageNotification(params: {
   gradeBookId: string
   recipient?: 'teacher' | 'supervisor'
 }): GradeBookNotification {
-  const section = params.recipient === 'supervisor' ? 'visado' : 'mensajes'
+  const section = params.recipient === 'supervisor' ? 'visado' : 'cierre'
   return {
     type: 'GRADEBOOK_MESSAGE',
     title: params.recipient === 'supervisor' ? `Respuesta en ${params.subjectName}` : `Mensaje en ${params.subjectName}`,

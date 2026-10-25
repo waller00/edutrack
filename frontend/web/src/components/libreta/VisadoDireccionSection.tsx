@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ClipboardList, FileText, Loader2 } from 'lucide-react'
+import { CheckCircle2, ClipboardList, FileText, Loader2, MessageCircle } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { useLibreta } from '@/contexts/LibretaContext'
+import { useOptionalMessages } from '@/components/messages/MessagesProvider'
 import EndorsementBadge from '@/components/gradebook/EndorsementBadge'
-import MessagesPanel from '@/components/gradebook/MessagesPanel'
 import EndorsementRowDetail from '@/components/admin/gradebook/EndorsementRowDetail'
 import {
   ENDORSEMENT_SECTION_LABELS,
@@ -155,11 +155,68 @@ function InformesDelGrupo({ periods }: { periods: PeriodRow[] }) {
 }
 
 /**
+ * Abre la mensajería 1 a 1 directo en la conversación con el docente de la libreta. Reemplaza al
+ * viejo cuadro "Mensajes al docente": lo que se le dice al docente va por el mismo canal que todo
+ * lo demás, con su aviso por push.
+ */
+function WriteToTeacher({ teacher }: { teacher: { id: string; name: string | null } | null | undefined }) {
+  const messages = useOptionalMessages()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  if (!teacher || !messages?.enabled) return null
+
+  async function open() {
+    if (!teacher) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await api<{ data: { id: string } }>('/messages/conversations', {
+        method: 'POST',
+        body: JSON.stringify({ userId: teacher.id }),
+      })
+      messages?.openDrawer(res.data.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo abrir la conversación')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className={`${CARD} flex flex-wrap items-center gap-3`} aria-labelledby="visado-escribir">
+      <div className="min-w-0 flex-1">
+        <h3 id="visado-escribir" className="text-sm font-semibold text-gray-900">
+          Escribirle al docente
+        </h3>
+        <p className="text-xs text-gray-500">
+          Si falta algo o hay algo mal cargado, escribile a {teacher.name ?? 'el docente'} por mensajes.
+        </p>
+        {error && (
+          <p role="alert" className="mt-1 text-xs text-red-700">
+            {error}
+          </p>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => void open()}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-600 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+      >
+        <MessageCircle className="h-4 w-4" aria-hidden />
+        Escribirle al docente
+      </button>
+    </section>
+  )
+}
+
+/**
  * "Visado y seguimiento" de una libreta, para Dirección (y adscripción, que observa).
  *
  * Reúne lo que el director revisa antes de visar: las calificaciones y los juicios de cada reunión
  * cerrada, si el docente dio lo que planificó y si dejó el informe del grupo. No edita nada de la
- * libreta: observa, visa y le escribe al docente, que lo lee en "Mensajes de Dirección y Adscripción".
+ * libreta: observa y visa. Lo observado el docente lo ve en "Cierre de períodos"; para escribirle
+ * está la mensajería 1 a 1.
  */
 export default function VisadoDireccionSection() {
   const { gradeBookId, detail } = useLibreta()
@@ -239,7 +296,7 @@ export default function VisadoDireccionSection() {
         {visible.length === 0 ? (
           <p className="rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm text-gray-500">
             {detail?.teacher?.name ?? 'El docente'} todavía no cerró ninguna reunión: no hay nada para visar. Igual
-            podés revisar el seguimiento y escribirle abajo.
+            podés revisar el seguimiento y escribirle.
           </p>
         ) : (
           <ul className="space-y-3">
@@ -276,7 +333,7 @@ export default function VisadoDireccionSection() {
       <Seguimiento gradeBookId={gradeBookId} />
       <InformesDelGrupo periods={periods} />
 
-      <MessagesPanel gradeBookId={gradeBookId} variant="supervisor" readOnly={detail?.status === 'ARCHIVED'} />
+      <WriteToTeacher teacher={detail?.teacher} />
     </div>
   )
 }

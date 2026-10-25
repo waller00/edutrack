@@ -9,7 +9,7 @@ import ExportButtons from '@/components/gradebook/ExportButtons'
 
 /** Portada de la libreta: lista del grupo (las secciones ya están en el menú izquierdo). */
 export default function LibretaHomePage() {
-  const { gradeBookId, detail } = useLibreta()
+  const { gradeBookId, detail, reload } = useLibreta()
   const [openStudent, setOpenStudent] = useState<{
     studentId: string
     focus?: StudentBadgeFocus
@@ -41,6 +41,7 @@ export default function LibretaHomePage() {
           studentId={openStudent.studentId}
           focusSection={openStudent.focus}
           onClose={() => setOpenStudent(null)}
+          onChanged={() => void reload()}
         />
       )}
     </div>

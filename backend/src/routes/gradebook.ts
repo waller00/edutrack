@@ -799,9 +799,11 @@ r.get('/:id/students/:studentId', requirePermission('gradebook.read'), async (re
       return user.name?.trim() || composed || user.username || null
     }
 
-    // Marca lectura del docente: admin ve cuándo se abrió la hoja con la adecuación.
+    // Marca lectura del docente: admin ve cuándo se abrió la hoja con la adecuación. Sólo cuenta el
+    // docente (titular o suplente): que la abra Dirección, que es quien la carga, no es "visto".
     const viewerId = req.user?.id ?? req.user?.sub ?? null
-    if (viewerId && accommodations.length > 0) {
+    const viewerTeaches = ctx.access.level === 'OWNER' || ctx.access.level === 'SUBSTITUTE'
+    if (viewerId && viewerTeaches && accommodations.length > 0) {
       const now = new Date()
       await prisma.studentAccommodation.updateMany({
         where: { id: { in: accommodations.map((a) => a.id) } },

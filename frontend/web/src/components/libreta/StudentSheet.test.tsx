@@ -6,6 +6,14 @@ import { apiBlob } from '@/lib/api/binary'
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 vi.mock('@/lib/api/binary', () => ({ apiBlob: vi.fn() }))
+const { meMock } = vi.hoisted(() => ({ meMock: vi.fn() }))
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ me: meMock() }) }))
+vi.mock('@/components/admin/students/StudentAccommodationsPanel', () => ({
+  default: ({ studentId }: { studentId: string }) => <div>editor de adecuaciones de {studentId}</div>,
+}))
+
+const DIRECCION_ME = { permissions: [{ id: 'students.accommodations', scope: 'all' }] }
+const TEACHER_ME = { permissions: [{ id: 'gradebook.read', scope: 'own' }] }
 
 const mockedApi = vi.mocked(api)
 const mockedBlob = vi.mocked(apiBlob)
@@ -33,9 +41,12 @@ function setup(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  meMock.mockReturnValue(TEACHER_ME)
   mockedBlob.mockResolvedValue(null)
   URL.createObjectURL = vi.fn(() => 'blob:mock')
   URL.revokeObjectURL = vi.fn()
+  // jsdom no lo implementa; la hoja lo usa para llevar la vista a la sección del chip.
+  Element.prototype.scrollIntoView = vi.fn()
 })
 
 describe('<StudentSheet />', () => {
@@ -132,6 +143,46 @@ describe('<StudentSheet />', () => {
     setup({ generalNotes: 'Requiere material ampliado en las pruebas.' })
     expect(await screen.findByText('Observaciones generales')).toBeInTheDocument()
     expect(screen.getByText('Requiere material ampliado en las pruebas.')).toBeInTheDocument()
+  })
+
+  it('el chip ADEC abre sólo las adecuaciones, como Gen abre las observaciones', async () => {
+    mockedApi.mockResolvedValue({
+      ...SHEET,
+      accommodations: [
+        {
+          id: 'ad-1',
+          kind: 'CURRICULAR',
+          summary: 'Consignas por escrito.',
+          externalUrl: null,
+          createdAt: '2026-03-13T12:24:07.000Z',
+          updatedAt: '2026-03-13T12:24:07.000Z',
+          createdByName: 'Marta Dirección',
+        },
+      ],
+    })
+    render(<StudentSheet gradeBookId="gb-1" studentId="s1" onClose={onClose} focusSection="accommodations" />)
+
+    expect(await screen.findByRole('heading', { name: 'Adecuaciones' })).toBeInTheDocument()
+    expect(screen.getByText('Díaz, Ana')).toBeInTheDocument()
+    expect(screen.getByText('13/03/2026')).toBeInTheDocument()
+    expect(screen.getByText('Consignas por escrito.')).toBeInTheDocument()
+    expect(screen.getByText(/Registrado por: Marta Dirección/)).toBeInTheDocument()
+    // Sin foto, datos ni materias: es la planilla de adecuaciones.
+    expect(screen.queryByText('Materias que arrastra')).not.toBeInTheDocument()
+  })
+
+  it('el docente ve las adecuaciones pero no las carga', async () => {
+    setup()
+    await screen.findByRole('heading', { name: 'Díaz, Ana' })
+    expect(screen.queryByText(/editor de adecuaciones/)).not.toBeInTheDocument()
+  })
+
+  it('Dirección y Adscripción cargan adecuaciones desde la hoja', async () => {
+    meMock.mockReturnValue(DIRECCION_ME)
+    setup()
+
+    expect(await screen.findByText('Cargar o editar adecuaciones')).toBeInTheDocument()
+    expect(screen.getByText('editor de adecuaciones de s1')).toBeInTheDocument()
   })
 
   it('Escape cierra la hoja', async () => {

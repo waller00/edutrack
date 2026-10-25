@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { createRef } from 'react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import StudentAccommodationsPanel from './StudentAccommodationsPanel'
+import StudentAccommodationsPanel, { type StudentAccommodationsPanelHandle } from './StudentAccommodationsPanel'
 import { api } from '@/lib/api/client'
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
@@ -116,6 +117,43 @@ describe('<StudentAccommodationsPanel />', () => {
     await waitFor(() => expect(mockedApi.mock.calls.some((c) => c[1]?.method === 'PUT')).toBe(true))
     const putCall = mockedApi.mock.calls.find((c) => c[1]?.method === 'PUT')!
     expect(putCall[0]).toBe('/admin/students/s1/accommodations/ad-1')
+  })
+
+  it('confirma lo guardado y avisa a quien lo usa', async () => {
+    const onChanged = vi.fn()
+    render(<StudentAccommodationsPanel studentId="s1" onChanged={onChanged} />)
+    await screen.findByText('Sin adecuaciones cargadas.')
+
+    fireEvent.change(screen.getByLabelText(/Qué tener en cuenta al calificar/), { target: { value: 'Se sienta adelante.' } })
+    fireEvent.click(screen.getByRole('button', { name: /Agregar/ }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Adecuación guardada.')
+    expect(onChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('flush guarda la adecuación escrita y sin agregar', async () => {
+    const ref = createRef<StudentAccommodationsPanelHandle>()
+    render(<StudentAccommodationsPanel ref={ref} studentId="s1" />)
+    await screen.findByText('Sin adecuaciones cargadas.')
+    fireEvent.change(screen.getByLabelText(/Qué tener en cuenta al calificar/), { target: { value: 'Consignas por escrito.' } })
+
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await ref.current!.flush()
+    })
+
+    expect(ok).toBe(true)
+    const post = mockedApi.mock.calls.find((c) => c[1]?.method === 'POST')
+    expect(JSON.parse(String(post?.[1]?.body)).summary).toBe('Consignas por escrito.')
+  })
+
+  it('flush sin nada escrito no manda nada', async () => {
+    const ref = createRef<StudentAccommodationsPanelHandle>()
+    render(<StudentAccommodationsPanel ref={ref} studentId="s1" />)
+    await screen.findByText('Sin adecuaciones cargadas.')
+
+    await expect(ref.current!.flush()).resolves.toBe(true)
+    expect(mockedApi).toHaveBeenCalledTimes(1)
   })
 
   it('muestra el error del backend', async () => {

@@ -1796,7 +1796,8 @@ describe('hoja del estudiante dentro de la libreta', () => {
     rosterMock.mockResolvedValue([
       { studentId: STUDENT_ID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'Díaz', documentId: null },
     ])
-    prismaMock.student.findUnique.mockResolvedValue(STUDENT)
+    // Copia: la ruta marca `teacherSeenAt` sobre las filas que recibe.
+    prismaMock.student.findUnique.mockResolvedValue(structuredClone(STUDENT))
   }
 
   it('entrega los datos que administración cargó, con la foto', async () => {
@@ -1811,6 +1812,31 @@ describe('hoja del estudiante dentro de la libreta', () => {
     expect(res.body.student.birthDate).toBe('2010-03-12T12:00:00.000Z')
     expect(res.body.student.photo.mimeType).toBe('image/jpeg')
     expect(res.body.apeReferred).toBe(true)
+  })
+
+  it('el docente que abre la hoja deja la adecuación vigente como vista', async () => {
+    setup()
+
+    await request(app())
+      .get(`/gradebook/${GB_ID}/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(prismaMock.studentAccommodation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ['ad-1'] } } }),
+    )
+  })
+
+  it('si la abre la supervisión no cuenta como "visto por docente"', async () => {
+    setup()
+    accessMock.mockResolvedValue({ level: 'SUPERVISION', canRead: true, canGrade: false, canPlan: false })
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(prismaMock.studentAccommodation.updateMany).not.toHaveBeenCalled()
+    expect(res.body.accommodations[0].teacherSeenAt).toBeNull()
   })
 
   it('muestra cómo promovió el año anterior, no el resultado del corriente', async () => {

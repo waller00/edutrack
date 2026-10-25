@@ -23,6 +23,10 @@ vi.mock('@/contexts/AuthContext', () => ({
     },
   }),
 }))
+const { openDrawer } = vi.hoisted(() => ({ openDrawer: vi.fn() }))
+vi.mock('@/components/messages/MessagesProvider', () => ({
+  useOptionalMessages: () => ({ enabled: true, openDrawer }),
+}))
 const mockedApi = vi.mocked(api)
 
 const SECTIONS = ['GRADES', 'CLOSURE', 'JUDGEMENTS', 'PLANNING', 'GROUP_REPORT', 'ALL'].map((section) => ({
@@ -56,6 +60,7 @@ function endorsementRow(over: Record<string, unknown> = {}) {
 
 function respond(rows = [endorsementRow()]) {
   mockedApi.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === '/messages/conversations' && init?.method === 'POST') return { data: { id: 'conv-1' } } as never
     if (init?.method === 'POST') return { ok: true } as never
     if (path === '/gradebook/gb-1/endorsements') return { data: rows } as never
     if (path === '/gradebook/gb-1/periods') {
@@ -72,7 +77,6 @@ function respond(rows = [endorsementRow()]) {
         totals: { hoursTaught: 12, hoursNotTaught: 2 },
       } as never
     }
-    if (path.startsWith('/gradebook/gb-1/messages')) return { data: [] } as never
     if (path.startsWith('/admin/gradebook/endorsements/')) return { history: [] } as never
     return { data: [] } as never
   })
@@ -81,6 +85,7 @@ function respond(rows = [endorsementRow()]) {
 describe('<VisadoDireccionSection />', () => {
   beforeEach(() => {
     mockedApi.mockReset()
+    openDrawer.mockReset()
   })
 
   it('reúne lo que Dirección revisa: calificaciones, seguimiento e informe del grupo', async () => {
@@ -94,7 +99,18 @@ describe('<VisadoDireccionSection />', () => {
     expect(await screen.findByText('Unidad 1: célula.')).toBeInTheDocument()
     expect(screen.getByText(/1 clase registrada · 12 h dictadas · 2 h sin dictar/)).toBeInTheDocument()
     expect(screen.getByText('▲ Falta el informe del grupo.')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Mensajes al docente' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Mensajes al docente' })).not.toBeInTheDocument()
+  })
+
+  it('"Escribirle al docente" abre la mensajería en la conversación con el docente', async () => {
+    respond()
+    render(<VisadoDireccionSection />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Escribirle al docente' }))
+
+    await waitFor(() => expect(openDrawer).toHaveBeenCalledWith('conv-1'))
+    const post = mockedApi.mock.calls.find(([path]) => path === '/messages/conversations')
+    expect(JSON.parse(String((post?.[1] as RequestInit).body))).toEqual({ userId: 't-1' })
   })
 
   it('visa el período cerrado', async () => {
@@ -104,7 +120,7 @@ describe('<VisadoDireccionSection />', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Visar 1.ª Entrega' }))
 
     await waitFor(() => {
-      const post = mockedApi.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+      const post = mockedApi.mock.calls.find(([path]) => path === '/admin/gradebook/endorsements')
       expect(post?.[0]).toBe('/admin/gradebook/endorsements')
       expect(JSON.parse(String((post?.[1] as RequestInit).body))).toEqual({
         gradeBookPeriodId: 'gbp-1',
@@ -126,7 +142,7 @@ describe('<VisadoDireccionSection />', () => {
     render(<VisadoDireccionSection />)
 
     expect(await screen.findByText(/todavía no cerró ninguna reunión/)).toBeInTheDocument()
-    expect(await screen.findByLabelText('Escribir un mensaje')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Escribirle al docente' })).toBeInTheDocument()
   })
 })
 

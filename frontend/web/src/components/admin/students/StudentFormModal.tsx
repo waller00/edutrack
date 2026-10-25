@@ -10,7 +10,7 @@ import { validateStudent, type StudentFormError, type StudentTabId } from '@/lib
 import StudentMoodleBadge from './StudentMoodleBadge'
 import StudentPhotoField from './StudentPhotoField'
 import StudentEnrollmentHistoryPanel from './StudentEnrollmentHistoryPanel'
-import StudentAccommodationsPanel from './StudentAccommodationsPanel'
+import StudentAccommodationsPanel, { type StudentAccommodationsPanelHandle } from './StudentAccommodationsPanel'
 import type {
   CourseOpt,
   OrientationOpt,
@@ -59,6 +59,7 @@ export default function StudentFormModal({
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
   const firstFieldRef = useRef<HTMLInputElement>(null)
+  const accommodationsRef = useRef<StudentAccommodationsPanelHandle>(null)
   const isEdit = mode === 'edit'
   const [tab, setTab] = useState<StudentTabId>('datos')
   // Al crear, el contacto arranca plegado: son datos opcionales que ya no traban el alta.
@@ -100,11 +101,15 @@ export default function StudentFormModal({
   /**
    * Al guardar se salta a la pestaña del problema y se enfoca el campo. Sin esto, dividir la ficha
    * en pestañas escondería un campo obligatorio y el error quedaría fuera de la vista.
+   *
+   * Una adecuación escrita y sin "Agregar" se guarda antes: "Guardar" cerraba el modal y la
+   * descartaba en silencio. Si falla, el modal queda abierto con el error del panel a la vista.
    */
-  function submit() {
+  async function submit() {
     const problem = validateStudent(form)
     setError(problem)
     if (!problem) {
+      if (accommodationsRef.current && !(await accommodationsRef.current.flush())) return
       onSave()
       return
     }
@@ -516,7 +521,9 @@ export default function StudentFormModal({
               )}
               {tab === 'trayectoria' && trayectoria}
               {/* Se monta al abrir: tiene su propia consulta. */}
-              {tab === 'adecuaciones' && form.id && <StudentAccommodationsPanel studentId={form.id} />}
+              {tab === 'adecuaciones' && form.id && (
+                <StudentAccommodationsPanel ref={accommodationsRef} studentId={form.id} />
+              )}
               {/* Sólo se monta al abrir la pestaña: se auto-consulta, y así no se pide de gusto. */}
               {tab === 'historial' && form.id && <StudentEnrollmentHistoryPanel studentId={form.id} />}
             </div>
@@ -527,7 +534,7 @@ export default function StudentFormModal({
           <button type="button" className="btn-secondary text-sm" onClick={onClose}>
             Cancelar
           </button>
-          <button type="button" className="btn-primary text-sm" disabled={saving} onClick={submit}>
+          <button type="button" className="btn-primary text-sm" disabled={saving} onClick={() => void submit()}>
             <PendingButtonContent pending={saving} pendingText="Guardando…" idle="Guardar" />
           </button>
         </div>

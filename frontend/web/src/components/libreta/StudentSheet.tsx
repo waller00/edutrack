@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, BookX, ExternalLink, HeartHandshake, Loader2, StickyNote, X } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { apiBlob } from '@/lib/api/binary'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
+import StudentAccommodationsPanel from '@/components/admin/students/StudentAccommodationsPanel'
 import type { StudentBadgeFocus } from './StudentBadges'
 
 const KIND_LABELS: Record<string, string> = {
@@ -102,25 +105,61 @@ function AuditLine({
   )
 }
 
+type AccommodationItem = Sheet['accommodations'][number]
+
+function AccommodationBody({ row }: { row: AccommodationItem }) {
+  return (
+    <>
+      <p className="text-xs font-medium text-amber-900">{KIND_LABELS[row.kind] ?? row.kind}</p>
+      <p className="whitespace-pre-wrap text-sm text-gray-800">{row.summary}</p>
+      {row.externalUrl && (
+        <a
+          href={row.externalUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-0.5 inline-flex items-center gap-1 break-all text-xs text-emerald-700 hover:underline"
+        >
+          Ver el informe completo
+          <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+        </a>
+      )}
+      <AuditLine
+        registeredBy={row.createdByName}
+        registeredAt={row.createdAt}
+        updatedBy={row.updatedByName}
+        updatedAt={row.updatedAt}
+      />
+    </>
+  )
+}
+
 /**
  * Hoja del estudiante dentro de la libreta.
  *
  * Junta lo que administración cargó con lo que el docente necesita al poner la nota: las
  * adecuaciones y las materias que arrastra se tienen en cuenta para calificar, así que van acá y no
  * en una pantalla aparte a la que habría que salir.
+ *
+ * Quien tiene `students.accommodations` (Administración, Dirección, Adscripción) además carga las
+ * adecuaciones desde acá: Dirección y Adscripción no llegan a la ficha de Estudiantes.
  */
 export default function StudentSheet({
   gradeBookId,
   studentId,
   onClose,
   focusSection,
+  onChanged,
 }: {
   gradeBookId: string
   studentId: string
   onClose: () => void
-  /** Si viene de un chip (ADEC/Gen), scrollea a esa sección. */
+  /** Si viene de un chip (ADEC/Gen), muestra sólo esa sección, como una planilla. */
   focusSection?: StudentBadgeFocus | null
+  /** Se cargó, editó o quitó una adecuación: quien abrió la hoja refresca los distintivos. */
+  onChanged?: () => void
 }) {
+  const me = useOptionalAuth()?.me ?? null
+  const canEditAccommodations = hasPermission(me, 'students.accommodations', 'all')
   const [sheet, setSheet] = useState<Sheet | null>(null)
   const [photo, setPhoto] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -192,12 +231,24 @@ export default function StudentSheet({
     : ''
 
   const focusGen = focusSection === 'general'
+  const focusAdec = focusSection === 'accommodations'
+  // Con un chip, la hoja muestra sólo esa planilla (sin foto ni datos), como "Observaciones generales".
+  const focused = focusGen || focusAdec
+
+  const accommodationsChanged = useCallback(() => {
+    void load()
+    onChanged?.()
+  }, [load, onChanged])
+
+  const accommodationsEditor = canEditAccommodations && (
+    <StudentAccommodationsPanel studentId={studentId} onChanged={accommodationsChanged} />
+  )
 
   return (
     <div className="responsive-modal" role="dialog" aria-modal="true" aria-labelledby="student-sheet-title">
       <div className="responsive-modal-panel max-w-xl space-y-5">
         <header className="flex items-start gap-4">
-          {sheet && !focusGen && (
+          {sheet && !focused && (
             <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-slate-50">
               {photo ? (
                 // eslint-disable-next-line @next/next/no-img-element -- blob local, no una URL remota
@@ -214,10 +265,17 @@ export default function StudentSheet({
               {sheet
                 ? focusGen
                   ? 'Observaciones generales'
-                  : `${sheet.student.lastName}, ${sheet.student.firstName}`
+                  : focusAdec
+                    ? 'Adecuaciones'
+                    : `${sheet.student.lastName}, ${sheet.student.firstName}`
                 : 'Hoja del estudiante'}
             </h2>
-            {sheet && !focusGen && (
+            {sheet && focused && (
+              <p className="mt-0.5 text-sm text-gray-500">
+                {sheet.student.lastName}, {sheet.student.firstName}
+              </p>
+            )}
+            {sheet && !focused && (
               <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div>
                   <dt className="text-xs text-gray-500">Cédula</dt>
@@ -284,7 +342,35 @@ export default function StudentSheet({
           </section>
         )}
 
-        {sheet && !focusGen && (
+        {sheet && focusAdec && (
+          <>
+            <section ref={accommodationsRef} className="rounded-lg border border-gray-200">
+              <div className="grid grid-cols-[6.5rem_1fr] border-b border-gray-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-gray-600">
+                <div className="border-r border-gray-200 px-3 py-2">Fecha</div>
+                <div className="px-3 py-2">Adecuaciones</div>
+              </div>
+              {sheet.accommodations.length === 0 ? (
+                <p className="px-3 py-3 text-sm text-gray-500">Sin adecuaciones vigentes.</p>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {sheet.accommodations.map((row) => (
+                    <li key={row.id} className="grid grid-cols-[6.5rem_1fr] text-sm">
+                      <div className="border-r border-gray-100 px-3 py-3 font-mono text-xs text-gray-700">
+                        {formatDay(row.createdAt ?? null)}
+                      </div>
+                      <div className="px-3 py-3">
+                        <AccommodationBody row={row} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+            {accommodationsEditor}
+          </>
+        )}
+
+        {sheet && !focused && (
           <>
             {sheet.apeReferred && (
               <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -326,30 +412,19 @@ export default function StudentSheet({
                 <ul className="mt-1 space-y-2 pl-6">
                   {sheet.accommodations.map((row) => (
                     <li key={row.id} className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2">
-                      <p className="text-xs font-medium text-amber-900">
-                        {KIND_LABELS[row.kind] ?? row.kind}
-                      </p>
-                      <p className="text-sm text-gray-800">{row.summary}</p>
-                      {row.externalUrl && (
-                        <a
-                          href={row.externalUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-0.5 inline-flex items-center gap-1 break-all text-xs text-emerald-700 hover:underline"
-                        >
-                          Ver el informe completo
-                          <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
-                        </a>
-                      )}
-                      <AuditLine
-                        registeredBy={row.createdByName}
-                        registeredAt={row.createdAt}
-                        updatedBy={row.updatedByName}
-                        updatedAt={row.updatedAt}
-                      />
+                      <AccommodationBody row={row} />
                     </li>
                   ))}
                 </ul>
+              )}
+              {/* Un alumno sin adecuaciones no tiene chip ADEC: la primera se carga desde acá. */}
+              {accommodationsEditor && (
+                <details className="mt-3 pl-6">
+                  <summary className="cursor-pointer text-sm font-medium text-emerald-700">
+                    Cargar o editar adecuaciones
+                  </summary>
+                  <div className="mt-3">{accommodationsEditor}</div>
+                </details>
               )}
             </section>
 

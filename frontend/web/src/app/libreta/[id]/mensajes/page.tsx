@@ -1,20 +1,19 @@
 'use client'
-import { useLibreta } from '@/contexts/LibretaContext'
-import MessagesPanel from '@/components/gradebook/MessagesPanel'
-import ObservacionesDireccion from '@/components/libreta/ObservacionesDireccion'
-import SectionHeader from '@/components/libreta/SectionHeader'
 
-/** "Mensajes de Dirección y Adscripción": lo que la supervisión le observó y le escribió al docente en esta libreta. */
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useLibreta } from '@/contexts/LibretaContext'
+
+/**
+ * La sección "Mensajes de Dirección y Adscripción" se retiró: la supervisión le escribe al docente
+ * por la mensajería 1 a 1 y lo observado en el visado se ve en "Cierre de períodos". Los avisos
+ * viejos de la campana todavía apuntan acá, así que se redirige en vez de dar 404.
+ */
 export default function Page() {
-  const { gradeBookId, detail } = useLibreta()
-  if (!detail) return null
-  return (
-    <>
-      <SectionHeader id="mensajes" />
-      <div className="space-y-5">
-        <ObservacionesDireccion gradeBookId={gradeBookId} />
-        <MessagesPanel gradeBookId={gradeBookId} variant="teacher" readOnly={detail.status === 'ARCHIVED'} />
-      </div>
-    </>
-  )
+  const { gradeBookId } = useLibreta()
+  const router = useRouter()
+  useEffect(() => {
+    router.replace(`/libreta/${gradeBookId}/cierre`)
+  }, [router, gradeBookId])
+  return null
 }

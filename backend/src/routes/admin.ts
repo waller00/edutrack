@@ -48,6 +48,7 @@ import { deleteSessionsForUser } from '../auth/session-store.js'
 import { usernameSchema } from '../auth/account-validation.js'
 import { firstZodIssueMessage } from '../auth/password-policy.js'
 import adminStudentsRoutes from './admin-students.js'
+import adminStudentAccommodationsRoutes from './admin-student-accommodations.js'
 import adminTuitionRoutes from './admin-tuition.js'
 import adminStudentAttendanceRoutes from './admin-student-attendance.js'
 import adminSchoolYearsRoutes from './admin-school-years.js'
@@ -1310,6 +1311,8 @@ r.get('/audit-logs', requirePermission('audit.read', 'all'), async (req, res) =>
   })
 })
 
+// Antes que `/students`: Dirección y Adscripción cargan adecuaciones sin gestionar estudiantes.
+r.use('/students/:id/accommodations', requirePermission('students.accommodations', 'all'), adminStudentAccommodationsRoutes)
 r.use('/students', requirePermission('students.manage', 'all'), adminStudentsRoutes)
 r.use('/tuition', requirePermission('students.manage', 'all'), adminTuitionRoutes)
 // El router se monta con lectura y cada ruta pide lo suyo: adscripción justifica sin poder

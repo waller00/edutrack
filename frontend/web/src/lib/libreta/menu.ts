@@ -5,14 +5,14 @@
  * después lo que se evalúa y al final lo que se cierra. Cada entrada dice para qué sirve, porque
  * "Precierre" o "Visado" no se explican solos.
  *
- * El menú depende de quién mira. El docente trabaja su libreta y lee lo que le dice la supervisión
- * ("Mensajes de Dirección y Adscripción"); quien supervisa (Dirección, adscripción, administración)
- * la recorre de sólo lectura
- * y tiene "Visado y seguimiento", donde visa y le escribe al docente. Las inasistencias no son una
- * sección: salen del pase de lista y se ven en la carta de cada alumno.
+ * El menú depende de quién mira. El docente trabaja su libreta; lo que el visado le observó lo ve
+ * en "Cierre de períodos". Quien supervisa (Dirección, adscripción, administración) la recorre de
+ * sólo lectura y tiene "Visado y seguimiento", donde visa. Para escribirle al docente está la
+ * mensajería 1 a 1, no una sección de la libreta. Las inasistencias no son una sección: salen del
+ * pase de lista y se ven en la carta de cada alumno.
  */
 
-export type LibretaSectionId = 'planificacion' | 'desarrollo' | 'evaluaciones' | 'cierre' | 'mensajes' | 'visado'
+export type LibretaSectionId = 'planificacion' | 'desarrollo' | 'evaluaciones' | 'cierre' | 'visado'
 
 export type LibretaSection = {
   id: LibretaSectionId
@@ -35,13 +35,6 @@ const WORK_SECTIONS: readonly LibretaSection[] = [
   { id: 'cierre', label: 'Cierre de períodos', abbr: 'Cie', hint: 'Conducta, rendimiento, juicio e informe del grupo, y cierre de cada entrega.' },
 ]
 
-const MESSAGES_SECTION: LibretaSection = {
-  id: 'mensajes',
-  label: 'Mensajes de Dirección y Adscripción',
-  abbr: 'Msj',
-  hint: 'Lo que Dirección, Adscripción o Administración te observó o te pidió en esta libreta: notas que faltan, informes, juicios. Podés responder.',
-}
-
 const ENDORSEMENT_SECTION: LibretaSection = {
   id: 'visado',
   label: 'Visado y seguimiento',
@@ -50,7 +43,7 @@ const ENDORSEMENT_SECTION: LibretaSection = {
 }
 
 /** Todas las secciones, para resolver una por id sin importar quién mira. */
-export const LIBRETA_SECTIONS: readonly LibretaSection[] = [...WORK_SECTIONS, MESSAGES_SECTION, ENDORSEMENT_SECTION]
+export const LIBRETA_SECTIONS: readonly LibretaSection[] = [...WORK_SECTIONS, ENDORSEMENT_SECTION]
 
 /**
  * Lo único que ve el suplente: sus notas. Planificación, desarrollo, conducta, rendimiento, cierre
@@ -74,7 +67,7 @@ export type LibretaViewer = {
 /** Las secciones que ve quien mira la libreta, en orden. */
 export function sectionsFor(viewer: LibretaViewer): readonly LibretaSection[] {
   if (viewer.substitute) return [SUBSTITUTE_SECTION]
-  return viewer.supervises ? [...WORK_SECTIONS, ENDORSEMENT_SECTION] : [...WORK_SECTIONS, MESSAGES_SECTION]
+  return viewer.supervises ? [...WORK_SECTIONS, ENDORSEMENT_SECTION] : WORK_SECTIONS
 }
 
 export function sectionById(id: string): LibretaSection | undefined {

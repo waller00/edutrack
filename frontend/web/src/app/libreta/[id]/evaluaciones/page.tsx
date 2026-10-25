@@ -5,9 +5,9 @@ import { useLibreta } from '@/contexts/LibretaContext'
 import EvaluationsBoard from '@/components/gradebook/EvaluationsBoard'
 
 function Board() {
-  const { gradeBookId, detail } = useLibreta()
+  const { gradeBookId, detail, reload } = useLibreta()
   if (!detail) return null
-  return <EvaluationsBoard gradeBookId={gradeBookId} detail={detail} />
+  return <EvaluationsBoard gradeBookId={gradeBookId} detail={detail} onStudentsChanged={() => void reload()} />
 }
 
 export default function Page() {

@@ -92,6 +92,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
     perm('courses.manage', 'Cursos', 'manage', 'Gestionar cursos y materias', true, 'all'),
     perm('students.manage', 'Estudiantes', 'manage', 'Gestionar estudiantes', true, 'all'),
+    perm('students.accommodations', 'Estudiantes', 'accommodations', 'Cargar adecuaciones', true, 'all'),
     perm('academic-config.manage', 'Configuración académica', 'manage', 'Gestionar escalas, períodos y tipos de actividad', true, 'all'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver libretas', true, 'all'),
     // Sin `gradebook.grade`, `gradebook.plan` ni `gradebook.close`: la libreta es del docente.
@@ -145,6 +146,8 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     // Justificar es trabajo de adscripción, no del docente. Se le da el permiso acotado y no
     // `student-attendance.manage`, que además habilita reabrir listas ya cerradas.
     perm('student-attendance.justify', 'Asistencia de estudiantes', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
+    // Adecuaciones sin `students.manage`: las carga desde la hoja del alumno en la libreta.
+    perm('students.accommodations', 'Estudiantes', 'accommodations', 'Cargar adecuaciones', true, 'all'),
   ],
   // Dirección: ve todo el centro como Administración y es el único rol con `gradebook.endorse`.
   // Ese permiso, y no un `if` en una ruta, es lo que cumple la nota funcional del pliego ("el
@@ -160,6 +163,8 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     // En ciclo básico dirección también justifica faltas, previa o posteriormente. Igual que
     // adscripción: el permiso acotado, sin `manage`.
     perm('student-attendance.justify', 'Asistencia de estudiantes', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
+    // Adecuaciones sin `students.manage`: las carga desde la hoja del alumno en la libreta.
+    perm('students.accommodations', 'Estudiantes', 'accommodations', 'Cargar adecuaciones', true, 'all'),
   ],
 } as const
 

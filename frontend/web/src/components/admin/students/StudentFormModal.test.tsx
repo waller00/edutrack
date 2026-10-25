@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import StudentFormModal from './StudentFormModal'
 import { emptyStudentDraft, type StudentFormState } from './student-types'
@@ -8,7 +8,16 @@ vi.mock('./StudentPhotoField', () => ({
   initialsOf: () => 'DA',
 }))
 vi.mock('./StudentEnrollmentHistoryPanel', () => ({ default: () => <div>panel de historial</div> }))
-vi.mock('./StudentAccommodationsPanel', () => ({ default: () => <div>panel de adecuaciones</div> }))
+const { flushMock } = vi.hoisted(() => ({ flushMock: vi.fn() }))
+vi.mock('./StudentAccommodationsPanel', async () => {
+  const { forwardRef, useImperativeHandle } = await import('react')
+  return {
+    default: forwardRef(function Panel(_props, ref) {
+      useImperativeHandle(ref, () => ({ flush: flushMock }))
+      return <div>panel de adecuaciones</div>
+    }),
+  }
+})
 
 const onSave = vi.fn()
 const onPatch = vi.fn()
@@ -80,6 +89,7 @@ describe('foco al escribir', () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  flushMock.mockResolvedValue(true)
 })
 
 describe('alta', () => {
@@ -252,6 +262,26 @@ describe('trayectoria y adecuaciones', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Adecuaciones' }))
     expect(screen.getByText('panel de adecuaciones')).toBeInTheDocument()
+  })
+
+  it('"Guardar" con la pestaña de adecuaciones abierta guarda antes la adecuación escrita', async () => {
+    // Antes "Guardar" cerraba la ficha y la adecuación escrita sin "Agregar" se perdía en silencio.
+    setup(editProps, VALID)
+    fireEvent.click(screen.getByRole('tab', { name: 'Adecuaciones' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(flushMock).toHaveBeenCalled()
+  })
+
+  it('si la adecuación no se pudo guardar, la ficha no se cierra', async () => {
+    flushMock.mockResolvedValue(false)
+    setup(editProps, VALID)
+    fireEvent.click(screen.getByRole('tab', { name: 'Adecuaciones' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() => expect(flushMock).toHaveBeenCalled())
+    expect(onSave).not.toHaveBeenCalled()
   })
 
   it('al crear no hay pestañas: la trayectoria se carga después', () => {

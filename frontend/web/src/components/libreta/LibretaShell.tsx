@@ -54,8 +54,8 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
   const substitute = Boolean(detail?.access.ownWorkOnly)
   const sections = useMemo(() => sectionsFor({ supervises, substitute }), [supervises, substitute])
 
-  // Una sección que no es de quien mira (el docente en "Visado", Dirección en "Mensajes del
-  // director") vuelve a la portada en vez de mostrar una pantalla que no le corresponde.
+  // Una sección que no es de quien mira (el docente en "Visado", el suplente en "Cierre") vuelve a
+  // la portada en vez de mostrar una pantalla que no le corresponde.
   const misplaced = Boolean(detail && openSection && sectionById(openSection) && !sections.some((s) => s.id === openSection))
   useEffect(() => {
     if (misplaced) router.replace(`/libreta/${gradeBookId}`)

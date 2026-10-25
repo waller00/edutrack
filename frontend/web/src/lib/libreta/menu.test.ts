@@ -2,15 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { LIBRETA_SECTIONS, sectionById, sectionHref, sectionsFor, type LibretaSectionId } from './menu'
 
 describe('menú del Libro del Profesor', () => {
-  it('el docente trabaja su libreta y lee los mensajes del director', () => {
+  it('el docente trabaja su libreta: los mensajes van por la mensajería, no por una sección', () => {
     expect(sectionsFor({ supervises: false }).map((s) => s.id)).toEqual([
       'planificacion',
       'desarrollo',
       'evaluaciones',
       'cierre',
-      'mensajes',
     ])
-    expect(sectionById('mensajes')?.label).toBe('Mensajes de Dirección y Adscripción')
+    expect(sectionById('mensajes')).toBeUndefined()
   })
 
   it('el suplente sólo tiene sus notas: lo demás de la libreta es del titular', () => {

@@ -392,9 +392,9 @@ pantalla con paneles apilados.
 (`sectionsFor` en `lib/libreta/menu.ts`):
 - **Suplente:** sólo **Tus notas (suplencia)** (`evaluaciones`), con la lista del grupo. Ver
   "Acceso del suplente" más abajo.
-- **Docente titular:** `planificacion`, `desarrollo`, `evaluaciones`, `cierre` y
-  **Mensajes del director** (`mensajes`): lo que Dirección le observó en el visado y los hilos que le
-  abrió, a los que responde.
+- **Docente titular:** `planificacion`, `desarrollo`, `evaluaciones` y `cierre`. Lo que Dirección
+  le observó en el visado lo ve arriba de *Cierre de períodos*. La libreta ya no tiene sección de
+  mensajes: la supervisión le escribe por la mensajería 1 a 1.
 - **Supervisión** (Dirección, adscripción, inspección): las mismas cuatro, de sólo lectura, y
   **Visado y seguimiento** (`visado`): visar cada reunión cerrada, seguir si el docente dio lo que
   planificó (planificación al lado del desarrollo clase a clase), leer el informe del grupo y
@@ -598,7 +598,10 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
   cómo promovió el año anterior, si está derivado a APE, las materias que arrastra y las
   adecuaciones vigentes. Está ahí y no en una ficha aparte porque es lo que se tiene en cuenta al
   calificar. Las adecuaciones guardan el tipo, un resumen y un **enlace**: el informe nunca entra al
-  sistema (ver `docs/POLITICA_PRIVACIDAD.md` §4 bis).
+  sistema (ver `docs/POLITICA_PRIVACIDAD.md` §4 bis). Las cargan Administración, Dirección y
+  Adscripción (`students.accommodations`) desde la ficha del estudiante o desde esta hoja; el chip
+  **ADEC** abre sólo las adecuaciones (fecha, resumen, enlace y quién la cargó), igual que **Gen**
+  abre las observaciones generales.
 - **Descriptor (RF-053):** se deriva al leer del tramo de la escala, nunca se guarda. Un cambio en
   la redacción reglamentaria no reescribe libretas viejas.
 - **Un período cerrado congela sus evaluaciones**, no sólo la calificación general: si no, se
@@ -671,8 +674,8 @@ adscripción, dirección, inspección y administración.
 - **Secciones del visado:** Calificaciones, Cierre, Juicios, **Seguimiento** (`PLANNING`: si dio lo
   que planificó) e **Informe del grupo** (`GROUP_REPORT`), más el visado del período (`ALL`).
 - **Visar es de Dirección, no del docente.** Dirección visa desde la grilla `/libreta/visado` o desde
-  *Visado y seguimiento* dentro de cada libreta. **El docente ve lo que le observaron** arriba de sus
-  *Mensajes del director* (`GET /gradebook/:id/endorsements`), incluidas las observaciones de un
+  *Visado y seguimiento* dentro de cada libreta. **El docente ve lo que le observaron** arriba de
+  *Cierre de períodos* (`GET /gradebook/:id/endorsements`), incluidas las observaciones de un
   período reabierto para corregir; los avisos de observación, visado y reapertura lo llevan ahí.
 - **Antigüedad del pendiente** en la grilla, para priorizar (§5.9), junto con la marca de cierre
   fuera de plazo. La grilla filtra por reunión y por grupo (orientación más tronco común), sin tope
@@ -682,11 +685,9 @@ adscripción, dirección, inspección y administración.
 
 ### Observaciones, mensajería y accesos (RF-090, RF-091, RF-100)
 
-- **Espacio de intercambio** por libreta, con hilos. Un hilo no puede cruzar libretas.
-  - El docente lo ve como **Mensajes del director**: sólo los hilos que abrió Dirección
-    (`GET /gradebook/:id/messages?from=DIRECCION`), y responde dentro de ellos; no abre hilos.
-  - Dirección escribe desde *Visado y seguimiento* ("Mensajes al docente") y ve todo el intercambio.
-  - Cuando el docente responde, le llega el aviso a quien abrió el hilo.
+- **Espacio de intercambio** por libreta (`GradeBookMessage`): **retirado de la pantalla**. Lo
+  reemplaza la mensajería 1 a 1: en *Visado y seguimiento*, "Escribirle al docente" abre la
+  conversación con el titular. Las rutas y los hilos viejos se conservan como historial.
 - Va **separado de la cadena de visado** a propósito: acá viven las consultas y aclaraciones; en
   `Endorsement` sólo lo que cambia un estado formal.
 - **Avisos (RF-091):** observación, visado y mensaje nuevo llegan por la campana que ya existe
