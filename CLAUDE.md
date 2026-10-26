@@ -110,6 +110,25 @@ docker compose up -d --build auth  # rebuild solo el backend
 > y username los edita el usuario en la consola de Keycloak: buscar por ellos es tomar cuentas ajenas.
 > Toda alta que crea la cuenta en Keycloak guarda el vínculo con `linkKeycloakAccount`.
 
+> **El alta nunca toma una cuenta de Keycloak existente** (`createKeycloakUser` con `isAppAccount`).
+> Antes, ante el mismo correo, reutilizaba esa cuenta y le ponía la contraseña de quien se
+> registraba: con el correo de otro era quedarse con su cuenta. Si es de un usuario de EduTrack, 409
+> (`KEYCLOAK_EMAIL_IN_USE`); si quedó huérfana, se borra y se crea limpia.
+
+> **Contraseña y Google entran a la misma cuenta.** Quien se registró con contraseña: el primer
+> «Continuar con Google» con su correo pide la contraseña una vez para vincular (sin SMTP en
+> Keycloak no hay verificación por correo), o vincula desde Mi perfil con "Vincular con Google"
+> (`kc_action=idp_link:google` + `prompt=login`; sirve aunque su Gmail sea otro). Quien se registró
+> con Google: crea su contraseña en Mi perfil o con "Olvidé mi contraseña" (correo de EduTrack, que a
+> una cuenta sin contraseña le dice "Creá tu contraseña"). El secreto de Google va sólo en el `.env`
+> (`GOOGLE_CLIENT_SECRET`): el realm del repo es público y trae un texto de ejemplo, que el deploy no
+> sube. `scripts/keycloak-audit-login.sh` muestra (sólo lectura) cómo está el realm vivo.
+
+> **El `?v=` de los recursos del tema de Keycloak es el hash de su contenido**
+> (`keycloak/themes/edutrack/login/theme.properties`; `keycloak-theme.test.ts` lo exige y dice el
+> valor). Cloudflare guarda cada URL 30 días: con un `?v=` sin cambiar, "Olvidé mi contraseña" siguió
+> llevando a la recuperación de Keycloak (sin correo) en vez de a la de EduTrack.
+
 > **El registro público (`POST /auth/register`) nunca da ADMIN.** Un ADMIN nace únicamente del
 > bootstrap; nunca agregarlo al esquema del registro (la lista de usuarios oculta a los ADMIN, así que
 > una cuenta así ni se ve). Dirección y Adscripto sí se piden, y ven todo el centro: "Aprobar" nombra

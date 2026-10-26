@@ -207,13 +207,19 @@ if [ -z "$GOOGLE_SECRET" ]; then
   GOOGLE_SECRET="$(jq -r '(.identityProviders[]? | select(.alias=="google") | .config.clientSecret) // empty' "$REALM_FILE")"
 fi
 
+# El secreto real va sólo en el .env (GOOGLE_CLIENT_SECRET): el realm del repo trae un texto de
+# ejemplo. Un valor de ejemplo cuenta como faltante y el IdP queda con el secreto que ya tiene
+# guardado Keycloak; si se subiera, "Continuar con Google" dejaría de funcionar.
+is_placeholder() {
+  printf '%s' "$1" | grep -qi 'REEMPLAZAR\|REPLACE\|CHANGE'
+}
+
 GP="$KC_URL/admin/realms/$REALM_NAME/identity-provider/instances/google"
 GCUR="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$GP" 2>/dev/null || true)"
 if [ -z "$GCUR" ] || [ "$GCUR" = "null" ]; then
   echo ">> Google IdP: no existe el IdP 'google' en el realm; lo salteo."
-elif [ -z "$GOOGLE_ID" ] || [ -z "$GOOGLE_SECRET" ] || \
-     echo "$GOOGLE_ID" | grep -qi 'REEMPLAZAR\|REPLACE\|CHANGE'; then
-  echo ">> Google IdP: WARN no hay GOOGLE_CLIENT_ID/SECRET validos; no lo toco."
+elif [ -z "$GOOGLE_ID" ] || [ -z "$GOOGLE_SECRET" ] || is_placeholder "$GOOGLE_ID" || is_placeholder "$GOOGLE_SECRET"; then
+  echo ">> Google IdP: WARN no hay GOOGLE_CLIENT_ID/SECRET validos en el .env; no lo toco (queda el secreto guardado)."
 else
   GNEW="$(printf '%s' "$GCUR" | jq --arg id "$GOOGLE_ID" --arg sec "$GOOGLE_SECRET" \
     '.enabled=true | .config.clientId=$id | .config.clientSecret=$sec')"

@@ -175,6 +175,14 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
 }
 
 /**
+ * ¿Esa cuenta de Keycloak es de un usuario de EduTrack? Una que no lo es quedó huérfana y el alta
+ * la puede reemplazar; una que sí, nunca se toca (ver `createKeycloakUser`).
+ */
+export async function isAppKeycloakAccount(kcId: string): Promise<boolean> {
+  return Boolean(await prisma.user.findUnique({ where: { keycloakId: kcId }, select: { id: true } }));
+}
+
+/**
  * Guarda el vínculo al crear la cuenta en Keycloak. Nunca pisa un vínculo existente. Si falla,
  * no rompe el alta: el primer login lo completa por email.
  */

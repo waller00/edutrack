@@ -222,8 +222,28 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
         email: "nuevo@example.com",
         username: "nuevo.user",
       }),
+      // Sabe distinguir la cuenta de otro usuario (nunca se toma) de una huérfana.
+      { isAppAccount: expect.any(Function) },
     );
     expect(res.body.email).toBe("nuevo@example.com");
+  });
+
+  it("POST /auth/register no toma la cuenta de acceso de otro usuario con ese correo: 409 y rollback", async () => {
+    // Antes Keycloak reutilizaba esa cuenta y le ponía la contraseña de quien se registraba.
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "u-ajeno", email: "ajeno@example.com", username: "ajeno.user" });
+    prismaMock.user.delete.mockResolvedValue({ id: "u-ajeno" });
+    createKeycloakUserMock.mockRejectedValueOnce(
+      Object.assign(new Error("KEYCLOAK_EMAIL_IN_USE"), { code: "KEYCLOAK_EMAIL_IN_USE" }),
+    );
+
+    const res = await request(app())
+      .post("/auth/register")
+      .send({ email: "ajeno@example.com", password: "Segura123!", firstName: "Otro", lastName: "Usuario" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/correo ya tiene una cuenta de acceso/i);
+    expect(prismaMock.user.delete).toHaveBeenCalledWith({ where: { id: "u-ajeno" } });
   });
 
   it("GET /auth/register/sso devuelve prefills de Google", async () => {

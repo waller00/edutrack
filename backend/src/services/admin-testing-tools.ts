@@ -116,16 +116,20 @@ export async function resetDatabaseToSingleAdmin(opts?: {
 
   try {
     const { createKeycloakUser } = await import('../auth/keycloak.js')
-    const { linkKeycloakAccount } = await import('../auth/keycloak-provisioning.js')
-    const kcId = await createKeycloakUser({
-      email: adminEmail,
-      username: adminUsername,
-      firstName: 'Admin',
-      lastName: 'Principal',
-      password: adminPassword,
-      role: 'ADMIN',
-      emailVerified: true,
-    })
+    const { isAppKeycloakAccount, linkKeycloakAccount } = await import('../auth/keycloak-provisioning.js')
+    // Tras vaciar la base, la cuenta de Keycloak del admin anterior queda huérfana: se reemplaza.
+    const kcId = await createKeycloakUser(
+      {
+        email: adminEmail,
+        username: adminUsername,
+        firstName: 'Admin',
+        lastName: 'Principal',
+        password: adminPassword,
+        role: 'ADMIN',
+        emailVerified: true,
+      },
+      { isAppAccount: isAppKeycloakAccount },
+    )
     await linkKeycloakAccount(admin.id, kcId)
   } catch (e) {
     console.error('[admin-testing] keycloak admin user:', e)

@@ -53,7 +53,9 @@ const {
   keycloakUserHasPasswordMock,
   setInitialKeycloakPasswordMock,
   recordAuditEventMock,
+  getKeycloakUserGoogleLinkMock,
 } = vi.hoisted(() => ({
+  getKeycloakUserGoogleLinkMock: vi.fn().mockResolvedValue({ linked: false, account: null }),
   getKeycloakUserIdByEmailMock: vi.fn().mockResolvedValue("kc-1"),
   verifyKeycloakUserOtpCodeMock: vi.fn().mockResolvedValue(true),
   deleteKeycloakUserOtpCredentialsMock: vi.fn().mockResolvedValue(1),
@@ -120,6 +122,8 @@ vi.mock("../auth/keycloak.js", () => ({
   verifyKeycloakUserOtpCode: verifyKeycloakUserOtpCodeMock,
   keycloakUserHasPassword: keycloakUserHasPasswordMock,
   setInitialKeycloakPassword: setInitialKeycloakPasswordMock,
+  getKeycloakUserGoogleLink: getKeycloakUserGoogleLinkMock,
+  GOOGLE_IDP_ALIAS: "google",
 }));
 
 vi.mock("../auth/keycloak-provisioning.js", () => ({
@@ -453,6 +457,81 @@ describe("auth-keycloak login OIDC", () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe("http://localhost:3000/login?error=account_link");
+  });
+});
+
+describe("auth-keycloak vincular Google desde el perfil", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.FRONTEND_URL = "http://localhost:3000";
+    redisMock.set.mockResolvedValue("OK");
+    exchangeCodeMock.mockResolvedValue({
+      accessToken: "access-1",
+      expiresAt: Date.now() + 60_000,
+      claims: { sub: "kc-1", email: "u@example.com" },
+    });
+    provisionUserFromClaimsMock.mockResolvedValue({ id: "user-1", email: "u@example.com", role: "STAFF" });
+  });
+
+  it("GET /auth/account/link-google pide reingresar y la acción idp_link de Google", async () => {
+    const res = await request(app()).get("/auth/account/link-google").set("Cookie", "sid=sid-1");
+
+    expect(res.status).toBe(302);
+    // Reingreso obligatorio: con una sesión olvidada abierta, otro ataría su Google a la cuenta.
+    expect(buildLoginUrlMock).toHaveBeenCalledWith(
+      expect.objectContaining({ requiredAction: "idp_link:google", prompt: "login" }),
+    );
+    expect(redisMock.set).toHaveBeenCalledWith(
+      "bff:oauth:state-1",
+      expect.stringContaining('"purpose":"link-google"'),
+      "EX",
+      600,
+    );
+  });
+
+  it("GET /auth/account/link-google sin sesión no inicia nada", async () => {
+    const res = await request(app()).get("/auth/account/link-google");
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/login");
+    expect(buildLoginUrlMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["success", "success"],
+    ["cancelled", "cancelled"],
+    ["error", "error"],
+    [undefined, "error"],
+  ])("la vuelta de la vinculación (kc_action_status=%s) lleva al perfil con google=%s", async (status, shown) => {
+    redisMock.get.mockResolvedValue(
+      JSON.stringify({ codeVerifier: "verifier-1", returnTo: "/profile", purpose: "link-google" }),
+    );
+    const query = status ? `&kc_action_status=${status}` : "";
+
+    const res = await request(app())
+      .get(`/auth/callback?state=state-1&code=abc&kc_action=idp_link:google${query}`)
+      .set("Cookie", "oauth_state=state-1");
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe(`http://localhost:3000/profile?google=${shown}`);
+  });
+
+  it("GET /auth/account/google-status dice si Google está vinculado y con qué cuenta", async () => {
+    getKeycloakUserGoogleLinkMock.mockResolvedValueOnce({ linked: true, account: "ana@gmail.com" });
+
+    const res = await request(app()).get("/auth/account/google-status").set("Cookie", "sid=sid-1");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ linked: true, account: "ana@gmail.com" });
+    expect(getKeycloakUserGoogleLinkMock).toHaveBeenCalledWith("kc-1");
+  });
+
+  it("GET /auth/account/google-status responde 503 si Keycloak no contesta", async () => {
+    getKeycloakUserGoogleLinkMock.mockRejectedValueOnce(new Error("down"));
+
+    const res = await request(app()).get("/auth/account/google-status").set("Cookie", "sid=sid-1");
+
+    expect(res.status).toBe(503);
   });
 });
 

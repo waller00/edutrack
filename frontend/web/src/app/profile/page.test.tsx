@@ -28,6 +28,11 @@ vi.mock('@/components/profile/PasswordCard', () => ({
   default: () => <a href="http://localhost:4000/auth/account/password">Cambiar contraseña</a>,
 }))
 
+// Igual que PasswordCard: tiene sus tests (GoogleLinkCard.test.tsx) y su propia consulta.
+vi.mock('@/components/profile/GoogleLinkCard', () => ({
+  default: () => <p>Ingreso con Google</p>,
+}))
+
 vi.mock('@/components/notifications/WebPushSection', () => ({
   default: vi.fn(() => <p>Preferencias del navegador</p>),
 }))
@@ -196,6 +201,26 @@ describe('ProfilePage', () => {
 
     expect(await screen.findByText('2FA desactivado')).toBeInTheDocument()
     // El param se elimina para que un refresh/atrás no re-dispare el aviso.
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/profile')
+    replaceState.mockRestore()
+  })
+
+  it.each([
+    ['success', /Google quedó vinculado/],
+    ['cancelled', /No se vinculó Google/],
+    ['error', /No se pudo vincular Google/],
+  ])('al volver de vincular Google (google=%s) abre Seguridad con el resultado y limpia la URL', async (result, text) => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: { href: `http://localhost/profile?google=${result}` },
+    })
+    const replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+    mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false })
+    renderProfile()
+
+    expect(await screen.findByText(text)).toBeInTheDocument()
+    expect(screen.getByText('Ingreso con Google')).toBeVisible()
     expect(replaceState).toHaveBeenCalledWith(null, '', '/profile')
     replaceState.mockRestore()
   })

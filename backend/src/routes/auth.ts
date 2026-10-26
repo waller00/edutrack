@@ -22,7 +22,7 @@ import {
   syncRegisteredSsoUser,
 } from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
-import { linkKeycloakAccount } from "../auth/keycloak-provisioning.js";
+import { isAppKeycloakAccount, linkKeycloakAccount } from "../auth/keycloak-provisioning.js";
 import { getSession, newSessionId, saveSession } from "../auth/session-store.js";
 import { sendVerificationEmail, VERIFY_RESEND_COOLDOWN_SECONDS } from "../auth/email-verification.js";
 import { USERNAME_REGEX, usernameSchema } from "../auth/account-validation.js";
@@ -439,18 +439,24 @@ r.post("/register", rateLimit(REGISTER_LIMIT), async (req, res) => {
     } else {
       // Si el username quedó ocupado en Keycloak por una cuenta huérfana (sin usuario en la app),
       // la borramos para usar el nombre limpio (no se crean ni se toleran huérfanos).
-      await freeKeycloakUsernameIfOrphan(user.username, async (mail) =>
-        Boolean(await prisma.user.findUnique({ where: { email: mail }, select: { id: true } })),
+      await freeKeycloakUsernameIfOrphan(
+        user.username,
+        async (mail) => Boolean(await prisma.user.findUnique({ where: { email: mail }, select: { id: true } })),
+        isAppKeycloakAccount,
       );
-      const kcId = await createKeycloakUser({
-        email,
-        username: user.username,
-        firstName,
-        lastName,
-        password,
-        role: registerRoleCode,
-        emailVerified: false,
-      });
+      // Una cuenta de acceso con ese correo que es de otro usuario nunca se toma (ver createKeycloakUser).
+      const kcId = await createKeycloakUser(
+        {
+          email,
+          username: user.username,
+          firstName,
+          lastName,
+          password,
+          role: registerRoleCode,
+          emailVerified: false,
+        },
+        { isAppAccount: isAppKeycloakAccount },
+      );
       await linkKeycloakAccount(user.id, kcId);
     }
   } catch (e) {
@@ -460,6 +466,12 @@ r.post("/register", rateLimit(REGISTER_LIMIT), async (req, res) => {
       await prisma.user
         .delete({ where: { id: user.id } })
         .catch((delErr) => console.error("[register] rollback usuario tras fallo Keycloak:", delErr));
+    }
+    // `KeycloakEmailInUseError`: el correo es de la cuenta de acceso de otro usuario.
+    if (errorCode(e) === "KEYCLOAK_EMAIL_IN_USE") {
+      return res.status(409).json({
+        message: "Ese correo ya tiene una cuenta de acceso. Ingresá con tu usuario o con Google, o recuperá la contraseña.",
+      });
     }
     const usernameTakenInKc = e instanceof Error && (e as { code?: string }).code === "KEYCLOAK_USERNAME_TAKEN";
     console.error("[register] keycloak create user:", e);

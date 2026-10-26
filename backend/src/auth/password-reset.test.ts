@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { prismaMock, sendMailMock, resetKeycloakPasswordMock, deleteSessionsForUserMock } = vi.hoisted(() => ({
+const { prismaMock, sendMailMock, resetKeycloakPasswordMock, deleteSessionsForUserMock, keycloakUserHasPasswordMock } = vi.hoisted(() => ({
+  keycloakUserHasPasswordMock: vi.fn(),
   prismaMock: {
     user: { findFirst: vi.fn() },
     passwordReset: {
@@ -18,7 +19,10 @@ const { prismaMock, sendMailMock, resetKeycloakPasswordMock, deleteSessionsForUs
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../notifications/email.js", () => ({ sendMail: sendMailMock }));
-vi.mock("./keycloak.js", () => ({ resetKeycloakPassword: resetKeycloakPasswordMock }));
+vi.mock("./keycloak.js", () => ({
+  resetKeycloakPassword: resetKeycloakPasswordMock,
+  keycloakUserHasPassword: keycloakUserHasPasswordMock,
+}));
 vi.mock("./session-store.js", () => ({ deleteSessionsForUser: deleteSessionsForUserMock }));
 
 import {
@@ -54,6 +58,27 @@ describe("password-reset", () => {
     sendMailMock.mockResolvedValue(undefined);
     resetKeycloakPasswordMock.mockResolvedValue(undefined);
     deleteSessionsForUserMock.mockResolvedValue(1);
+    keycloakUserHasPasswordMock.mockResolvedValue(true);
+  });
+
+  it("a una cuenta sin contraseña (entra con Google) le dice que la crea, no que la restablece", async () => {
+    keycloakUserHasPasswordMock.mockResolvedValueOnce(false);
+
+    await expect(requestPasswordReset("ana@example.com")).resolves.toBe(true);
+
+    expect(keycloakUserHasPasswordMock).toHaveBeenCalledWith("kc-1");
+    const mail = sendMailMock.mock.calls[0][0];
+    expect(mail.subject).toBe("Creá tu contraseña de EduTrack");
+    expect(mail.text).toContain("ingresar también con tu usuario o tu correo");
+    expect(mail.text).toMatch(/reset\?token=[0-9a-f]{64}/);
+  });
+
+  it("si no se puede saber si tiene contraseña, manda el correo de siempre", async () => {
+    keycloakUserHasPasswordMock.mockRejectedValueOnce(new Error("keycloak down"));
+
+    await expect(requestPasswordReset("ana@example.com")).resolves.toBe(true);
+
+    expect(sendMailMock.mock.calls[0][0].subject).toBe("Restablecé tu contraseña de EduTrack");
   });
 
   it("el correo lleva el enlace, el vencimiento y qué hacer si no lo pediste", () => {

@@ -1177,6 +1177,15 @@ a[id^="social-"]:hover {
   color: #065f46 !important;
 }
 
+/* "¿Te registraste con Google?": debajo del formulario, sin competir con el botón de ingresar. */
+.et-login-hint {
+  margin: 0.85rem 0 0;
+  color: #4b5563;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
 @media (max-width: 480px) {
   .pf-v5-c-login {
     align-items: flex-start !important;

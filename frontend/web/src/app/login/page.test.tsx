@@ -106,6 +106,8 @@ describe('LoginPage (Keycloak)', () => {
     expect(screen.queryByText(/Keycloak|proveedor de identidad/i)).not.toBeInTheDocument()
     expect(screen.getByText(/Cerramos tu sesión correctamente/i)).toBeInTheDocument()
     expect(loggedOutLocationMock.href).toBe('')
+    // Recuperar (o crear, si entra con Google) la contraseña no depende del JS de Keycloak.
+    expect(screen.getByRole('link', { name: /Olvidaste tu contraseña/i })).toHaveAttribute('href', '/forgot')
   })
 
   it('no reintenta login en bucle si la cuenta esta pendiente o inhabilitada', async () => {

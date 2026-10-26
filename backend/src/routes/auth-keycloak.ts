@@ -8,9 +8,12 @@ import {
   buildLogoutUrl,
   deleteKeycloakUserOtpCredentials,
   exchangeCode,
+  getKeycloakUserGoogleLink,
   getKeycloakUserIdByEmail,
   getKeycloakUserOtpStatus,
+  GOOGLE_IDP_ALIAS,
   keycloakUserHasPassword,
+  type KeycloakRequiredAction,
   redirectUri,
   refreshTokens,
   setInitialKeycloakPassword,
@@ -158,13 +161,21 @@ async function requireSession(req: any, res: any): Promise<BffSession | null> {
   return session;
 }
 
+/**
+ * Para qué se pidió el ingreso, cuando la vuelta no es la de siempre. `link-google` vuelve al
+ * perfil con el resultado de la vinculación (`kc_action_status`), sin depender de que Keycloak
+ * devuelva también `kc_action`.
+ */
+type LoginPurpose = "link-google";
+
 async function beginLoginFlow(
   res: any,
   options: {
     identityProvider?: "google";
-    requiredAction?: "UPDATE_PASSWORD" | "CONFIGURE_TOTP" | "CONFIGURE_RECOVERY_AUTHN_CODES";
+    requiredAction?: KeycloakRequiredAction;
     prompt?: "login";
     returnTo?: string;
+    purpose?: LoginPurpose;
   } = {},
 ) {
   const { codeVerifier, state, authUrl } = await buildLoginUrl({
@@ -180,12 +191,17 @@ async function beginLoginFlow(
   const returnTo = options.returnTo && options.returnTo.startsWith("/") ? options.returnTo : "/";
   await redis.set(
     OAUTH_PREFIX + state,
-    JSON.stringify({ codeVerifier, returnTo }),
+    JSON.stringify({ codeVerifier, returnTo, ...(options.purpose ? { purpose: options.purpose } : {}) }),
     "EX",
     OAUTH_TTL_SECONDS,
   );
   setOauthStateCookie(res, state);
   res.redirect(authUrl);
+}
+
+/** Resultado de la vinculación que se le muestra al perfil. Cualquier otro valor es un error. */
+function googleLinkStatus(value: unknown): "success" | "cancelled" | "error" {
+  return value === "success" || value === "cancelled" ? value : "error";
 }
 
 r.get("/login", async (req, res) => {
@@ -214,9 +230,10 @@ r.get("/callback", async (req, res) => {
     const stored = await redis.get(OAUTH_PREFIX + state);
     if (!stored) return res.redirect(`${frontendUrl()}/login?error=state`);
     await redis.del(OAUTH_PREFIX + state);
-    const { codeVerifier, returnTo } = JSON.parse(stored) as {
+    const { codeVerifier, returnTo, purpose } = JSON.parse(stored) as {
       codeVerifier: string;
       returnTo: string;
+      purpose?: LoginPurpose;
     };
 
     const currentUrl = new URL(redirectUri());
@@ -240,6 +257,10 @@ r.get("/callback", async (req, res) => {
         return res.redirect(`${frontendUrl()}/login?error=account_link`);
       }
       throw error;
+    }
+
+    if (purpose === "link-google") {
+      return res.redirect(`${frontendUrl()}/profile?google=${googleLinkStatus(req.query.kc_action_status)}`);
     }
 
     if (req.query.kc_action === "CONFIGURE_TOTP" && req.query.kc_action_status === "success") {
@@ -340,6 +361,34 @@ r.post("/account/password", rateLimit(PASSWORD_CREATE_LIMIT), async (req, res) =
     entityId: session.userId,
   });
   res.json({ ok: true });
+});
+
+/** ¿Tiene Google vinculado? Con qué cuenta de Google entra, si la tiene. */
+r.get("/account/google-status", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  try {
+    res.json(await getKeycloakUserGoogleLink(session.kcId));
+  } catch (error) {
+    console.error("[auth/account/google-status] keycloak:", error);
+    res.status(503).json({ message: "No se pudo consultar si tu cuenta tiene Google vinculado." });
+  }
+});
+
+/**
+ * Vincula Google a la cuenta (`kc_action=idp_link:google`): después entra también con «Continuar
+ * con Google», aunque su Gmail no sea el correo de EduTrack. Pide volver a ingresar (`prompt=login`):
+ * con una sesión olvidada abierta, otro podría atar su propio Google a la cuenta y entrar cuando quiera.
+ */
+r.get("/account/link-google", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  await beginLoginFlow(res, {
+    requiredAction: `idp_link:${GOOGLE_IDP_ALIAS}`,
+    prompt: "login",
+    returnTo: "/profile",
+    purpose: "link-google",
+  });
 });
 
 /** Vuelve a pedir el ingreso (Google o contraseña) y regresa al perfil con el formulario abierto. */

@@ -254,9 +254,13 @@ export default function LoginPage() {
             {accountButtonLabel(externalError, pendingStage)}
           </button>
           {offerRegister && (
-            <div className="mt-6 text-center">
+            <div className="mt-6 flex flex-col items-center gap-2 text-center">
               <a href="/register" className="text-emerald-600 hover:text-emerald-700 font-medium text-sm">
                 Registrarse
+              </a>
+              {/* También está en la pantalla de Keycloak; acá no depende de su JS ni de su caché. */}
+              <a href="/forgot" className="text-sm text-gray-600 hover:text-emerald-700">
+                ¿Olvidaste tu contraseña? ¿Entrás con Google y querés una?
               </a>
             </div>
           )}

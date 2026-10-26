@@ -19,6 +19,14 @@ import {
 } from '@/lib/profile/profile-form'
 import ModuleHeader from '@/components/common/ModuleHeader'
 import PasswordCard from '@/components/profile/PasswordCard'
+import GoogleLinkCard from '@/components/profile/GoogleLinkCard'
+
+/** Lo que se muestra al volver de vincular Google (`/profile?google=…`, ver `/auth/account/link-google`). */
+const GOOGLE_LINK_RESULT: Record<string, { text: string; tone: 'success' | 'error' }> = {
+  success: { text: 'Listo: Google quedó vinculado. Ya podés ingresar con «Continuar con Google».', tone: 'success' },
+  cancelled: { text: 'No se vinculó Google: se canceló antes de terminar.', tone: 'error' },
+  error: { text: 'No se pudo vincular Google. Si esa cuenta de Google ya está vinculada a otro usuario, no se puede usar en dos.', tone: 'error' },
+}
 
 export default function ProfilePage() {
   const { me, loading, refresh } = useAuth()
@@ -69,6 +77,12 @@ export default function ProfilePage() {
     if (params.get('crear-contrasena') === '1') {
       setSection('security')
       setCreatePasswordRequested(true)
+      globalThis.history.replaceState(null, '', '/profile')
+    }
+    const googleResult = GOOGLE_LINK_RESULT[params.get('google') ?? '']
+    if (googleResult) {
+      setSection('security')
+      notify(googleResult.text, googleResult.tone)
       globalThis.history.replaceState(null, '', '/profile')
     }
     if (params.has('twoFactorDisabled')) {
@@ -267,9 +281,10 @@ export default function ProfilePage() {
 
       <section id="profile-security" aria-labelledby="profile-security-title" hidden={section !== 'security'} className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
         <h2 id="profile-security-title" className="font-semibold text-slate-900">Seguridad de la cuenta</h2>
-        <p className="mt-1 text-sm text-slate-500">Gestioná tu contraseña y la verificación en dos pasos.</p>
+        <p className="mt-1 text-sm text-slate-500">Gestioná tu contraseña, el ingreso con Google y la verificación en dos pasos.</p>
         <div className="mt-5 space-y-5">
           <PasswordCard username={username} openCreate={createPasswordRequested} onCreated={(text) => notify(text, 'success')} />
+          <GoogleLinkCard />
           <div className="space-y-4 rounded-lg border border-slate-200 p-4">
             <div className="flex items-start gap-3">
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" aria-hidden />

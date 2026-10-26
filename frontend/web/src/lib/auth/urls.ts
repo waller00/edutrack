@@ -34,6 +34,11 @@ export function accountReauthUrl(): string {
   return `${apiBase()}/auth/account/reauth`
 }
 
+/** Vincula Google a la cuenta (pide volver a ingresar) y regresa al perfil con el resultado. */
+export function accountLinkGoogleUrl(): string {
+  return `${apiBase()}/auth/account/link-google`
+}
+
 export function accountTwoFactorUrl(): string {
   return `${apiBase()}/auth/account/2fa`
 }

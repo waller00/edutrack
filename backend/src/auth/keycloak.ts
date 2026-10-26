@@ -116,9 +116,22 @@ export type AuthRequestState = {
   authUrl: string;
 };
 
+/** Alias del proveedor de Google en el realm. */
+export const GOOGLE_IDP_ALIAS = "google";
+
+/**
+ * Acciones que la app le pide a Keycloak. `idp_link:google` vincula Google a la cuenta con la que
+ * se está ingresando (Keycloak 26.3+, `IdpLinkAction`): sirve aunque el Gmail no sea el correo de EduTrack.
+ */
+export type KeycloakRequiredAction =
+  | "UPDATE_PASSWORD"
+  | "CONFIGURE_TOTP"
+  | "CONFIGURE_RECOVERY_AUTHN_CODES"
+  | `idp_link:${typeof GOOGLE_IDP_ALIAS}`;
+
 export type LoginUrlOptions = {
   identityProvider?: string;
-  requiredAction?: "UPDATE_PASSWORD" | "CONFIGURE_TOTP" | "CONFIGURE_RECOVERY_AUTHN_CODES";
+  requiredAction?: KeycloakRequiredAction;
   prompt?: "login";
 };
 
@@ -265,16 +278,39 @@ export type CreateKeycloakUserInput = {
   emailVerified?: boolean;
 };
 
-/**
- * Crea un usuario en el realm y le asigna el rol. Devuelve el id de Keycloak.
- * Usado por el registro de la app (la cuenta queda pendiente de aprobación).
- */
-export async function createKeycloakUser(input: CreateKeycloakUserInput): Promise<string> {
-  const token = await getAdminToken();
-  const base = adminBaseUrl();
-  const realm = adminRealm();
+/** `code` de `KeycloakEmailInUseError`: las rutas lo comparan por código, como `KEYCLOAK_USERNAME_TAKEN`. */
+export const KEYCLOAK_EMAIL_IN_USE = "KEYCLOAK_EMAIL_IN_USE";
 
-  const createRes = await kcFetch(`${base}/admin/realms/${realm}/users`, {
+/**
+ * El correo ya es de una cuenta de acceso de un usuario de EduTrack: el alta no puede tomarla.
+ */
+export class KeycloakEmailInUseError extends Error {
+  readonly code = KEYCLOAK_EMAIL_IN_USE;
+
+  constructor() {
+    super("KEYCLOAK_EMAIL_IN_USE");
+    this.name = "KeycloakEmailInUseError";
+  }
+}
+
+export type CreateKeycloakUserOptions = {
+  /**
+   * ¿Esa cuenta de Keycloak es de un usuario de EduTrack? Lo provee el caller (este módulo no
+   * depende de Prisma). Sin él, una cuenta existente con el mismo correo siempre se rechaza.
+   */
+  isAppAccount?: (kcId: string) => Promise<boolean>;
+};
+
+function usernameTakenError(): Error {
+  // 409 sin coincidencia por email = el username (u otro dato único) lo tiene OTRA cuenta.
+  // Error tipado para que el caller responda "nombre de usuario en uso" en vez de un 502 genérico.
+  const takenError = new Error("KEYCLOAK_USERNAME_TAKEN") as Error & { code?: string };
+  takenError.code = "KEYCLOAK_USERNAME_TAKEN";
+  return takenError;
+}
+
+function postKeycloakUser(token: string, input: CreateKeycloakUserInput): Promise<Response> {
+  return kcFetch(`${adminBaseUrl()}/admin/realms/${adminRealm()}/users`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({
@@ -289,34 +325,46 @@ export async function createKeycloakUser(input: CreateKeycloakUserInput): Promis
         : undefined,
     }),
   });
+}
+
+async function deleteKeycloakUserById(token: string, kcUserId: string): Promise<void> {
+  const res = await kcFetch(`${adminBaseUrl()}/admin/realms/${adminRealm()}/users/${encodeURIComponent(kcUserId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`Keycloak delete user error ${res.status}`);
+  }
+}
+
+/**
+ * Crea un usuario en el realm y le asigna el rol. Devuelve el id de Keycloak.
+ * Usado por el registro de la app (la cuenta queda pendiente de aprobación) y el alta de administración.
+ *
+ * **Nunca toma una cuenta que ya existe.** Antes, ante el mismo correo, reutilizaba esa cuenta y le
+ * ponía la contraseña de quien se registraba: con el correo de otro (por ejemplo, el que alguien
+ * cambió en su consola de cuenta) eso era quedarse con su cuenta, porque el login vincula por `sub`.
+ * Ahora, si la cuenta es de un usuario de EduTrack, el alta se rechaza (`KeycloakEmailInUseError`);
+ * si quedó huérfana (un alta con Google abandonada, un usuario borrado), se borra y se crea limpia.
+ */
+export async function createKeycloakUser(
+  input: CreateKeycloakUserInput,
+  options: CreateKeycloakUserOptions = {},
+): Promise<string> {
+  const token = await getAdminToken();
+  let createRes = await postKeycloakUser(token, input);
 
   if (createRes.status === 409) {
     const existingKcId = await findKeycloakUserIdByEmail(token, input.email);
-    if (existingKcId) {
-      // Mismo email: es la misma persona (re-registro / cuenta adoptada). La reutilizamos.
-      await syncKeycloakUserIdentity({
-        kcId: existingKcId,
-        email: input.email,
-        username: input.username,
-        firstName: input.firstName,
-        lastName: input.lastName,
-        emailVerified: input.emailVerified,
-      });
-      if (input.password) {
-        await setKeycloakUserPassword(token, existingKcId, input.password);
-      }
-      if (input.role) {
-        await assignRealmRole(token, existingKcId, input.role).catch((e) => {
-          console.error("[keycloak] assign existing user role:", e);
-        });
-      }
-      return existingKcId;
+    if (!existingKcId) throw usernameTakenError();
+    if (!options.isAppAccount || (await options.isAppAccount(existingKcId))) {
+      throw new KeycloakEmailInUseError();
     }
-    // 409 sin coincidencia por email = el username (u otro dato único) lo tiene OTRA cuenta.
-    // Error tipado para que el caller responda "nombre de usuario en uso" en vez de un 502 genérico.
-    const takenError = new Error("KEYCLOAK_USERNAME_TAKEN") as Error & { code?: string };
-    takenError.code = "KEYCLOAK_USERNAME_TAKEN";
-    throw takenError;
+    await deleteKeycloakUserById(token, existingKcId);
+    console.warn("[keycloak] cuenta huérfana con el mismo correo reemplazada por el alta", { kcId: existingKcId });
+    createRes = await postKeycloakUser(token, input);
+    // Ya no queda nadie con ese correo: otro 409 es el username.
+    if (createRes.status === 409) throw usernameTakenError();
   }
 
   if (createRes.status !== 201) {
@@ -530,12 +578,15 @@ async function findKeycloakUserByUsername(
 /**
  * Si el username ya existe en Keycloak pero es una cuenta HUÉRFANA (sin usuario en la app),
  * la borra para liberar el nombre limpio. Si pertenece a un usuario real de la app, NO la toca.
- * `hasAppUser(email)` lo provee el caller (consulta la BD de la app; así este módulo no depende de Prisma).
+ * `hasAppUser(email)` e `isAppAccount(kcId)` los provee el caller (consultan la BD de la app; así
+ * este módulo no depende de Prisma). El correo solo no alcanza: quien lo cambió en su consola de
+ * cuenta sigue siendo dueño de esa cuenta por su `keycloakId`.
  * Devuelve true si borró un huérfano. Best-effort: ante un error de Keycloak no bloquea el alta.
  */
 export async function freeKeycloakUsernameIfOrphan(
   username: string,
   hasAppUser: (email: string) => Promise<boolean>,
+  isAppAccount?: (kcId: string) => Promise<boolean>,
 ): Promise<boolean> {
   if (!username) return false;
   try {
@@ -544,6 +595,7 @@ export async function freeKeycloakUsernameIfOrphan(
     if (!kc) return false;
     // Linkeado a un usuario real de la app → no se toca.
     if (kc.email && (await hasAppUser(kc.email))) return false;
+    if (isAppAccount && (await isAppAccount(kc.id))) return false;
     const base = adminBaseUrl();
     const realm = adminRealm();
     const res = await kcFetch(`${base}/admin/realms/${realm}/users/${kc.id}`, {
@@ -832,6 +884,25 @@ export async function getKeycloakUserOtpStatus(kcUserId: string): Promise<{ enab
 }
 
 /** Si la cuenta tiene contraseña en Keycloak. Quien se registró con Google no tiene. */
+/**
+ * ¿La cuenta tiene Google vinculado? `account` es el usuario de Google (su correo), para que la
+ * persona sepa con qué cuenta entra.
+ */
+export async function getKeycloakUserGoogleLink(kcUserId: string): Promise<{ linked: boolean; account: string | null }> {
+  const token = await getAdminToken();
+  const res = await kcFetch(
+    `${adminBaseUrl()}/admin/realms/${adminRealm()}/users/${encodeURIComponent(kcUserId)}/federated-identity`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Keycloak federated identity error ${res.status}: ${detail}`);
+  }
+  const links = (await res.json()) as { identityProvider?: string; userName?: string }[];
+  const google = links.find((link) => link.identityProvider === GOOGLE_IDP_ALIAS);
+  return { linked: Boolean(google), account: google?.userName ?? null };
+}
+
 export async function keycloakUserHasPassword(kcUserId: string): Promise<boolean> {
   const token = await getAdminToken();
   const res = await kcFetch(`${adminBaseUrl()}/admin/realms/${adminRealm()}/users/${encodeURIComponent(kcUserId)}/credentials`, {

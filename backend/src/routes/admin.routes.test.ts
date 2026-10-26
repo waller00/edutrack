@@ -492,12 +492,33 @@ describe("admin routes (prisma mock)", () => {
       .send({ email: "new@e.com", role: "TEACHER", username: "userabc" });
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("new-id");
-    expect(createKeycloakUserMock).toHaveBeenCalledWith({
-      email: "new@e.com",
-      username: "userabc",
-      role: "TEACHER",
-      emailVerified: false,
-    });
+    expect(createKeycloakUserMock).toHaveBeenCalledWith(
+      {
+        email: "new@e.com",
+        username: "userabc",
+        role: "TEACHER",
+        emailVerified: false,
+      },
+      // Sabe distinguir la cuenta de otro usuario (nunca se toma) de una huérfana.
+      { isAppAccount: expect.any(Function) },
+    );
+  });
+
+  it("POST /admin/users 409 + rollback si el correo ya es de la cuenta de acceso de otro usuario", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.findFirst.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "new-id" });
+    prismaMock.user.delete.mockResolvedValue({ id: "new-id" });
+    createKeycloakUserMock.mockRejectedValueOnce(
+      Object.assign(new Error("KEYCLOAK_EMAIL_IN_USE"), { code: "KEYCLOAK_EMAIL_IN_USE" }),
+    );
+    const res = await request(app())
+      .post("/admin/users")
+      .set(adminHdr())
+      .send({ email: "new@e.com", role: "TEACHER", username: "userabc" });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/correo ya tiene una cuenta de acceso/i);
+    expect(prismaMock.user.delete).toHaveBeenCalledWith({ where: { id: "new-id" } });
   });
 
   it("POST /admin/users 409 si el username ya existe en la app", async () => {

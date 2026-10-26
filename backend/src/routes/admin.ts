@@ -42,7 +42,7 @@ import {
   reconcileMoodle,
 } from '../integrations/moodle/index.js'
 import { createKeycloakUser, deleteKeycloakUserByEmail, freeKeycloakUsernameIfOrphan, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
-import { linkKeycloakAccount } from '../auth/keycloak-provisioning.js'
+import { isAppKeycloakAccount, linkKeycloakAccount } from '../auth/keycloak-provisioning.js'
 import { deleteSessionsForUser } from '../auth/session-store.js'
 import { usernameSchema } from '../auth/account-validation.js'
 import { firstZodIssueMessage } from '../auth/password-policy.js'
@@ -635,16 +635,22 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
     // la liberamos para usar el nombre limpio. Si pertenece a un usuario real, createKeycloakUser
     // dará 409 (KEYCLOAK_USERNAME_TAKEN) y se maneja abajo.
     if (username) {
-      await freeKeycloakUsernameIfOrphan(username, async (mail) =>
-        Boolean(await prisma.user.findUnique({ where: { email: mail }, select: { id: true } })),
+      await freeKeycloakUsernameIfOrphan(
+        username,
+        async (mail) => Boolean(await prisma.user.findUnique({ where: { email: mail }, select: { id: true } })),
+        isAppKeycloakAccount,
       )
     }
-    const kcId = await createKeycloakUser({
-      email,
-      username,
-      role: roleCode,
-      emailVerified: false,
-    })
+    // Una cuenta de acceso con ese correo que es de otro usuario nunca se toma (ver createKeycloakUser).
+    const kcId = await createKeycloakUser(
+      {
+        email,
+        username,
+        role: roleCode,
+        emailVerified: false,
+      },
+      { isAppAccount: isAppKeycloakAccount },
+    )
     await linkKeycloakAccount(user.id, kcId)
   } catch (e) {
     // Atomicidad: si Keycloak falla, deshacemos el alta local para no dejar usuarios
@@ -652,6 +658,10 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
     await prisma.user
       .delete({ where: { id: user.id } })
       .catch((delErr) => console.error('[admin] rollback usuario tras fallo Keycloak:', delErr))
+    // `KeycloakEmailInUseError`: el correo es de la cuenta de acceso de otro usuario.
+    if ((e as { code?: string })?.code === 'KEYCLOAK_EMAIL_IN_USE') {
+      return res.status(409).json({ message: 'Ese correo ya tiene una cuenta de acceso en el sistema.' })
+    }
     const usernameTakenInKc = e instanceof Error && (e as { code?: string }).code === 'KEYCLOAK_USERNAME_TAKEN'
     console.error('[admin] keycloak create user:', e)
     return res.status(usernameTakenInKc ? 409 : 502).json({

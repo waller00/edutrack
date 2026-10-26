@@ -101,6 +101,41 @@
     if (element) element.textContent = text
   }
 
+  /**
+   * Pantallas del primer ingreso con Google de alguien que ya tiene cuenta ("La cuenta ya existe" y
+   * el pedido de contraseña para vincular). Keycloak las sirve en `login-actions/first-broker-login`.
+   */
+  function isBrokerLinkScreen() {
+    return window.location.href.indexOf('/login-actions/first-broker-login') >= 0
+  }
+
+  /**
+   * "Revisar perfil" deja cambiar el correo de Google y crear una SEGUNDA cuenta: en EduTrack eso es
+   * un alta duplicada. Queda sólo "Vincular Google a mi cuenta".
+   */
+  function hideReviewProfileButton() {
+    var button = document.querySelector('#updateProfile')
+    if (!button) return
+    button.style.display = 'none'
+    button.disabled = true
+    button.setAttribute('aria-hidden', 'true')
+  }
+
+  /**
+   * Quien se registró con Google no tiene contraseña: si la escribe, Keycloak sólo dice que es
+   * incorrecta. Este aviso le dice por dónde entrar y cómo crear una.
+   */
+  function addGoogleAccountHint() {
+    if (!screenFlags().isLogin || !document.querySelector('#social-google')) return
+    var form = document.querySelector('#kc-form-login')
+    if (!form || !form.parentElement || document.querySelector('.et-login-hint')) return
+    var hint = document.createElement('p')
+    hint.className = 'et-login-hint'
+    hint.textContent =
+      '¿Te registraste con Google? Usá «Continuar con Google». Para entrar con contraseña, creala con «Olvidé mi contraseña».'
+    form.parentElement.insertBefore(hint, form.nextSibling)
+  }
+
   function isRequiredActionScreen() {
     return window.location.href.indexOf('/login-actions/required-action') >= 0 ||
       window.location.href.indexOf('CONFIGURE_TOTP') >= 0 ||
@@ -426,6 +461,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    var brokerLink = isBrokerLinkScreen()
     installEduTrackFavicon()
     applyScreenClasses()
     markRecoveryCodesSetupScreen()
@@ -434,6 +470,12 @@
     enhanceGoogleButton()
     dedupeAuthenticatorSelection()
     addLostTwoFactorEmailRecovery()
+    if (brokerLink) {
+      // Ya tiene cuenta: no tiene sentido ofrecerle "Crear usuario" ni el aviso de Google.
+      hideReviewProfileButton()
+      return
+    }
+    addGoogleAccountHint()
     if (!screenFlags().isAction) addRegisterLink()
   })
 })()

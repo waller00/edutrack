@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { prisma } from "../db/prisma.js";
 import { sendMail } from "../notifications/email.js";
-import { resetKeycloakPassword } from "./keycloak.js";
+import { keycloakUserHasPassword, resetKeycloakPassword } from "./keycloak.js";
 import { deleteSessionsForUser } from "./session-store.js";
 
 /**
@@ -31,8 +31,30 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-export function buildPasswordResetEmail(resetUrl: string) {
+/**
+ * `createsPassword`: la cuenta todavía no tiene contraseña (entra con Google, o la dio de alta
+ * administración). El enlace es el mismo; el correo dice que crea una, no que la restablece.
+ */
+export function buildPasswordResetEmail(resetUrl: string, options: { createsPassword?: boolean } = {}) {
   const url = escapeHtml(resetUrl);
+  if (options.createsPassword) {
+    return {
+      subject: "Creá tu contraseña de EduTrack",
+      html: [
+        "<p>Hola,</p>",
+        "<p>Recibimos un pedido para crear la contraseña de tu cuenta de EduTrack. Con ella vas a poder ingresar también con tu usuario o tu correo, además de con Google.</p>",
+        `<p><a href="${url}" style="display:inline-block;padding:10px 18px;border-radius:8px;background:#047857;color:#ffffff;text-decoration:none;font-weight:600">Crear contraseña</a></p>`,
+        `<p>Si el botón no funciona, copiá este enlace en el navegador:<br><a href="${url}">${url}</a></p>`,
+        `<p>El enlace vence en ${PASSWORD_RESET_TTL_MINUTES} minutos y sirve una sola vez.</p>`,
+        "<p>Si no lo pediste, ignorá este correo: tu cuenta sigue igual.</p>",
+      ].join(""),
+      text:
+        `Para crear la contraseña de tu cuenta de EduTrack, abrí este enlace: ${resetUrl}\n\n` +
+        "Con ella vas a poder ingresar también con tu usuario o tu correo, además de con Google.\n\n" +
+        `El enlace vence en ${PASSWORD_RESET_TTL_MINUTES} minutos y sirve una sola vez.\n\n` +
+        "Si no lo pediste, ignorá este correo: tu cuenta sigue igual.",
+    };
+  }
   return {
     subject: "Restablecé tu contraseña de EduTrack",
     html: [
@@ -48,6 +70,15 @@ export function buildPasswordResetEmail(resetUrl: string) {
       `El enlace vence en ${PASSWORD_RESET_TTL_MINUTES} minutos y sirve una sola vez.\n\n` +
       "Si no lo pediste, ignorá este correo: tu contraseña no cambia.",
   };
+}
+
+/** ¿La cuenta ya tiene contraseña? Si Keycloak no contesta, se asume que sí: el correo de siempre sirve igual. */
+async function accountHasPassword(kcId: string): Promise<boolean> {
+  try {
+    return await keycloakUserHasPassword(kcId);
+  } catch {
+    return true;
+  }
 }
 
 async function sentRecently(userId: string): Promise<boolean> {
@@ -81,7 +112,8 @@ export async function requestPasswordReset(email: string): Promise<boolean> {
     },
   });
   const resetUrl = `${process.env.FRONTEND_URL}/reset?token=${token}`;
-  await sendMail({ to: user.email, ...buildPasswordResetEmail(resetUrl) });
+  const createsPassword = !(await accountHasPassword(user.keycloakId));
+  await sendMail({ to: user.email, ...buildPasswordResetEmail(resetUrl, { createsPassword }) });
   return true;
 }
 
