@@ -79,3 +79,18 @@ compose_recreate_services() {
   compose "${compose_files[@]}" rm -f "${services[@]}" 2>/dev/null || true
   compose "${compose_files[@]}" up -d --no-build "${services[@]}"
 }
+
+# Reinicia Keycloak para que tome un tema nuevo. Keycloak guarda una copia comprimida de cada CSS/JS
+# del tema (data/tmp/kc-gzip-cache) y la sirve sin mirar si el archivo cambió; esa carpeta sobrevive
+# a `restart` y sólo cambia de nombre al actualizar Keycloak. Sin vaciarla, el tema nuevo sale con el
+# CSS y el JS viejos, y Cloudflare los guarda 30 días con el `?v=` nuevo. Si no se puede vaciar, se
+# recrea el contenedor (arranca sin esa carpeta).
+# Uso: keycloak_restart_for_theme -f docker-compose.cloud.yml
+keycloak_restart_for_theme() {
+  if compose "$@" exec -T keycloak rm -rf /opt/keycloak/data/tmp/kc-gzip-cache; then
+    compose "$@" restart keycloak
+  else
+    echo "No pude vaciar la caché del tema de Keycloak -> recreo el contenedor" >&2
+    compose_recreate_services "$@" keycloak
+  fi
+}

@@ -103,10 +103,12 @@
 
   /**
    * Pantallas del primer ingreso con Google de alguien que ya tiene cuenta ("La cuenta ya existe" y
-   * el pedido de contraseña para vincular). Keycloak las sirve en `login-actions/first-broker-login`.
+   * el pedido de contraseña para vincular). Keycloak las sirve en `login-actions/first-broker-login`;
+   * el botón "Vincular" delata la primera aunque cambie la URL.
    */
   function isBrokerLinkScreen() {
-    return window.location.href.indexOf('/login-actions/first-broker-login') >= 0
+    return window.location.href.indexOf('/login-actions/first-broker-login') >= 0 ||
+      !!document.querySelector('#linkAccount')
   }
 
   /**

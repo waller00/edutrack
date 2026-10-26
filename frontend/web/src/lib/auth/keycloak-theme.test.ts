@@ -145,6 +145,13 @@ describe('primer ingreso con Google de quien ya tiene cuenta', () => {
     expect(document.querySelector('.et-login-hint')).toBeNull()
   })
 
+  it('reconoce "La cuenta ya existe" por el botón de vincular aunque la URL sea otra', () => {
+    runTheme(CONFIRM_LINK_PAGE, `/realms/edutrack/broker/google/endpoint?state=s1&client_data=${clientData}`)
+
+    expect(document.querySelector<HTMLButtonElement>('#updateProfile')?.style.display).toBe('none')
+    expect(document.querySelector('.et-register-link')).toBeNull()
+  })
+
   it('al pedir la contraseña para vincular, "Olvidé mi contraseña" también va a EduTrack', () => {
     runTheme(`<div class="pf-v5-c-login__main-body">${LOGIN_FORM}</div><div class="pf-v5-c-login__main-footer"></div>`, BROKER_URL)
 

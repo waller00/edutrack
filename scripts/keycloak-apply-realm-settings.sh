@@ -229,6 +229,55 @@ else
   echo ">> OK. Google IdP clientId = $GAFTER"
 fi
 
+# Primer ingreso con Google de quien ya tiene cuenta: vincula con su contraseña de EduTrack. El flujo
+# de fábrica prueba antes con un correo de Keycloak (SMTP del realm) y, si el envío falla, corta en
+# "Falló el envío del email". Google usa una copia con ese paso apagado; quien todavía no tiene
+# contraseña la crea con "Olvidé mi contraseña" (correo de EduTrack) desde esa misma pantalla.
+# La copia se hace una sola vez: no recibe lo que una versión nueva de Keycloak cambie en la de fábrica.
+GOOGLE_FIRST_LOGIN_FLOW="edutrack first broker login"
+ensure_google_first_login_flow() {
+  local flows="$KC_URL/admin/realms/$REALM_NAME/authentication/flows"
+  local idp current flow_path source_flow email_step bound
+  idp="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$GP")" || return 1
+  current="$(printf '%s' "$idp" | jq -r '.firstBrokerLoginFlowAlias // empty')" || return 1
+  flow_path="$(jq -rn --arg f "$GOOGLE_FIRST_LOGIN_FLOW" '$f|@uri')" || return 1
+
+  if ! curl -fsS -o /dev/null -H "Authorization: Bearer $TOKEN" "$flows/$flow_path/executions" 2>/dev/null; then
+    source_flow="${current:-first broker login}"
+    [ "$source_flow" != "$GOOGLE_FIRST_LOGIN_FLOW" ] || source_flow="first broker login"
+    jq -n --arg name "$GOOGLE_FIRST_LOGIN_FLOW" '{newName: $name}' \
+      | curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+          --data-binary @- "$flows/$(jq -rn --arg f "$source_flow" '$f|@uri')/copy" || return 1
+    echo ">> OK. Flujo '$GOOGLE_FIRST_LOGIN_FLOW' creado (copia de '$source_flow')."
+  fi
+
+  email_step="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$flows/$flow_path/executions" \
+    | jq -c '[.[] | select(.providerId == "idp-email-verification")][0] // empty')" || return 1
+  if [ -z "$email_step" ]; then
+    echo ">> Google: WARN el flujo '$GOOGLE_FIRST_LOGIN_FLOW' no tiene verificación por correo; no la apago." >&2
+  elif [ "$(printf '%s' "$email_step" | jq -r '.requirement')" != "DISABLED" ]; then
+    # Va el paso tal como vino, con su `priority`: este PUT también cambia la prioridad.
+    printf '%s' "$email_step" | jq '.requirement = "DISABLED"' \
+      | curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+          --data-binary @- "$flows/$flow_path/executions" || return 1
+  fi
+
+  if [ "$current" != "$GOOGLE_FIRST_LOGIN_FLOW" ]; then
+    # El GET trae el secreto enmascarado (**********) y Keycloak, al recibirlo así, conserva el guardado.
+    printf '%s' "$idp" | jq --arg f "$GOOGLE_FIRST_LOGIN_FLOW" '.firstBrokerLoginFlowAlias = $f' \
+      | curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+          --data-binary @- "$GP" || return 1
+  fi
+  bound="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$GP" | jq -r '.firstBrokerLoginFlowAlias // empty')" || return 1
+  [ "$bound" = "$GOOGLE_FIRST_LOGIN_FLOW" ] || return 1
+  echo ">> OK. Google: quien ya tiene cuenta vincula con su contraseña (flujo '$GOOGLE_FIRST_LOGIN_FLOW')."
+}
+
+if [ -n "$GCUR" ] && [ "$GCUR" != "null" ]; then
+  ensure_google_first_login_flow \
+    || echo ">> Google: WARN no pude ajustar el flujo de primer ingreso; queda el que estaba." >&2
+fi
+
 # Correo del realm (opcional). Recuperar contraseña ya lo manda EduTrack por Brevo
 # (auth/password-reset.ts); esto sólo hace falta para correos nativos de Keycloak. DigitalOcean
 # bloquea el 25/465/587: usar el relay SMTP de Brevo en el 2525 con su clave SMTP, no la de la API.

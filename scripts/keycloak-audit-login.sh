@@ -59,7 +59,7 @@ echo "== Realm"
 api "" | jq -r '
   "loginTheme=\(.loginTheme)  resetPasswordAllowed=\(.resetPasswordAllowed)  verifyEmail=\(.verifyEmail)",
   "loginWithEmailAllowed=\(.loginWithEmailAllowed)  duplicateEmailsAllowed=\(.duplicateEmailsAllowed)  editUsernameAllowed=\(.editUsernameAllowed)",
-  "SMTP del realm: \(if (.smtpServer.host // "") == "" then "NO configurado (vincular Google pide la contraseña; recuperar contraseña es de EduTrack)" else "configurado (\(.smtpServer.host))" end)"'
+  "SMTP del realm: \(if (.smtpServer.host // "") == "" then "NO configurado" else "configurado (\(.smtpServer.host))" end) (vincular Google y recuperar contraseña no lo usan)"'
 
 echo
 echo "== Google (identity provider)"
@@ -70,7 +70,9 @@ else
   printf '%s' "$GOOGLE" | jq -r '
     "enabled=\(.enabled)  trustEmail=\(.trustEmail)  hideOnLogin=\(.hideOnLogin // false)",
     "firstBrokerLoginFlowAlias=\(.firstBrokerLoginFlowAlias)  postBrokerLoginFlowAlias=\(.postBrokerLoginFlowAlias // "-")",
-    "syncMode=\(.config.syncMode // "-")  clientId=\(.config.clientId // "-")"'
+    "syncMode=\(.config.syncMode // "-")  clientId=\(.config.clientId // "-")",
+    if .firstBrokerLoginFlowAlias == "edutrack first broker login" then "OK: vincula con la contraseña de EduTrack"
+    else "ATENCIÓN: no usa \"edutrack first broker login\": con SMTP del realm, vincular manda un correo de Keycloak" end'
   FLOW="$(printf '%s' "$GOOGLE" | jq -r '.firstBrokerLoginFlowAlias // "first broker login"')"
   echo
   echo "== Flujo '$FLOW' (primer ingreso con Google)"

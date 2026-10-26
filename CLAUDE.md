@@ -116,8 +116,11 @@ docker compose up -d --build auth  # rebuild solo el backend
 > (`KEYCLOAK_EMAIL_IN_USE`); si quedó huérfana, se borra y se crea limpia.
 
 > **Contraseña y Google entran a la misma cuenta.** Quien se registró con contraseña: el primer
-> «Continuar con Google» con su correo pide la contraseña una vez para vincular (sin SMTP en
-> Keycloak no hay verificación por correo), o vincula desde Mi perfil con "Vincular con Google"
+> «Continuar con Google» con su correo pide la contraseña una vez para vincular (flujo
+> `edutrack first broker login`, que crea `keycloak-apply-realm-settings.sh` sin el paso de correo de
+> Keycloak: con el SMTP del realm fallando cortaba en "Falló el envío del email"). Quien no tiene
+> contraseña (las altas de Administración nacen sin) la crea ahí con "Olvidé mi contraseña". También
+> vincula desde Mi perfil con "Vincular con Google"
 > (`kc_action=idp_link:google` + `prompt=login`; sirve aunque su Gmail sea otro). Quien se registró
 > con Google: crea su contraseña en Mi perfil o con "Olvidé mi contraseña" (correo de EduTrack, que a
 > una cuenta sin contraseña le dice "Creá tu contraseña"). El secreto de Google va sólo en el `.env`
@@ -127,7 +130,10 @@ docker compose up -d --build auth  # rebuild solo el backend
 > **El `?v=` de los recursos del tema de Keycloak es el hash de su contenido**
 > (`keycloak/themes/edutrack/login/theme.properties`; `keycloak-theme.test.ts` lo exige y dice el
 > valor). Cloudflare guarda cada URL 30 días: con un `?v=` sin cambiar, "Olvidé mi contraseña" siguió
-> llevando a la recuperación de Keycloak (sin correo) en vez de a la de EduTrack.
+> llevando a la recuperación de Keycloak (sin correo) en vez de a la de EduTrack. Y Keycloak sirve una
+> copia comprimida de cada CSS/JS (`data/tmp/kc-gzip-cache`) que no ve los cambios y sobrevive a
+> `restart`: el deploy la vacía al cambiar el tema (`keycloak_restart_for_theme`) y al final
+> `scripts/keycloak-verify-theme.sh` exige que lo servido sea lo del commit.
 
 > **El registro público (`POST /auth/register`) nunca da ADMIN.** Un ADMIN nace únicamente del
 > bootstrap; nunca agregarlo al esquema del registro (la lista de usuarios oculta a los ADMIN, así que
