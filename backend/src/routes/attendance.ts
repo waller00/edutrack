@@ -33,6 +33,7 @@ import { isAdminTestingToolsEnabled } from '../config/testing-tools.js';
 import { getPlannedInstances } from '../services/analytics/planInstances.js';
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js';
 import { buildPayrollAttendanceData } from '../services/analytics/exports/payrollAttendanceReport.js';
+import { shareInFlight } from '../lib/in-flight.js';
 
 function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[0] }>(row: T) {
   if (!row.user) return row;
@@ -243,28 +244,66 @@ function feedItemYmd(value: Date | string): string {
   return DateTime.fromJSDate(new Date(value), { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
 }
 
-type AttendanceFeedItem = { time: number; rows: any[] }
+/** `marks`: filas de `Attendance` con sólo sus columnas; persona y evento se piden para la página. */
+type AttendanceFeedItem = { time: number; rows: any[]; marks?: boolean }
+
+type FeedMark = { id: string; userId: string; eventId: string | null; date: Date; time: Date }
 
 /**
  * Agrupa las marcas en items de feed: la entrada y la salida de un mismo
  * usuario/evento/dia forman UN item, para que la paginacion nunca separe el par
  * (la causa de que se vea "salida sin entrada" al cortar entre paginas).
  * Incidencias y ausencias virtuales son items de una sola fila.
+ * `date` es el inicio del día de la marca: el día civil se calcula una vez por valor, no por marca.
  */
-function buildAttendanceFeedItems(rows: any[]): AttendanceFeedItem[] {
+function buildAttendanceFeedItems(rows: FeedMark[]): AttendanceFeedItem[] {
   const groups = new Map<string, AttendanceFeedItem>()
+  const ymdByDate = new Map<number, string>()
   for (const row of rows) {
-    const key = `${row.user?.id ?? 'sin-usuario'}|${row.event?.id ?? 'sin-evento'}|${feedItemYmd(row.date)}`
+    const dateMs = new Date(row.date).getTime()
+    let ymd = ymdByDate.get(dateMs)
+    if (ymd === undefined) {
+      ymd = feedItemYmd(row.date)
+      ymdByDate.set(dateMs, ymd)
+    }
+    const key = `${row.userId}|${row.eventId ?? 'sin-evento'}|${ymd}`
     const time = new Date(row.time ?? row.date).getTime()
     const group = groups.get(key)
     if (group) {
       group.rows.push(row)
       if (time > group.time) group.time = time
     } else {
-      groups.set(key, { time, rows: [row] })
+      groups.set(key, { time, rows: [row], marks: true })
     }
   }
   return [...groups.values()]
+}
+
+/**
+ * Las filas de la página, cada item en orden de hora (la entrada antes que la salida). Las marcas
+ * llegan con sólo sus columnas: persona y evento se leen acá, sólo para las de esta página.
+ */
+async function feedPageRows(pageItems: AttendanceFeedItem[]) {
+  const markIds = pageItems.filter((item) => item.marks).flatMap((item) => item.rows.map((row) => row.id))
+  const detailed = markIds.length
+    ? await prisma.attendance.findMany({
+        where: { id: { in: markIds } },
+        include: {
+          user: {
+            select: { id: true, name: true, email: true, ...selectOrgRoleCode }
+          },
+          event: {
+            select: { id: true, title: true, type: true, startTime: true, endTime: true }
+          }
+        },
+      })
+    : []
+  const detailedById = new Map(detailed.map((row) => [row.id, mapAttendanceUser(row)]))
+  return pageItems.flatMap((item) => {
+    // Una marca borrada entre las dos lecturas ya no está: se omite.
+    const rows = item.marks ? item.rows.flatMap((row) => detailedById.get(row.id) ?? []) : item.rows
+    return [...rows].sort((a, b) => new Date(a.time ?? a.date).getTime() - new Date(b.time ?? b.date).getTime())
+  })
 }
 
 function queryAllowsVirtualAbsenceRows(query: Record<string, unknown>) {
@@ -405,7 +444,7 @@ async function buildSubstituteAbsenceRows(params: {
     .map(mapSubstituteNoShowAsFeedRow)
 }
 
-async function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanceWhere: any) {
+async function computeVirtualAbsenceRows(query: Record<string, unknown>, attendanceWhere: any) {
   if (!queryAllowsVirtualAbsenceRows(query)) return []
 
   const now = new Date()
@@ -456,6 +495,22 @@ async function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanc
   })
 
   return [...titularAbsenceRows, ...substituteAbsenceRows]
+}
+
+/** Lo que cambia las ausencias calculadas. `page` y `pageSize` no: la tabla y el resumen comparten. */
+const VIRTUAL_ABSENCE_QUERY_FIELDS = [
+  'includeIncidents', 'startDate', 'endDate', 'userId', 'role', 'eventType', 'eventId', 'type', 'status',
+] as const
+
+/**
+ * Asistencia del personal pide la tabla (`/all`) y el resumen (`/stats`) a la vez y con los mismos
+ * filtros: el segundo pedido espera este cálculo, que rearma todas las clases del ciclo, en vez de
+ * repetirlo. Terminado, se descarta (`shareInFlight` no guarda nada).
+ */
+function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanceWhere: any) {
+  const schoolYearId = typeof attendanceWhere.schoolYearId === 'string' ? attendanceWhere.schoolYearId : null
+  const key = JSON.stringify([...VIRTUAL_ABSENCE_QUERY_FIELDS.map((field) => query[field] ?? null), schoolYearId])
+  return shareInFlight(`virtual-absences:${key}`, () => computeVirtualAbsenceRows(query, attendanceWhere))
 }
 
 type ManualMarkRejection = { status: number; code: string; message: string }
@@ -749,16 +804,11 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
     if (wantsIncidentRows(q)) {
       const incidentWhere = buildAdminAttendanceIncidentWhere(q, where)
       const [attendanceRows, incidentRows, virtualAbsenceRows] = await Promise.all([
+        // Para ordenar y paginar alcanzan las columnas: persona y evento se leen después, sólo para
+        // las marcas de la página (antes llegaban con cada marca del ciclo).
         prisma.attendance.findMany({
           where,
-          include: {
-            user: {
-              select: { id: true, name: true, email: true, ...selectOrgRoleCode }
-            },
-            event: {
-              select: { id: true, title: true, type: true, startTime: true, endTime: true }
-            }
-          },
+          select: { id: true, userId: true, eventId: true, date: true, time: true },
           orderBy: [{ date: 'desc' }, { time: 'asc' }],
         }),
         prisma.attendanceIncident.findMany({
@@ -778,18 +828,14 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
 
       // Paginar por ITEMS (un par entrada+salida = 1 item) para no cortar pares
       // entre paginas. total = cantidad de items mostrados, no de filas crudas.
-      const attendanceItems = buildAttendanceFeedItems(attendanceRows.map(mapAttendanceUser))
+      const attendanceItems = buildAttendanceFeedItems(attendanceRows)
       const otherItems: AttendanceFeedItem[] = [
         ...incidentRows.map(mapAttendanceIncidentAsFeedRow),
         ...virtualAbsenceRows,
       ].map((row: any) => ({ time: new Date(row.time ?? row.date).getTime(), rows: [row] }))
 
       const items = [...attendanceItems, ...otherItems].sort((a, b) => b.time - a.time)
-      const data = items
-        .slice((page - 1) * pageSize, page * pageSize)
-        .flatMap((item) =>
-          [...item.rows].sort((a, b) => new Date(a.time ?? a.date).getTime() - new Date(b.time ?? b.date).getTime()),
-        )
+      const data = await feedPageRows(items.slice((page - 1) * pageSize, page * pageSize))
 
       return res.json({ total: items.length, page, pageSize, data });
     }
@@ -1213,7 +1259,12 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
 
     const where = await buildAttendanceStatsWhereAsync(req.query as Record<string, unknown>, user)
 
-    const q = req.query as Record<string, unknown>
+    // Incidencias y ausencias calculadas filtran por el `userId` del pedido. Para quien sólo ve lo
+    // suyo vale el de la sesión, que ya está en `where`: si no, contaban las de todo el centro.
+    const q: Record<string, unknown> = {
+      ...(req.query as Record<string, unknown>),
+      ...(typeof where.userId === 'string' ? { userId: where.userId } : {}),
+    }
     const includeIncidentAbsences = shouldCountIncidentAbsencesInStats(q)
     const incidentWhere = includeIncidentAbsences
       ? buildAdminAttendanceIncidentWhere(q, where)

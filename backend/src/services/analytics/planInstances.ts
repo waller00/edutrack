@@ -3,13 +3,37 @@ import type { EventStatus, EventType } from '@prisma/client'
 import type { PlannedInstance } from './models.js'
 import { DateTime } from 'luxon'
 import { getAppTimezone, uruguayWallToUtc } from '../../config/app-timezone.js'
-import { addDaysUtc, parseYmdToUtcRange, toYmdInUruguay } from './dateRange.js'
-import { effectiveWindowIncludesYmd } from '../events/event-versioning.js'
+import { parseYmdToUtcRange, toYmdInUruguay } from './dateRange.js'
 
-function combineDateWithUtcTime(plannedDateYmd: string, time: Date | null | undefined) {
+const DAY_MS = 86_400_000
+
+type WallClock = { hour: number; minute: number }
+
+/** Hora civil de un horario guardado: una serie guarda la fecha-hora de su primer día. */
+function wallClockOf(time: Date | null | undefined): WallClock | null {
   if (!time) return null
   const wall = DateTime.fromJSDate(time, { zone: 'utc' }).setZone(getAppTimezone())
-  return uruguayWallToUtc(plannedDateYmd, wall.hour, wall.minute)
+  return { hour: wall.hour, minute: wall.minute }
+}
+
+type WallToUtc = (ymd: string, clock: WallClock | null) => Date | null
+
+/**
+ * `uruguayWallToUtc` memorizado durante una expansión. Las clases comparten horarios: la misma hora
+ * del mismo día se convierte una sola vez, y cada ocurrencia recibe su propio `Date`.
+ */
+function wallToUtcMemo(): WallToUtc {
+  const cache = new Map<string, number>()
+  return (ymd, clock) => {
+    if (!clock) return null
+    const key = `${ymd} ${clock.hour}:${clock.minute}`
+    let ms = cache.get(key)
+    if (ms === undefined) {
+      ms = uruguayWallToUtc(ymd, clock.hour, clock.minute).getTime()
+      cache.set(key, ms)
+    }
+    return new Date(ms)
+  }
 }
 
 type EventRow = {
@@ -62,7 +86,21 @@ function academicContextOf(ev: EventRow): AcademicContext {
   }
 }
 
-function buildInstance(ev: EventRow, ymd: string, isRecurringInstance: boolean, academic: AcademicContext): PlannedInstance {
+/** Lo que comparten todas las ocurrencias de un evento: se calcula una vez, no por día. */
+type EventPlan = {
+  academic: AcademicContext
+  start: WallClock | null
+  end: WallClock | null
+  commitmentStart: Date | null
+}
+
+function buildInstance(
+  ev: EventRow,
+  plan: EventPlan,
+  ymd: string,
+  isRecurringInstance: boolean,
+  wallToUtc: WallToUtc,
+): PlannedInstance {
   return {
     plannedInstanceId: `${ev.id}_${ymd}`,
     eventId: ev.id,
@@ -71,40 +109,68 @@ function buildInstance(ev: EventRow, ymd: string, isRecurringInstance: boolean, 
     eventStatus: ev.status,
     isRecurringInstance,
     plannedDate: ymd,
-    plannedStartTime: combineDateWithUtcTime(ymd, ev.startTime),
-    plannedEndTime: combineDateWithUtcTime(ymd, ev.endTime),
+    plannedStartTime: wallToUtc(ymd, plan.start),
+    plannedEndTime: wallToUtc(ymd, plan.end),
     userIdRequired: ev.assignedUserId,
-    commitmentStart: commitmentStartOf(ev),
-    ...academic,
+    commitmentStart: plan.commitmentStart,
+    ...plan.academic,
   }
 }
 
-/** Expande un evento (único o recurrente) a sus instancias dentro del rango [fromYmd, toYmd]. */
-function expandEventInstances(ev: EventRow, fromYmd: string, toYmd: string, toDate: Date): PlannedInstance[] {
-  const academic = academicContextOf(ev)
+/**
+ * Días del rango pedido en que la versión del evento está vigente, con los dos extremos inclusive
+ * (lo mismo que `effectiveWindowIncludesYmd`, pero calculado una vez y no en cada día).
+ */
+function effectiveRangeOf(ev: EventRow, fromYmd: string, toYmd: string) {
+  const effectiveFromYmd = ev.effectiveFrom ? toYmdInUruguay(ev.effectiveFrom) : null
+  const effectiveUntilYmd = ev.effectiveUntil ? toYmdInUruguay(ev.effectiveUntil) : null
+  return {
+    firstYmd: effectiveFromYmd && effectiveFromYmd > fromYmd ? effectiveFromYmd : fromYmd,
+    lastYmd: effectiveUntilYmd && effectiveUntilYmd < toYmd ? effectiveUntilYmd : toYmd,
+  }
+}
+
+/**
+ * Expande un evento (único o recurrente) a sus instancias dentro del rango [fromYmd, toYmd].
+ *
+ * Corre sobre todo el ciclo en cada carga de Asistencia del personal: nada de conversiones de zona
+ * horaria por día. El día de la semana de una fecha civil no depende de la zona, así que sale de la
+ * fecha en UTC (0 = domingo, como `daysOfWeek`).
+ */
+function expandEventInstances(ev: EventRow, fromYmd: string, toYmd: string, wallToUtc: WallToUtc): PlannedInstance[] {
+  const plan: EventPlan = {
+    academic: academicContextOf(ev),
+    start: wallClockOf(ev.startTime),
+    end: wallClockOf(ev.endTime),
+    commitmentStart: commitmentStartOf(ev),
+  }
   const evStartYmd = toYmdInUruguay(ev.startDate)
-  const inWindow = (ymd: string) => effectiveWindowIncludesYmd(ev.effectiveFrom, ev.effectiveUntil, ymd)
+  const { firstYmd, lastYmd } = effectiveRangeOf(ev, fromYmd, toYmd)
 
   if (!ev.isRecurring || !ev.daysOfWeek || ev.daysOfWeek.length === 0) {
-    if (evStartYmd < fromYmd || evStartYmd > toYmd || !inWindow(evStartYmd)) return []
-    return [buildInstance(ev, evStartYmd, false, academic)]
+    if (evStartYmd < firstYmd || evStartYmd > lastYmd) return []
+    return [buildInstance(ev, plan, evStartYmd, false, wallToUtc)]
   }
 
-  const recurrenceEndDate = ev.recurrenceEnd ? new Date(ev.recurrenceEnd) : toDate
-  const rangeStartYmd = evStartYmd > fromYmd ? evStartYmd : fromYmd
-  const recurrenceEndYmd = toYmdInUruguay(recurrenceEndDate)
-  const rangeEndYmd = toYmd < recurrenceEndYmd ? toYmd : recurrenceEndYmd
+  const recurrenceEndYmd = ev.recurrenceEnd ? toYmdInUruguay(new Date(ev.recurrenceEnd)) : lastYmd
+  const startYmd = evStartYmd > firstYmd ? evStartYmd : firstYmd
+  const endYmd = recurrenceEndYmd < lastYmd ? recurrenceEndYmd : lastYmd
 
+  const days = new Set(ev.daysOfWeek)
   const out: PlannedInstance[] = []
-  let cursorYmd = rangeStartYmd
-  while (cursorYmd <= rangeEndYmd) {
-    const weekday = DateTime.fromISO(cursorYmd, { zone: getAppTimezone() }).weekday % 7
-    if (ev.daysOfWeek.includes(weekday) && inWindow(cursorYmd)) {
-      out.push(buildInstance(ev, cursorYmd, true, academic))
+  const endMs = Date.parse(`${endYmd}T00:00:00.000Z`)
+  for (let ms = Date.parse(`${startYmd}T00:00:00.000Z`); ms <= endMs; ms += DAY_MS) {
+    const day = new Date(ms)
+    if (days.has(day.getUTCDay())) {
+      out.push(buildInstance(ev, plan, day.toISOString().slice(0, 10), true, wallToUtc))
     }
-    cursorYmd = addDaysUtc(cursorYmd, 1)
   }
   return out
+}
+
+function compareText(a: string, b: string) {
+  if (a === b) return 0
+  return a < b ? -1 : 1
 }
 
 export async function getPlannedInstances(params: {
@@ -152,16 +218,15 @@ export async function getPlannedInstances(params: {
     },
   })
 
+  const wallToUtc = wallToUtcMemo()
   const instances: PlannedInstance[] = []
   for (const ev of events) {
-    instances.push(...expandEventInstances(ev, fromYmd, toYmd, toDate))
+    instances.push(...expandEventInstances(ev, fromYmd, toYmd, wallToUtc))
   }
 
-  // Orden determinístico para export.
-  instances.sort((a, b) => {
-    if (a.plannedDate !== b.plannedDate) return a.plannedDate.localeCompare(b.plannedDate)
-    return a.eventId.localeCompare(b.eventId)
-  })
+  // Orden determinístico para export (y `resolveAttendanceAndJustification` toma la primera y la
+  // última como rango de fechas). Fechas ISO e ids: alcanza con comparar los textos.
+  instances.sort((a, b) => compareText(a.plannedDate, b.plannedDate) || compareText(a.eventId, b.eventId))
 
   return instances
 }

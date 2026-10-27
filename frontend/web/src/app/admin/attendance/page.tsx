@@ -669,6 +669,8 @@ function AdminAttendanceContent() {
 
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
+  // Hasta que llega el ciclo no se pide nada: antes se pedía todo sin ciclo y otra vez al llegar.
+  const schoolYearsLoading = syCtx?.loading ?? false
   const showingExitStats = filters.type === 'CHECK_OUT'
   const selectedUserName = users.find(user => user.id === filters.userId)?.name ?? ''
 
@@ -680,6 +682,7 @@ function AdminAttendanceContent() {
 
   const loadAttendances = useCallback(async () => {
     const request = ++attendanceRequest.current
+    if (schoolYearsLoading) return
     setLoading(true)
     setLoadError(false)
     try {
@@ -703,10 +706,11 @@ function AdminAttendanceContent() {
     } finally {
       if (request === attendanceRequest.current) setLoading(false)
     }
-  }, [page, filters, schoolYearQuery])
+  }, [page, filters, schoolYearQuery, schoolYearsLoading])
 
   const loadStats = useCallback(async () => {
     const request = ++statsRequest.current
+    if (schoolYearsLoading) return
     setStatsLoading(true)
     try {
       const params = new URLSearchParams()
@@ -732,7 +736,7 @@ function AdminAttendanceContent() {
     } finally {
       if (request === statsRequest.current) setStatsLoading(false)
     }
-  }, [filters, schoolYearQuery])
+  }, [filters, schoolYearQuery, schoolYearsLoading])
 
   async function loadUsers() {
     try {

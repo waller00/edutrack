@@ -1578,4 +1578,58 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.body.total).toBe(2);
     expect(res.body.data.some((row: { kind?: string }) => row.kind === "INCIDENT")).toBe(true);
   });
+
+  it("GET /attendance/all ordena con columnas sueltas y trae persona y evento sólo de la página", async () => {
+    // Doce días con entrada (8:00) y salida (9:00), del más nuevo al más viejo.
+    const marks = Array.from({ length: 12 }, (_, i) => {
+      const day = String(20 - i).padStart(2, "0");
+      const date = new Date(`2026-05-${day}T03:00:00.000Z`);
+      return [
+        { id: `in-${i}`, userId: "user-1", eventId: "ev-1", date, time: new Date(`2026-05-${day}T11:00:00.000Z`) },
+        { id: `out-${i}`, userId: "user-1", eventId: "ev-1", date, time: new Date(`2026-05-${day}T12:00:00.000Z`) },
+      ];
+    }).flat();
+    prismaMock.attendanceIncident.findMany.mockResolvedValue([]);
+    prismaMock.attendance.findMany.mockImplementation(async (args: any) => {
+      if (args.select) return marks;
+      return marks
+        // La salida del día 13 se borró entre las dos lecturas.
+        .filter((mark) => args.where.id.in.includes(mark.id) && mark.id !== "out-7")
+        .map((mark) => ({
+          ...mark,
+          type: mark.id.startsWith("in") ? "CHECK_IN" : "CHECK_OUT",
+          status: mark.id.startsWith("in") ? "PRESENT" : "EXIT",
+          user: { id: "user-1", name: "Ada", email: "a@a.com", orgRole: { code: "TEACHER" } },
+          event: { id: "ev-1", title: "Clase", type: "CLASE" },
+        }));
+    });
+
+    const res = await request(app())
+      .get("/attendance/all?includeIncidents=true&page=2&pageSize=5&startDate=2026-05-01&endDate=2026-05-20")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(12);
+    const [listing, detail] = prismaMock.attendance.findMany.mock.calls.map(([args]) => args);
+    expect(listing.include).toBeUndefined();
+    expect(listing.select).toEqual({ id: true, userId: true, eventId: true, date: true, time: true });
+    const pageIds = ["in-5", "out-5", "in-6", "out-6", "in-7", "out-7", "in-8", "out-8", "in-9", "out-9"];
+    expect([...detail.where.id.in].sort()).toEqual([...pageIds].sort());
+    expect(detail.include.user).toBeDefined();
+    expect(res.body.data.map((row: { id: string }) => row.id)).toEqual(pageIds.filter((id) => id !== "out-7"));
+    expect(res.body.data[0]).toMatchObject({ user: { name: "Ada", role: "TEACHER" }, event: { title: "Clase" } });
+  });
+
+  it("GET /attendance/stats de un docente cuenta sólo sus incidencias y sus ausencias calculadas", async () => {
+    prismaMock.attendance.count.mockResolvedValue(0);
+    prismaMock.attendanceIncident.count.mockResolvedValue(0);
+
+    const res = await request(app())
+      .get("/attendance/stats?includeIncidents=true")
+      .set("Authorization", `Bearer ${tok("TEACHER")}`);
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.attendanceIncident.count.mock.calls[0][0].where.userId).toBe("user-1");
+    expect(prismaMock.event.findMany.mock.calls[0][0].where.assignedUserId).toBe("user-1");
+  });
 });

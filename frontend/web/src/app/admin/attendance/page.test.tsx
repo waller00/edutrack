@@ -16,10 +16,43 @@ vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: vi.fn(() => ({ me: {
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
 
+const schoolYearContextMock = vi.hoisted(() => ({ current: null as any }))
+vi.mock('@/contexts/AdminSchoolYearContext', () => ({
+  useOptionalAdminSchoolYear: () => schoolYearContextMock.current,
+}))
+
 describe('AdminAttendance', () => {
   beforeEach(() => {
     mockedApi.mockReset()
     vi.restoreAllMocks()
+    schoolYearContextMock.current = null
+  })
+
+  it('espera al ciclo lectivo y recién entonces pide la tabla y el resumen, una vez cada uno', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('attendance/all')) return { total: 0, page: 1, pageSize: 20, data: [] }
+      if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 0, presentCount: 0, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 0, lateRate: 0, absenceRate: 0 }
+      return {}
+    })
+    const attendanceCalls = () =>
+      mockedApi.mock.calls.map(([url]) => String(url)).filter((url) => /attendance\/(all|stats)/.test(url))
+    schoolYearContextMock.current = { loading: true, schoolYearQuery: '', allYears: false, selectedId: null, activeId: null }
+
+    const { rerender } = render(<AdminAttendance />)
+
+    await screen.findByRole('heading', { name: 'Asistencia del personal' })
+    expect(screen.getByText('Cargando…')).toBeInTheDocument()
+    expect(attendanceCalls()).toEqual([])
+
+    schoolYearContextMock.current = { loading: false, schoolYearQuery: 'schoolYearId=sy-1', allYears: false, selectedId: 'sy-1', activeId: 'sy-1' }
+    rerender(<AdminAttendance />)
+
+    expect(await screen.findByText('0 registros totales')).toBeInTheDocument()
+    expect(attendanceCalls()).toHaveLength(2)
+    expect(attendanceCalls().filter((url) => url.includes('attendance/all'))).toHaveLength(1)
+    expect(attendanceCalls().every((url) => url.includes('schoolYearId=sy-1'))).toBe(true)
   })
 
   it('carga asistencias vacías y muestra la pantalla de asistencias', async () => {

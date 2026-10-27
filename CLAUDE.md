@@ -165,6 +165,13 @@ docker compose up -d --build auth  # rebuild solo el backend
 > anticipación que el reloj (`earlyEntryWindowMinutes`). Como el biométrico, guarda `date` = inicio
 > del día civil y `time` = instante. Alimenta la liquidación: no aceptar hora ni día del cliente.
 
+> **Asistencia del personal rearma todo el ciclo en cada carga.** Las ausencias sin marca no se
+> guardan: `/attendance/all` y `/stats` (y Mis asistencias y la liquidación) expanden las clases con
+> `getPlannedInstances`. Ahí nada de conversiones de zona horaria por día ni por marca: van una vez
+> por evento o por día civil (eran 0,8 s por llamada con ~160 series). `/all` pagina con columnas
+> sueltas y trae persona y evento sólo de la página, y `/all` y `/stats` comparten el cálculo en
+> curso (`shareInFlight`, `lib/in-flight.ts`).
+
 > **Las notas viven en `GradeBook*`, no en Moodle.** EduTrack es la fuente de verdad de las calificaciones; Moodle se **importa** y nunca se pisa. Los valores se guardan en centésimos como `Int` (un 8 es `800`), igual que `amountCents` — nunca `Float` ni `Decimal`.
 
 ---
