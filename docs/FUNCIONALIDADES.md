@@ -408,7 +408,8 @@ Cada sección lleva en el menú una línea que explica para qué sirve: "Precier
 entienden solos. Contraído, el menú muestra la abreviatura de cada sección; en el celular las
 secciones se eligen de un selector, para no empujar el contenido una pantalla hacia abajo.
 
-**Pantallas de supervisión:** `/libreta/reunion` (matriz del grupo), `/libreta/control`, `/libreta/visado`,
+**Pantallas de supervisión:** `/libreta/reunion` (matriz del grupo), `/libreta/control` (control y
+visado; `/libreta/visado` redirige a su paso de visado),
 `/libreta/indicadores`, `/libreta/estudiante/[id]` (ficha) y `/libreta/configuracion`
 (parametrización académica). Entradas globales de trabajo: `/libreta/evaluaciones` y
 `/libreta/cierre-alumno` (*Cierre de períodos*: C, R e informe alumno por alumno y el cierre de cada
@@ -576,11 +577,19 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
   **Boletines del grupo** (`GET /admin/gradebook/report-cards`): un solo PDF, una hoja por
   estudiante, para imprimir la entrega. Los dos se descargan desde la matriz de reunión en las
   reuniones de boletín, con `gradebook.export`.
-- **Control de libretas (`/libreta/control`):** antes de cada reunión de boletín (cada ~2 meses)
-  administración revisa que cada docente esté al día y, si no, le avisa por notificación interna.
-  - El desplegable lista sólo **reuniones de boletín**, separadas por nivel: EBI 1.ª a 4.ª Entrega,
-    EMS 1.er y 2.º semestre (`isReportCardPeriod`: reunión que pide C y juicio; quedan afuera
-    exámenes y APE). Se preselecciona la próxima.
+- **Control y visado de libretas (`/libreta/control`):** una reunión de punta a punta, en tres pasos
+  que comparten la reunión y el grupo elegidos y dicen cuánto le queda a cada uno: **Carga** (antes
+  de la reunión), **Cierre** (después) y **Visado** (ver *Visado* más abajo). Antes de cada reunión
+  de boletín (cada ~2 meses) administración revisa que cada docente esté al día y, si no, le avisa
+  por notificación interna. Carga y Cierre piden `gradebook.review`; sin él se ve sólo el visado.
+  - Carga y Cierre son sólo de las **reuniones de boletín**: EBI 1.ª a 4.ª Entrega, EMS 1.er y 2.º
+    semestre (`isReportCardPeriod`: reunión que pide C y juicio). Exámenes y APE están en el
+    desplegable, separado por nivel, pero sólo tienen Visado.
+  - Abre con la próxima reunión para cargar, o con la última que pasó si el paso es Cierre o
+    Visado. Dirección abre en Visado; Adscripción y administración, en Carga. El paso va en la URL
+    (`?paso=`).
+  - El grupo (orientación más tronco común) filtra los tres pasos, y sólo se ofrecen los del nivel
+    de la reunión.
   - Sólo aparecen las libretas del nivel de la reunión.
   - "Al día" = en los tramos que informa la reunión **cada evaluación del grupo** tiene nota (o "no
     rindió") de cada alumno y, si el tramo sólo tiene notas sueltas, **cada alumno tiene al menos
@@ -590,11 +599,11 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
   - El texto del aviso lo arma el backend con el mismo cálculo que ve la pantalla; queda en la
     auditoría (`GRADEBOOK_COMPLETION_REQUESTED`), y de ahí sale el "Avisado el…" de cada libreta,
     que sobrevive a recargar la pantalla.
-  - **Después de la reunión** la misma pantalla mira lo que queda de ella: la **R** de cada alumno
-    y el **período cerrado**, que es lo que habilita el visado. El aviso de esa etapa dice qué falta
-    para cerrar.
+  - **Cierre**, después de la reunión, mira lo que queda de ella: la **R** de cada alumno y el
+    **período cerrado**, que es lo que lo lleva a Visado. El aviso de esa etapa dice qué falta para
+    cerrar.
   - **Avisar a todos** (`POST /admin/gradebook/completeness/request-all`): un solo aviso por docente
-    con todas sus libretas pendientes, no uno por materia.
+    con todas sus libretas pendientes, no uno por materia. Con un grupo elegido, sólo por ese grupo.
   - Cada libreta se nombra con la orientación del grupo, y el roster se consulta una vez por grupo
     y no una por libreta.
 - **Hoja del estudiante (`GET /gradebook/:id/students/:studentId`):** dentro de la libreta, el
@@ -649,7 +658,8 @@ adscripción, dirección, inspección y administración.
 
 ### Visado (RF-080 a RF-083)
 
-**Pantalla:** `/libreta/visado`.
+**Pantalla:** el paso *Visado* de `/libreta/control` (*Control y visado de libretas*);
+`/libreta/visado` redirige ahí.
 
 - **Append-only.** El estado vigente de cada sección es su última fila; nada se actualiza ni se
   borra. Una observación posterior a un visado no lo elimina, lo **sucede**, y el visado anterior
@@ -661,8 +671,8 @@ adscripción, dirección, inspección y administración.
 - **Visado final (RF-082):** se habilita cuando ninguna sección obligatoria queda observada. Una
   sección sin revisar no bloquea (puede que no hubiera nada que objetar); una observación viva sí,
   hasta que se marque corregida.
-- **Quién hace qué:** observar es de adscripción, dirección e inspección (`gradebook.review` o
-  `gradebook.inspect`); **visar es sólo de Dirección** (`gradebook.endorse`).
+- **Quién hace qué:** observar es de adscripción y dirección (`gradebook.review`); **visar es sólo
+  de Dirección** (`gradebook.endorse`).
 - **Protección del visado de Dirección.** Sobre una sección ya visada **sólo puede escribir quien
   tiene `gradebook.endorse`**. Sin esa regla, como el estado vigente es la última fila, una
   observación de Inspección —o de Adscripción— revertiría de hecho el visado sin tener la
@@ -677,13 +687,14 @@ adscripción, dirección, inspección y administración.
   reglas, auditoría y aviso que de a una; lo que no está listo queda afuera con su motivo.
 - **Secciones del visado:** Calificaciones, Cierre, Juicios, **Seguimiento** (`PLANNING`: si dio lo
   que planificó) e **Informe del grupo** (`GROUP_REPORT`), más el visado del período (`ALL`).
-- **Visar es de Dirección, no del docente.** Dirección visa desde la grilla `/libreta/visado` o desde
-  *Visado y seguimiento* dentro de cada libreta. **El docente ve lo que le observaron** arriba de
+- **Visar es de Dirección, no del docente.** Dirección visa desde el paso Visado de *Control y
+  visado de libretas* o desde *Visado y seguimiento* dentro de cada libreta. **El docente ve lo que
+  le observaron** arriba de
   *Cierre de períodos* (`GET /gradebook/:id/endorsements`), incluidas las observaciones de un
   período reabierto para corregir; los avisos de observación, visado y reapertura lo llevan ahí.
 - **Antigüedad del pendiente** en la grilla, para priorizar (§5.9), junto con la marca de cierre
   fuera de plazo. La grilla filtra por reunión y por grupo (orientación más tronco común), sin tope
-  de filas.
+  de filas; con *Todas las reuniones* muestra también lo pendiente de las anteriores (sin lote).
 - El rol del actor se **congela** en cada evento: si mañana cambia de rol, el historial sigue
   diciendo con qué atribución se visó.
 
@@ -956,7 +967,7 @@ grupo** que conserva la sección abierta: el docente entra una vez y cambia de g
 Trabajo transversal — `/libreta/inasistencias`, `/libreta/evaluaciones` y `/libreta/cierre-alumno`
 (`/libreta/cierre-libreta` redirige ahí).
 
-Supervisión y parametrización — `/libreta/reunion`, `/libreta/control`, `/libreta/visado`,
+Supervisión y parametrización — `/libreta/reunion`, `/libreta/control` (control y visado),
 `/libreta/indicadores`, `/libreta/estudiante/[id]`, `/libreta/configuracion`.
 
 ### General
@@ -974,7 +985,7 @@ El menú lateral (`UserNav`) muestra cada entrada según **permisos**, no por ro
 | Personal | Asistencia del personal, Licencias, Agenda y clases, Usuarios, Indicadores del personal |
 | Estudiantes | Estudiantes, Asistencia de estudiantes, Mensualidades |
 | Académico | Ciclos lectivos, Cursos |
-| Libretas | Libretas, Control, Visado, Reunión de profesores, Rendimiento académico, Configuración de libreta |
+| Libretas | Libretas, Control y visado, Reunión de profesores, Rendimiento académico, Configuración de libreta |
 | Configuración | Mi perfil, Configuración del sistema, Roles / Perfiles, Auditoría |
 
 - **Nombres y descripciones:** salen de un solo catálogo (`frontend/web/src/lib/navigation/modules.ts`),

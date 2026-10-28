@@ -355,8 +355,14 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 
 > **"Reunión de boletín" es `isReportCardPeriod`** (`services/gradebook/period-closure.ts`):
 > reunión que pide C y juicio. EBI: 1.ª–4.ª Entrega; EMS: los semestres (son `TRAMO` con reunión,
-> así que filtrar por `kind === 'ENTREGA'` deja afuera a todo EMS). Control de libretas y Reportes
+> así que filtrar por `kind === 'ENTREGA'` deja afuera a todo EMS). Control y visado y Reportes
 > la usan; `assessmentPeriodsFor` da los tramos cuyas evaluaciones informa.
+
+> **Control y visado de libretas es una sola pantalla** (`/libreta/control`, `ControlVisadoPanel`):
+> una reunión en tres pasos (Carga, Cierre, Visado) que comparten la reunión y el grupo, cada uno con
+> lo que le falta. Carga y Cierre son sólo de las reuniones de boletín y piden `gradebook.review`;
+> Visado, `gradebook.read`. Las filas las pide la pantalla, no cada paso: de ahí salen los contadores.
+> `/libreta/visado` sólo redirige (`?paso=visado`).
 
 > **Las adecuaciones guardan un enlace, nunca el informe.** Un informe psicológico de un menor es un
 > documento clínico, y la política de privacidad lo prohíbe (§4 bis). Las cargan Administración,

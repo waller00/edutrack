@@ -436,6 +436,18 @@ describe('GET /periods', () => {
     const res = await request(app()).get('/admin/gradebook/periods?reportCard=true').set('Authorization', `Bearer ${tok()}`)
     expect(res.body.data.map((p: { id: string }) => p.id)).toEqual(['e1', 's1'])
   })
+
+  it('marca cuáles son de boletín: la carga y el cierre se controlan sólo en esas', async () => {
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { id: 'e1', name: '1.ª Entrega', level: 'EBI', isMeeting: true, requiresGeneralGrade: true, requiresConceptualJudgement: true },
+      { id: 'exd', name: 'Exámenes diciembre', level: 'EMS', isMeeting: true, requiresGeneralGrade: true, requiresConceptualJudgement: false },
+    ])
+    const res = await request(app()).get('/admin/gradebook/periods').set('Authorization', `Bearer ${tok()}`)
+    expect(res.body.data.map((p: { id: string; reportCard: boolean }) => [p.id, p.reportCard])).toEqual([
+      ['e1', true],
+      ['exd', false],
+    ])
+  })
 })
 
 // ─── Visado ─────────────────────────────────────────────────────────────────
@@ -1276,6 +1288,50 @@ describe('control de libretas antes de la reunión', () => {
       .set('Authorization', `Bearer ${tok()}`)
       .send({ stage: 'after' })
     expect(res.status).toBe(400)
+  })
+
+  describe('con un grupo elegido', () => {
+    const OTHER_CO = '66666666-6666-4666-8666-666666666666'
+
+    it('controla sus libretas y las de tronco común, no las de otra orientación', async () => {
+      prismaMock.gradeBook.findMany.mockResolvedValue([
+        gradedBook({ id: 'gb-propia', courseOrientationId: CO_ID }),
+        gradedBook({ id: 'gb-comun' }),
+        gradedBook({ id: 'gb-otra', courseOrientationId: OTHER_CO }),
+      ])
+
+      const res = await request(app())
+        .get(`/admin/gradebook/completeness?periodId=${P_ID}&courseOfferingId=${OFFERING_ID}&courseOrientationId=${CO_ID}`)
+        .set('Authorization', `Bearer ${tok()}`)
+
+      expect(res.body.data.map((row: { gradeBookId: string }) => row.gradeBookId).sort()).toEqual(['gb-comun', 'gb-propia'])
+      expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where.courseOfferingId).toBe(OFFERING_ID)
+    })
+
+    it('sin orientación trae todas las libretas de la oferta', async () => {
+      await request(app())
+        .get(`/admin/gradebook/completeness?periodId=${P_ID}&courseOfferingId=${OFFERING_ID}`)
+        .set('Authorization', `Bearer ${tok()}`)
+
+      expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where.courseOfferingId).toBe(OFFERING_ID)
+    })
+
+    it('avisar a todos avisa sólo por las libretas del grupo', async () => {
+      prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 1 })
+      prismaMock.gradeBook.findMany.mockResolvedValue([
+        gradedBook({ id: 'gb-propia', courseOrientationId: CO_ID }),
+        gradedBook({ id: 'gb-otra', courseOrientationId: OTHER_CO, teacherUserId: 'u-2', teacher: { id: 'u-2', name: 'Beto' } }),
+      ])
+
+      const res = await request(app())
+        .post('/admin/gradebook/completeness/request-all')
+        .set('Authorization', `Bearer ${tok()}`)
+        .send({ periodId: P_ID, courseOfferingId: OFFERING_ID, courseOrientationId: CO_ID })
+
+      expect(res.body).toEqual({ teachers: 1, gradeBooks: 1, withoutTeacher: 0 })
+      const notified = prismaMock.inAppNotification.createMany.mock.calls.map((call: any[]) => call[0].data[0].userId)
+      expect(notified).toEqual(['u-1'])
+    })
   })
 })
 

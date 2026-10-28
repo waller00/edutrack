@@ -1,19 +1,13 @@
+import type { ComponentProps } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import CompletenessPanel, { bulkNoticeText, isDone, rowLabel } from './CompletenessPanel'
+import CompletenessPanel, { bulkNoticeText, completenessPath, isDone, rowLabel } from './CompletenessPanel'
 import { api } from '@/lib/api/client'
-import type { ReportCardPeriod } from '@/lib/gradebook/report-card-periods'
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
 
-// El backend devuelve `id`, no `periodId`: mockear otra forma era lo que tapaba el 404.
-const PERIODS: { data: ReportCardPeriod[] } = {
-  data: [
-    { id: 'e1', name: '1.ª Entrega', level: 'EBI', closesOn: '2020-05-01' },
-    { id: 's1', name: '1.er semestre', level: 'EMS', closesOn: '2020-07-01' },
-  ],
-}
+type Props = ComponentProps<typeof CompletenessPanel>
 
 function row(over: Record<string, unknown> = {}) {
   return {
@@ -40,50 +34,45 @@ function row(over: Record<string, unknown> = {}) {
   }
 }
 
-function respond(rows: unknown[], notified = 1) {
-  mockedApi.mockImplementation((path: string, init?: RequestInit) => {
+function respond(notified = 1) {
+  mockedApi.mockImplementation((path: string) => {
     if (String(path).endsWith('/request-all')) return Promise.resolve({ teachers: 2, gradeBooks: 3, withoutTeacher: 1 } as never)
-    if (init?.method === 'POST') return Promise.resolve({ ok: true, notified } as never)
-    if (String(path).includes('/completeness')) return Promise.resolve({ period: { name: '1.ª Entrega' }, data: rows } as never)
-    return Promise.resolve(PERIODS as never)
+    return Promise.resolve({ ok: true, notified } as never)
   })
 }
 
-async function pickPeriod(id = 'e1') {
-  fireEvent.change(await screen.findByLabelText('Reunión'), { target: { value: id } })
+function renderPanel(rows: unknown[], over: Partial<Props> = {}) {
+  const onReload = vi.fn().mockResolvedValue(undefined)
+  render(
+    <CompletenessPanel
+      periodId="e1"
+      group={null}
+      stage="before"
+      rows={rows as Props['rows']}
+      loading={false}
+      error={null}
+      onReload={onReload}
+      {...over}
+    />,
+  )
+  return { onReload }
+}
+
+const posted = (suffix: string) => {
+  const call = mockedApi.mock.calls.find(([path]) => String(path).endsWith(suffix))
+  return { path: String(call?.[0]), body: JSON.parse(String((call?.[1] as RequestInit | undefined)?.body ?? 'null')) }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  respond()
 })
 
 describe('<CompletenessPanel />', () => {
-  it('pide sólo las reuniones de boletín y las agrupa por nivel', async () => {
-    respond([])
-    render(<CompletenessPanel />)
+  it('muestra por columna qué falta: evaluaciones, R, C, juicio e informe del grupo', () => {
+    renderPanel([row({ missingAssessmentGrades: 4, missingConduct: 2, missingGroupReport: true })])
 
-    await screen.findByLabelText('Reunión')
-    expect(String(mockedApi.mock.calls[0][0])).toContain('reportCard=true')
-    expect(screen.getByRole('group', { name: 'Ciclo básico' })).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: 'Bachillerato' })).toBeInTheDocument()
-  })
-
-  it('carga el control con el id del período, no con su nombre', async () => {
-    respond([row()])
-    render(<CompletenessPanel />)
-    await pickPeriod('s1')
-
-    await waitFor(() =>
-      expect(mockedApi.mock.calls.some(([path]) => String(path) === '/admin/gradebook/completeness?periodId=s1')).toBe(true),
-    )
-  })
-
-  it('muestra por columna qué falta: evaluaciones, R, C, juicio e informe del grupo', async () => {
-    respond([row({ missingAssessmentGrades: 4, missingConduct: 2, missingGroupReport: true })])
-    render(<CompletenessPanel />)
-    await pickPeriod()
-
-    expect(await screen.findByText('3 cargadas · faltan 4 notas')).toBeInTheDocument()
+    expect(screen.getByText('3 cargadas · faltan 4 notas')).toBeInTheDocument()
     expect(screen.getByText('Faltan 6')).toBeInTheDocument()
     expect(screen.getByText('Faltan 2')).toBeInTheDocument()
     expect(screen.getByText('▲ Falta')).toBeInTheDocument()
@@ -93,28 +82,20 @@ describe('<CompletenessPanel />', () => {
     expect(screen.getByText('Ana Benítez')).toBeInTheDocument()
   })
 
-  it('con sólo notas sueltas, dice cuántos alumnos no tienen ninguna', async () => {
-    respond([row({ studentsWithoutGrades: 2, complete: false })])
-    render(<CompletenessPanel />)
-    await pickPeriod()
-
-    expect(await screen.findByText('3 cargadas · 2 alumnos sin notas')).toBeInTheDocument()
+  it('con sólo notas sueltas, dice cuántos alumnos no tienen ninguna', () => {
+    renderPanel([row({ studentsWithoutGrades: 2, complete: false })])
+    expect(screen.getByText('3 cargadas · 2 alumnos sin notas')).toBeInTheDocument()
   })
 
-  it('marca la libreta sin evaluaciones', async () => {
-    respond([row({ hasNoAssessments: true, assessmentCount: 0, missingGrades: 0 })])
-    render(<CompletenessPanel />)
-    await pickPeriod()
-
-    expect(await screen.findByText('Sin evaluaciones')).toBeInTheDocument()
+  it('marca la libreta sin evaluaciones', () => {
+    renderPanel([row({ hasNoAssessments: true, assessmentCount: 0, missingGrades: 0 })])
+    expect(screen.getByText('Sin evaluaciones')).toBeInTheDocument()
   })
 
   it('por defecto esconde las que están al día', async () => {
-    respond([row(), row({ gradeBookId: 'gb-2', subjectName: 'Historia', complete: true })])
-    render(<CompletenessPanel />)
-    await pickPeriod()
+    renderPanel([row(), row({ gradeBookId: 'gb-2', subjectName: 'Historia', complete: true })])
 
-    await screen.findByText(/8 EBI · Matemática/)
+    expect(screen.getByText(/8 EBI · Matemática/)).toBeInTheDocument()
     expect(screen.queryByText(/Historia/)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Sólo las que faltan'))
@@ -122,95 +103,85 @@ describe('<CompletenessPanel />', () => {
   })
 
   it('el aviso manda sólo el período: el detalle lo arma el backend', async () => {
-    respond([row()])
-    render(<CompletenessPanel />)
-    await pickPeriod()
+    renderPanel([row()])
 
-    fireEvent.click(await screen.findByRole('button', { name: /Avisar al docente/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Avisar al docente/ }))
 
-    await waitFor(() => {
-      const post = mockedApi.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
-      expect(String(post?.[0])).toBe('/admin/gradebook/completeness/gb-1/request')
-      expect(JSON.parse(String((post?.[1] as RequestInit).body))).toEqual({ periodId: 'e1', stage: 'before' })
-    })
+    await waitFor(() => expect(posted('/request').path).toBe('/admin/gradebook/completeness/gb-1/request'))
+    expect(posted('/request').body).toEqual({ periodId: 'e1', stage: 'before' })
     expect(await screen.findByText('Avisado')).toBeInTheDocument()
   })
 
   it('no dice "Avisado" si no le llegó a nadie', async () => {
-    respond([row()], 0)
-    render(<CompletenessPanel />)
-    await pickPeriod()
+    respond(0)
+    renderPanel([row()])
 
-    fireEvent.click(await screen.findByRole('button', { name: /Avisar al docente/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Avisar al docente/ }))
     expect(await screen.findByText('Sin docente a quien avisar')).toBeInTheDocument()
   })
 
-  it('no deja avisar si la libreta no tiene titular', async () => {
-    respond([row({ teacherName: null })])
-    render(<CompletenessPanel />)
-    await pickPeriod()
-
-    expect(await screen.findByRole('button', { name: /Avisar al docente/ })).toBeDisabled()
+  it('no deja avisar si la libreta no tiene titular', () => {
+    renderPanel([row({ teacherName: null })])
+    expect(screen.getByRole('button', { name: /Avisar al docente/ })).toBeDisabled()
   })
 
-  it('celebra cuando no falta nada', async () => {
-    respond([row({ complete: true })])
-    render(<CompletenessPanel />)
-    await pickPeriod()
-
-    expect(await screen.findByText('Todas las libretas están al día para esta reunión.')).toBeInTheDocument()
+  it('celebra cuando no falta nada', () => {
+    renderPanel([row({ complete: true })])
+    expect(screen.getByText('Todas las libretas están al día para esta reunión.')).toBeInTheDocument()
   })
 
-  it('muestra el error sin dejar la pantalla en blanco', async () => {
-    mockedApi.mockImplementation((path: string) =>
-      String(path).includes('/completeness') ? Promise.reject(new Error('Sin permiso')) : Promise.resolve(PERIODS as never),
-    )
-    render(<CompletenessPanel />)
-    await pickPeriod()
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('Sin permiso')
+  it('muestra el error de carga sin dejar la pantalla en blanco', () => {
+    renderPanel([], { error: 'Sin permiso' })
+    expect(screen.getByRole('alert')).toHaveTextContent('Sin permiso')
   })
 
-  it('nombra la libreta con la orientación del grupo', async () => {
-    respond([row({ courseName: '5.º', orientationName: 'Científico' })])
-    render(<CompletenessPanel />)
-    await pickPeriod()
-    expect(await screen.findByText('5.º — Científico · Matemática')).toBeInTheDocument()
+  it('mientras revisa no dice que está todo al día', () => {
+    renderPanel([], { loading: true })
+    expect(screen.getByText('Revisando libretas…')).toBeInTheDocument()
+    expect(screen.queryByText(/al día/)).not.toBeInTheDocument()
   })
 
-  it('después de la reunión mira el cierre, y avisa con esa etapa', async () => {
-    respond([row({ complete: true, periodStatus: 'OPEN' })])
-    render(<CompletenessPanel />)
-    await pickPeriod()
-    await screen.findByText(/Todas las libretas están al día/)
+  it('nombra la libreta con la orientación del grupo', () => {
+    renderPanel([row({ courseName: '5.º', orientationName: 'Científico' })])
+    expect(screen.getByText('5.º — Científico · Matemática')).toBeInTheDocument()
+  })
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Después de la reunión' }))
+  it('en el cierre mira el período, y avisa con esa etapa', async () => {
+    renderPanel([row({ complete: true, periodStatus: 'OPEN' })], { stage: 'after' })
 
-    expect(await screen.findByText('Abierto')).toBeInTheDocument()
+    expect(screen.getByText('Abierto')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Avisar al docente/ }))
-    await waitFor(() => {
-      const post = mockedApi.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
-      expect(JSON.parse(String((post?.[1] as RequestInit).body))).toEqual({ periodId: 'e1', stage: 'after' })
-    })
+    await waitFor(() => expect(posted('/request').body).toEqual({ periodId: 'e1', stage: 'after' }))
   })
 
-  it('muestra cuándo se avisó por última vez', async () => {
-    respond([row({ lastRequestedAt: { before: '2026-06-10T15:00:00.000Z', after: null } })])
-    render(<CompletenessPanel />)
-    await pickPeriod()
-    expect(await screen.findByText('Avisado el 10/06/2026')).toBeInTheDocument()
+  it('muestra cuándo se avisó por última vez', () => {
+    renderPanel([row({ lastRequestedAt: { before: '2026-06-10T15:00:00.000Z', after: null } })])
+    expect(screen.getByText('Avisado el 10/06/2026')).toBeInTheDocument()
   })
 
-  it('avisa a todos de una vez y dice a cuántos docentes', async () => {
-    respond([row(), row({ gradeBookId: 'gb-2', subjectName: 'Historia' })])
-    render(<CompletenessPanel />)
-    await pickPeriod()
+  it('avisa a todos de una vez, recarga y dice a cuántos docentes', async () => {
+    const { onReload } = renderPanel([row(), row({ gradeBookId: 'gb-2', subjectName: 'Historia' })])
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Avisar a todos (2)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Avisar a todos (2)' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('Se avisó a 2 docentes por 3 libretas')
-    const post = mockedApi.mock.calls.find(([path]) => String(path).endsWith('/request-all'))
-    expect(JSON.parse(String((post?.[1] as RequestInit).body))).toEqual({ periodId: 'e1', stage: 'before' })
+    expect(posted('/request-all').body).toEqual({ periodId: 'e1', stage: 'before' })
+    expect(onReload).toHaveBeenCalledTimes(1)
+  })
+
+  it('con un grupo elegido, avisar a todos avisa sólo por ese grupo', async () => {
+    renderPanel([row()], { group: { courseOfferingId: 'off-5', courseOrientationId: 'co-1' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Avisar a todos (1)' }))
+
+    await waitFor(() =>
+      expect(posted('/request-all').body).toEqual({
+        periodId: 'e1',
+        stage: 'before',
+        courseOfferingId: 'off-5',
+        courseOrientationId: 'co-1',
+      }),
+    )
   })
 })
 
@@ -228,5 +199,12 @@ describe('auxiliares del control', () => {
   it('el resultado del aviso masivo en singular y sin titulares', () => {
     expect(bulkNoticeText({ teachers: 1, gradeBooks: 1, withoutTeacher: 0 })).toBe('Se avisó a 1 docente por 1 libreta, un aviso por docente.')
     expect(bulkNoticeText({ teachers: 0, gradeBooks: 0, withoutTeacher: 2 })).toContain('no tienen titular')
+  })
+
+  it('pide el control por el id de la reunión, con el grupo si hay', () => {
+    expect(completenessPath('s1', null)).toBe('/admin/gradebook/completeness?periodId=s1')
+    expect(completenessPath('s1', { courseOfferingId: 'off-1', courseOrientationId: null })).toBe(
+      '/admin/gradebook/completeness?periodId=s1&courseOfferingId=off-1',
+    )
   })
 })

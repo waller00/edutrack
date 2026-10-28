@@ -1,20 +1,19 @@
+import type { ComponentProps } from 'react'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import EndorsementGrid, { bulkMessage, endorsementGridPath } from './EndorsementGrid'
 import { api } from '@/lib/api/client'
+import { endorsementAbilities } from '@/lib/gradebook/endorsements'
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
 
-const { authState } = vi.hoisted(() => ({ authState: { me: null as unknown } }))
-vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => authState }))
+type Props = ComponentProps<typeof EndorsementGrid>
 
-const grant = (...ids: string[]) => ({ permissions: ids.map((id) => ({ id, scope: 'all' })) })
+const grant = (...ids: string[]) => ({ permissions: ids.map((id) => ({ id, scope: 'all' as const })) })
 
-const PERIODS = { data: [{ id: 'p-1', name: '1.ª Entrega' }] }
-const GROUPS = {
-  data: [{ courseOfferingId: 'off-1', courseName: '5.º', courseOrientationId: 'co-1', orientationName: 'Científico' }],
-}
+const ADSCRIPCION = endorsementAbilities(grant('gradebook.read', 'gradebook.review'))
+const DIRECCION = endorsementAbilities(grant('gradebook.read', 'gradebook.review', 'gradebook.endorse'))
 
 function row(id: string, over: Record<string, unknown> = {}) {
   return {
@@ -47,77 +46,73 @@ const ROWS = [
   }),
 ]
 
-function respond(rows = ROWS) {
-  mockedApi.mockImplementation((path: string, init?: RequestInit) => {
-    const url = String(path)
-    if (url.startsWith('/admin/gradebook/periods')) return Promise.resolve(PERIODS)
-    if (url.startsWith('/admin/gradebook/groups')) return Promise.resolve(GROUPS)
-    if (url === '/admin/gradebook/endorsements/bulk') return Promise.resolve({ endorsed: 1, skipped: [] })
-    if (init?.method === 'POST') return Promise.resolve({ data: {} })
-    if (url.startsWith('/admin/gradebook/endorsements/')) return Promise.resolve({ history: [] })
-    return Promise.resolve({ data: rows })
-  })
+function renderGrid(over: Partial<Props> = {}) {
+  const props: Props = {
+    rows: ROWS as unknown as Props['rows'],
+    loading: false,
+    error: null,
+    abilities: ADSCRIPCION,
+    periodId: 'p-1',
+    periodName: '1.ª Entrega',
+    allMeetings: false,
+    onAllMeetingsChange: vi.fn(),
+    pendingOnly: true,
+    onPendingOnlyChange: vi.fn(),
+    onChanged: vi.fn().mockResolvedValue(undefined),
+    ...over,
+  }
+  render(<EndorsementGrid {...props} />)
+  return props
 }
-
-const lastGridCall = () =>
-  mockedApi.mock.calls
-    .map((call) => String(call[0]))
-    .filter((url) => url.startsWith('/admin/gradebook/endorsements') && !url.includes('/bulk'))
-    .at(-1)
 
 describe('<EndorsementGrid />', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    authState.me = grant('gradebook.read', 'gradebook.review')
     vi.stubGlobal('confirm', vi.fn(() => true))
-    respond()
+    mockedApi.mockImplementation((path: string, init?: RequestInit) => {
+      const url = String(path)
+      if (url === '/admin/gradebook/endorsements/bulk') return Promise.resolve({ endorsed: 1, skipped: [] })
+      if (init?.method === 'POST') return Promise.resolve({ data: {} })
+      // El historial de la fila y los accesos a la libreta, que se piden al abrirla.
+      return Promise.resolve({ history: [], data: [] })
+    })
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
   })
 
-  it('adscripción no ve "Visar": es atribución de Dirección', async () => {
-    render(<EndorsementGrid />)
-    expect(await screen.findByText('Materia lista')).toBeInTheDocument()
+  it('adscripción no ve "Visar": es atribución de Dirección', () => {
+    renderGrid()
+    expect(screen.getByText('Materia lista')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Visar' })).toBeNull()
     expect(screen.queryByRole('button', { name: /Visar las/ })).toBeNull()
   })
 
-  it('cada libreta se puede abrir antes de visarla', async () => {
-    render(<EndorsementGrid />)
-    const links = await screen.findAllByRole('link', { name: 'Abrir libreta' })
-    expect(links[0]).toHaveAttribute('href', '/libreta/gb-lista/cierre')
+  it('cada libreta se puede abrir antes de visarla', () => {
+    renderGrid()
+    expect(screen.getAllByRole('link', { name: 'Abrir libreta' })[0]).toHaveAttribute('href', '/libreta/gb-lista/cierre')
   })
 
-  it('marca lo que volvió a cerrarse después de la observación', async () => {
-    render(<EndorsementGrid />)
-    expect(await screen.findByText(/Volvió a cerrarse tras la observación/)).toBeInTheDocument()
+  it('marca lo que volvió a cerrarse después de la observación', () => {
+    renderGrid()
+    expect(screen.getByText(/Volvió a cerrarse tras la observación/)).toBeInTheDocument()
   })
 
-  it('filtra por reunión y por grupo con su orientación', async () => {
-    render(<EndorsementGrid />)
-    await screen.findByText('Materia lista')
+  it('los filtros propios del visado los maneja la pantalla', () => {
+    const props = renderGrid()
 
-    fireEvent.change(screen.getByLabelText('Reunión'), { target: { value: 'p-1' } })
-    fireEvent.change(screen.getByLabelText('Grupo'), { target: { value: 'off-1::co-1' } })
+    fireEvent.click(screen.getByLabelText('Sólo pendientes de visar'))
+    fireEvent.click(screen.getByLabelText('Todas las reuniones'))
 
-    await waitFor(() =>
-      expect(lastGridCall()).toBe(
-        '/admin/gradebook/endorsements?pending=true&periodId=p-1&courseOfferingId=off-1&courseOrientationId=co-1',
-      ),
-    )
+    expect(props.onPendingOnlyChange).toHaveBeenCalledWith(false)
+    expect(props.onAllMeetingsChange).toHaveBeenCalledWith(true)
   })
 
-  it('Dirección visa en lote sólo lo que está listo, con una reunión elegida', async () => {
-    authState.me = grant('gradebook.read', 'gradebook.review', 'gradebook.endorse')
-    render(<EndorsementGrid />)
-    await screen.findByText('Materia lista')
-    // Sin reunión elegida no se ofrece el lote: visar "todo el año" de un clic es demasiado.
-    expect(screen.queryByRole('button', { name: /Visar las/ })).toBeNull()
+  it('Dirección visa en lote sólo lo que está listo, y la pantalla recarga', async () => {
+    const props = renderGrid({ abilities: DIRECCION })
 
-    fireEvent.change(screen.getByLabelText('Reunión'), { target: { value: 'p-1' } })
-    fireEvent.click(await screen.findByRole('button', { name: 'Visar las 1 listas' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Visar las 1 listas' }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/endorsements/bulk', {
@@ -126,24 +121,34 @@ describe('<EndorsementGrid />', () => {
       }),
     )
     expect(await screen.findByRole('status')).toHaveTextContent('Se visó 1 libreta.')
+    expect(props.onChanged).toHaveBeenCalledTimes(1)
   })
 
-  it('el visado individual se deshabilita mientras haya secciones observadas', async () => {
-    authState.me = grant('gradebook.read', 'gradebook.endorse')
-    render(<EndorsementGrid />)
-    await screen.findByText('Materia observada')
+  it('con todas las reuniones no se ofrece el lote: visar "todo el año" de un clic es demasiado', () => {
+    renderGrid({ abilities: DIRECCION, allMeetings: true })
+    expect(screen.getAllByRole('button', { name: 'Visar' })[0]).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /Visar las/ })).toBeNull()
+  })
+
+  it('el visado individual se deshabilita mientras haya secciones observadas', () => {
+    renderGrid({ abilities: endorsementAbilities(grant('gradebook.read', 'gradebook.endorse')) })
     const buttons = screen.getAllByRole('button', { name: 'Visar' })
     expect(buttons[0]).toBeEnabled()
     expect(buttons[1]).toBeDisabled()
   })
 
   it('abre el detalle de la fila con su historial', async () => {
-    render(<EndorsementGrid />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Materia observada' }))
+    renderGrid()
+    fireEvent.click(screen.getByRole('button', { name: 'Materia observada' }))
     expect(await screen.findByText('Historial')).toBeInTheDocument()
     expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/endorsements/observada')
     const detail = screen.getByText('Historial').closest('div') as HTMLElement
     expect(within(detail).getByText('Sin movimientos todavía.')).toBeInTheDocument()
+  })
+
+  it('muestra el error de carga', () => {
+    renderGrid({ rows: [], error: 'Sin permiso' })
+    expect(screen.getByRole('alert')).toHaveTextContent('Sin permiso')
   })
 })
 
@@ -151,12 +156,11 @@ describe('auxiliares de la grilla', () => {
   it('arma la consulta sólo con los filtros elegidos', () => {
     expect(endorsementGridPath({ periodId: '', group: null, pendingOnly: false })).toBe('/admin/gradebook/endorsements')
     expect(
-      endorsementGridPath({
-        periodId: '',
-        group: { courseOfferingId: 'off-1', courseName: '1.º', courseOrientationId: null, orientationName: null },
-        pendingOnly: true,
-      }),
+      endorsementGridPath({ periodId: '', group: { courseOfferingId: 'off-1', courseOrientationId: null }, pendingOnly: true }),
     ).toBe('/admin/gradebook/endorsements?pending=true&courseOfferingId=off-1')
+    expect(
+      endorsementGridPath({ periodId: 'p-1', group: { courseOfferingId: 'off-1', courseOrientationId: 'co-1' }, pendingOnly: true }),
+    ).toBe('/admin/gradebook/endorsements?pending=true&periodId=p-1&courseOfferingId=off-1&courseOrientationId=co-1')
   })
 
   it('el resultado del lote dice cuántas quedaron afuera', () => {

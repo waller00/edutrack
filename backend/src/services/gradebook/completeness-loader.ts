@@ -8,7 +8,11 @@ import {
   summarize,
   type CompletenessSummary,
 } from './completeness.js'
+import { gradeBooksForGroup } from './institutional.js'
 import { assessmentPeriodsFor, isReportCardPeriod } from './period-closure.js'
+
+/** Un grupo del filtro: su oferta y, si tiene, su orientación. */
+export type CompletenessGroup = { courseOfferingId: string; courseOrientationId: string | null }
 
 export type CompletenessPeriod = {
   id: string
@@ -75,10 +79,13 @@ async function lastRequests(gradeBookIds: readonly string[], periodId: string): 
  * Estado de las libretas de un nivel frente a una reunión. Sólo las libretas del nivel del
  * período: una libreta EMS no tiene nada que ver con la 1.ª Entrega de EBI, y mezclarlas la
  * mostraba entera "sin calificación".
+ *
+ * Con un grupo, sus libretas más las de tronco común, igual que la grilla de visado: la pantalla
+ * de control y visado filtra los tres pasos con el mismo grupo.
  */
 export async function loadPeriodCompleteness(
   periodId: string,
-  opts: { gradeBookId?: string } = {},
+  opts: { gradeBookId?: string; group?: CompletenessGroup | null } = {},
 ): Promise<{ period: CompletenessPeriod; rows: CompletenessSummary[] } | null> {
   const period = await prisma.academicPeriod.findUnique({
     where: { id: periodId },
@@ -102,11 +109,12 @@ export async function loadPeriodCompleteness(
   })
   const assessmentPeriodIds = assessmentPeriodsFor(period, siblings)
 
-  const books = await prisma.gradeBook.findMany({
+  const found = await prisma.gradeBook.findMany({
     where: {
       schoolYearId: period.schoolYearId,
       status: 'ACTIVE',
       ...(opts.gradeBookId ? { id: opts.gradeBookId } : {}),
+      ...(opts.group ? { courseOfferingId: opts.group.courseOfferingId } : {}),
       courseOffering: { isOffered: true, course: { level: period.level } },
     },
     include: {
@@ -124,6 +132,13 @@ export async function loadPeriodCompleteness(
       },
     },
   })
+  const books = opts.group?.courseOrientationId
+    ? gradeBooksForGroup(found, {
+        courseOfferingId: opts.group.courseOfferingId,
+        courseOrientationId: opts.group.courseOrientationId,
+        orientationId: null,
+      })
+    : found
 
   const [rosters, requests] = await Promise.all([
     rostersByScope(books),

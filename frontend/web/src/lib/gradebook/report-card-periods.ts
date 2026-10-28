@@ -13,6 +13,11 @@ export const LEVEL_LABEL: Record<string, string> = { EBI: 'Ciclo básico', EMS: 
 
 export const REPORT_CARD_PERIODS_PATH = '/admin/gradebook/periods?reportCard=true'
 
+/** Todas las reuniones del ciclo (`GET /admin/gradebook/periods`); `reportCard` si son de boletín. */
+export type MeetingPeriod = ReportCardPeriod & { reportCard: boolean }
+
+export const MEETING_PERIODS_PATH = '/admin/gradebook/periods'
+
 /** Para los `<optgroup>`: cada nivel tiene sus propias reuniones. */
 export function groupByLevel<T extends { level: string | null }>(periods: readonly T[]): [string, T[]][] {
   const groups = new Map<string, T[]>()

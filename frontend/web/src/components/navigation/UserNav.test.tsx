@@ -270,7 +270,7 @@ describe('UserNav: menú lateral que se contrae', () => {
 
     expect(screen.getByRole('button', { name: 'Contraer menú lateral' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('button', { name: 'Libretas' })).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByRole('link', { name: 'Visado de libretas' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Control y visado de libretas' })).toBeInTheDocument()
     expect(globalThis.localStorage.getItem('edutrack.sidebar.collapsed')).toBe('0')
   })
 

@@ -8,7 +8,7 @@ import { loadReportCards } from '../services/gradebook/report-card-loader.js'
 import { loadStudentFileExtras } from '../services/gradebook/student-file.js'
 import { completionRequestBody, isStageComplete, stageDetail } from '../services/gradebook/completeness.js'
 import { conductOptions, conductScale, isConductValue, periodScaleFor } from '../services/gradebook/period-scale.js'
-import { loadPeriodCompleteness } from '../services/gradebook/completeness-loader.js'
+import { loadPeriodCompleteness, type CompletenessGroup } from '../services/gradebook/completeness-loader.js'
 import { completionDigestNotification, completionRequestNotification } from '../services/gradebook/notifications.js'
 import { generateReportCardPdf, generateReportCardsPdf } from '../services/gradebook/exports/reportCardPdf.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
@@ -108,7 +108,9 @@ r.get('/periods', async (req: any, res) => {
         requiresConceptualJudgement: true,
       },
     })
-    return res.json({ data: onlyReportCards ? periods.filter(isReportCardPeriod) : periods })
+    // `reportCard`: la pantalla de control y visado ofrece la carga y el cierre sólo en estas.
+    const rows = periods.map((period) => ({ ...period, reportCard: isReportCardPeriod(period) }))
+    return res.json({ data: onlyReportCards ? rows.filter((period) => period.reportCard) : rows })
   } catch (error) {
     console.error('[admin-gradebook] periods:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -500,7 +502,7 @@ r.get('/completeness', requirePermission('gradebook.review', 'all'), async (req:
   if (!periodId) return res.status(400).json({ message: 'Falta el período' })
 
   try {
-    const result = await loadPeriodCompleteness(periodId)
+    const result = await loadPeriodCompleteness(periodId, { group: groupFilter(req.query) })
     if (!result) return res.status(404).json({ message: 'Período no encontrado' })
     return res.json({
       period: { id: result.period.id, name: result.period.name, level: result.period.level },
@@ -516,7 +518,21 @@ const completionRequestSchema = z.object({
   periodId: z.string().uuid(),
   /** Antes de la reunión: evaluaciones, C y juicio. Después: R y cierre del período. */
   stage: z.enum(['before', 'after']).default('before'),
+  /** "Avisar a todos" con un grupo elegido avisa sólo por las libretas de ese grupo. */
+  courseOfferingId: z.string().uuid().optional(),
+  courseOrientationId: z.string().uuid().nullish(),
 })
+
+/** El grupo del filtro, como lo mandan la consulta o el cuerpo; `null` si no se eligió. */
+function groupFilter(source: Record<string, unknown> | undefined): CompletenessGroup | null {
+  const offering = source?.courseOfferingId
+  if (typeof offering !== 'string' || !offering) return null
+  const orientation = source?.courseOrientationId
+  return {
+    courseOfferingId: offering,
+    courseOrientationId: typeof orientation === 'string' && orientation ? orientation : null,
+  }
+}
 
 function groupLabel(row: { courseName: string; orientationName?: string | null; subjectName: string }) {
   return `${row.courseName}${row.orientationName ? ` ${row.orientationName}` : ''} · ${row.subjectName}`
@@ -591,7 +607,7 @@ r.post('/completeness/request-all', requirePermission('gradebook.review', 'all')
   const { periodId, stage } = parsed.data
 
   try {
-    const result = await loadPeriodCompleteness(periodId)
+    const result = await loadPeriodCompleteness(periodId, { group: groupFilter(parsed.data) })
     if (!result) return res.status(404).json({ message: 'Período no encontrado' })
 
     const actorUserId = req.user?.id ?? req.user?.sub ?? null

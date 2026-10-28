@@ -1,14 +1,22 @@
 'use client'
+import { Suspense } from 'react'
 import RoleGuard from '@/components/auth/RoleGuard'
-import CompletenessPanel from '@/components/admin/gradebook/CompletenessPanel'
+import ControlVisadoPanel from '@/components/admin/gradebook/ControlVisadoPanel'
 import ModuleHeader from '@/components/common/ModuleHeader'
 
+/**
+ * Control y visado de libretas. Se entra con la lectura de todas las libretas: quien además
+ * controla (`gradebook.review`) ve también los pasos Carga y Cierre.
+ */
 export default function Page() {
   return (
-    <RoleGuard permission="gradebook.review" permissionScope="all">
-      <main className="responsive-page max-w-[1400px] space-y-4">
+    <RoleGuard permission="gradebook.read" permissionScope="all">
+      <main className="responsive-page max-w-[1500px] space-y-4">
         <ModuleHeader id="gradebook-control" />
-        <CompletenessPanel />
+        {/* El paso va en la URL: useSearchParams necesita un Suspense para prerenderizar. */}
+        <Suspense fallback={null}>
+          <ControlVisadoPanel />
+        </Suspense>
       </main>
     </RoleGuard>
   )

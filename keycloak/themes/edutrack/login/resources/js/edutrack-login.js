@@ -134,7 +134,7 @@
     var hint = document.createElement('p')
     hint.className = 'et-login-hint'
     hint.textContent =
-      '¿Te registraste con Google? Usá «Continuar con Google». Para entrar con contraseña, creala con «Olvidé mi contraseña».'
+      '¿Te registraste con Google? Usá «Continuar con Google».'
     form.parentElement.insertBefore(hint, form.nextSibling)
   }
 

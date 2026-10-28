@@ -21,7 +21,6 @@ import {
   Settings,
   Settings2,
   ShieldCheck,
-  Stamp,
   TrendingUp,
   UserCheck,
   UserRound,
@@ -64,7 +63,6 @@ export type ModuleId =
   | 'courses'
   | 'gradebooks'
   | 'gradebook-control'
-  | 'gradebook-endorsement'
   | 'teachers-meeting'
   | 'academic-performance'
   | 'gradebook-config'
@@ -394,27 +392,19 @@ export const APP_MODULES: readonly AppModule[] = [
     quickAccess: 5,
   },
   {
+    // Antes eran dos pantallas, Control y Visado, que se seguían una a la otra sobre la misma
+    // reunión. `/libreta/visado` redirige al paso de visado.
     id: 'gradebook-control',
-    label: 'Control de libretas',
+    label: 'Control y visado de libretas',
     href: '/libreta/control',
-    description: 'Qué libretas de los docentes están incompletas en cada período, con aviso al docente.',
+    description: 'Cada reunión, libreta por libreta: qué falta cargar, quién no cerró y qué está listo para visar.',
     group: 'gradebooks',
     icon: FileCheck2,
-    permission: 'gradebook.review',
+    // Con la lectura de todas se entra al visado; la carga y el cierre piden además `gradebook.review`.
+    permission: 'gradebook.read',
     permissionScope: 'all',
     related: [{ id: 'student-attendance', text: 'Las faltas de los estudiantes se siguen en' }],
     quickAccess: 9,
-  },
-  {
-    id: 'gradebook-endorsement',
-    label: 'Visado de libretas',
-    href: '/libreta/visado',
-    description: 'Los períodos cerrados de cada libreta, para observarlos y visarlos. Visar es de Dirección.',
-    group: 'gradebooks',
-    icon: Stamp,
-    permission: 'gradebook.read',
-    permissionScope: 'all',
-    quickAccess: 10,
   },
   {
     id: 'teachers-meeting',

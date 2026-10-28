@@ -82,7 +82,7 @@ function writeStored(key: string, value: string) {
 /**
  * ¿Este ítem es el activo?
  *
- * No alcanza con que la URL empiece con el href: `/libreta` es prefijo de `/libreta/visado`, así
+ * No alcanza con que la URL empiece con el href: `/libreta` es prefijo de `/libreta/control`, así
  * que "Mis libretas" se marcaría como activo en todo el módulo. Gana el href **más específico**
  * que coincida.
  */

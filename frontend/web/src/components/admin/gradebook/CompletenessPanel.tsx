@@ -1,22 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Bell, Check, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
-import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
-import { withSchoolYear } from '@/lib/admin/school-year-query'
-import { todayYmdUruguay } from '@/lib/libreta/absence-day'
-import {
-  groupByLevel,
-  LEVEL_LABEL,
-  nextMeeting,
-  REPORT_CARD_PERIODS_PATH,
-  type ReportCardPeriod,
-} from '@/lib/gradebook/report-card-periods'
+import { groupParams, type GroupFilter } from '@/lib/gradebook/group-filter'
 import ScrollRegion from '@/components/common/ScrollRegion'
 
-type Stage = 'before' | 'after'
+export type Stage = 'before' | 'after'
+
+export type CompletenessRow = Row
 
 type Row = {
   gradeBookId: string
@@ -56,14 +49,14 @@ type Notice = { kind: 'sent' } | { kind: 'nobody' }
 
 type BulkResult = { teachers: number; gradeBooks: number; withoutTeacher: number }
 
-const STAGES: { id: Stage; label: string }[] = [
-  { id: 'before', label: 'Antes de la reunión' },
-  { id: 'after', label: 'Después de la reunión' },
-]
-
 /** Antes de la reunión: evaluaciones, R, C, juicio e informe del grupo. Después: período cerrado. */
-export function isDone(row: Row, stage: Stage): boolean {
+export function isDone(row: Pick<Row, 'complete' | 'periodStatus'>, stage: Stage): boolean {
   return stage === 'after' ? row.periodStatus === 'CLOSED' : row.complete
+}
+
+export function completenessPath(periodId: string, group: GroupFilter | null): string {
+  const params = new URLSearchParams({ periodId, ...groupParams(group) })
+  return `/admin/gradebook/completeness?${params.toString()}`
 }
 
 export function rowLabel(row: Pick<Row, 'courseName' | 'orientationName' | 'subjectName'>): string {
@@ -208,57 +201,45 @@ const STAGE_HEADERS: Record<Stage, string[]> = {
   after: ['Período'],
 }
 
+type Props = {
+  periodId: string
+  group: GroupFilter | null
+  /** Carga (antes de la reunión) o cierre (después). */
+  stage: Stage
+  rows: readonly Row[]
+  loading: boolean
+  error: string | null
+  /** Vuelve a pedir las filas: después de avisar a todos, para que muestren "Avisado el…". */
+  onReload: () => Promise<void>
+}
+
 /**
- * Control de libretas, antes y después de la reunión de boletín.
+ * Los pasos Carga y Cierre de "Control y visado de libretas".
  *
- * **Antes**, administración revisa que cada docente tenga cargadas las evaluaciones de los tramos,
- * R (rendimiento), C (conducta), el juicio y el informe del grupo. **Después**, que haya cerrado el
- * período, que es lo que habilita el visado. Si falta algo, le avisa por notificación
- * interna, de a uno o a todos juntos (un aviso por docente).
+ * **Carga**, antes de la reunión: que cada docente tenga cargadas las evaluaciones de los tramos,
+ * R (rendimiento), C (conducta), el juicio y el informe del grupo. **Cierre**, después: que haya
+ * cerrado el período, que es lo que lo lleva a Visado. Si falta algo, le avisa por notificación
+ * interna, de a uno o a todos juntos (un aviso por docente). La reunión, el grupo y las filas los
+ * pone la pantalla: los comparte con el visado y con el contador de cada paso.
  */
-export default function CompletenessPanel() {
-  const schoolYear = useOptionalAdminSchoolYear()
-  const query = schoolYear?.schoolYearScopedQuery ?? ''
-  const [periods, setPeriods] = useState<ReportCardPeriod[]>([])
-  const [periodId, setPeriodId] = useState('')
-  const [stage, setStage] = useState<Stage>('before')
-  const [rows, setRows] = useState<Row[]>([])
-  const [loading, setLoading] = useState(false)
+export default function CompletenessPanel({ periodId, group, stage, rows, loading, error, onReload }: Props) {
   const [notices, setNotices] = useState<Record<string, Notice>>({})
   const [bulkBusy, setBulkBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [onlyIncomplete, setOnlyIncomplete] = useState(true)
 
+  // Filas nuevas traen su "Avisado el…": el "Avisado" de la sesión ya no hace falta.
   useEffect(() => {
-    api<{ data: ReportCardPeriod[] }>(withSchoolYear(REPORT_CARD_PERIODS_PATH, query))
-      .then((res) => {
-        setPeriods(res.data)
-        // La reunión que viene es la que se revisa casi siempre: se preselecciona.
-        // Día civil de Uruguay: `toISOString()` da el día siguiente después de las 21 h.
-        setPeriodId((current) => current || nextMeeting(res.data, todayYmdUruguay())?.id || '')
-      })
-      .catch(() => setError('No se pudieron cargar las reuniones'))
-  }, [query])
-
-  const load = useCallback(async () => {
-    if (!periodId) return
-    setLoading(true)
     setNotices({})
-    try {
-      const res = await api<{ period: { name: string }; data: Row[] }>(`/admin/gradebook/completeness?periodId=${periodId}`)
-      setRows(res.data)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo cargar el control')
-    } finally {
-      setLoading(false)
-    }
-  }, [periodId])
+  }, [rows])
 
+  const groupKey = group ? `${group.courseOfferingId}|${group.courseOrientationId ?? ''}` : ''
   useEffect(() => {
-    void load()
-  }, [load])
+    setNotices({})
+    setMessage(null)
+    setActionError(null)
+  }, [periodId, groupKey, stage])
 
   async function notify(row: Row) {
     try {
@@ -268,7 +249,7 @@ export default function CompletenessPanel() {
       })
       setNotices((current) => ({ ...current, [row.gradeBookId]: { kind: res.notified > 0 ? 'sent' : 'nobody' } }))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo enviar el aviso')
+      setActionError(err instanceof Error ? err.message : 'No se pudo enviar el aviso')
     }
   }
 
@@ -278,12 +259,13 @@ export default function CompletenessPanel() {
     try {
       const res = await api<BulkResult>('/admin/gradebook/completeness/request-all', {
         method: 'POST',
-        body: JSON.stringify({ periodId, stage }),
+        // Con un grupo elegido, el aviso es sólo por sus libretas: las mismas que cuenta el botón.
+        body: JSON.stringify({ periodId, stage, ...groupParams(group) }),
       })
-      await load()
+      await onReload()
       setMessage(bulkNoticeText(res))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudieron enviar los avisos')
+      setActionError(err instanceof Error ? err.message : 'No se pudieron enviar los avisos')
     } finally {
       setBulkBusy(false)
     }
@@ -293,43 +275,11 @@ export default function CompletenessPanel() {
   const pending = rows.filter((r) => !isDone(r, stage)).length
   const notifiable = rows.filter((r) => !isDone(r, stage) && r.teacherName).length
   const allDoneText = stage === 'after' ? 'Todas las libretas cerraron el período.' : 'Todas las libretas están al día para esta reunión.'
+  const shownError = actionError ?? error
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
-        <label className="text-sm">
-          <span className="mb-1 block text-xs text-gray-600">Reunión</span>
-          <select className="select-field" value={periodId} onChange={(e) => setPeriodId(e.target.value)}>
-            <option value="">Elegí una reunión…</option>
-            {groupByLevel(periods).map(([level, options]) => (
-              <optgroup key={level} label={LEVEL_LABEL[level] ?? level}>
-                {options.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
-        <div role="radiogroup" aria-label="Etapa" className="flex overflow-hidden rounded-lg border border-gray-300 text-sm">
-          {STAGES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="radio"
-              aria-checked={stage === item.id}
-              onClick={() => {
-                setStage(item.id)
-                setNotices({})
-                setMessage(null)
-              }}
-              className={`px-3 py-1.5 ${stage === item.id ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+      <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-1.5 text-sm text-gray-700">
           <input
             type="checkbox"
@@ -361,9 +311,9 @@ export default function CompletenessPanel() {
         )}
       </div>
 
-      {error && (
+      {shownError && (
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
-          {error}
+          {shownError}
         </p>
       )}
       {message && (

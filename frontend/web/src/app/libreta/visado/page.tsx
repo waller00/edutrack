@@ -1,19 +1,9 @@
-'use client'
-import RoleGuard from '@/components/auth/RoleGuard'
-import EndorsementGrid from '@/components/admin/gradebook/EndorsementGrid'
-import ModuleHeader from '@/components/common/ModuleHeader'
+import { redirect } from 'next/navigation'
 
+/**
+ * "Visado de libretas" se unió con el control: es el último paso de "Control y visado de
+ * libretas". La ruta queda para que los enlaces viejos no se rompan.
+ */
 export default function Page() {
-  return (
-    <RoleGuard permission="gradebook.read" permissionScope="all">
-      <main className="responsive-page max-w-[1500px] space-y-4">
-        <ModuleHeader id="gradebook-endorsement">
-          <p className="text-sm text-gray-600">
-            Observar es de adscripción, dirección e inspección; visar, sólo de Dirección.
-          </p>
-        </ModuleHeader>
-        <EndorsementGrid />
-      </main>
-    </RoleGuard>
-  )
+  redirect('/libreta/control?paso=visado')
 }
