@@ -79,6 +79,10 @@ services:
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
+      # Nivel de log de Keycloak. El valor real sale del .env del servidor
+      # (KEYCLOAK_LOG_LEVEL). Para la integración de identidad de Wazuh:
+      # INFO,org.keycloak.events:DEBUG
+      KC_LOG_LEVEL: "${KEYCLOAK_LOG_LEVEL:-INFO}"
       # Producción define KEYCLOAK_HOSTNAME (auth.edutrack-uy.com). Sin él (testing por IP), el
       # hostname se deduce del pedido como en `start-dev`; poné KEYCLOAK_HOSTNAME_STRICT=true para exigirlo.
       KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-}
