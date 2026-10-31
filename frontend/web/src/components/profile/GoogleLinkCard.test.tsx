@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import GoogleLinkCard from './GoogleLinkCard'
 import { api } from '@/lib/api/client'
@@ -36,11 +36,11 @@ describe('GoogleLinkCard', () => {
     expect(screen.queryByRole('link', { name: 'Vincular con Google' })).not.toBeInTheDocument()
   })
 
-  it('si no se puede consultar lo dice, sin ofrecer un botón a ciegas', async () => {
+  it('si no se puede consultar no se muestra: es sólo informativa', async () => {
     mockedApi.mockRejectedValueOnce(new Error('503'))
     render(<GoogleLinkCard />)
 
-    expect(await screen.findByText(/No pudimos consultar/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Ingreso con Google')).not.toBeInTheDocument())
     expect(screen.queryByRole('link', { name: 'Vincular con Google' })).not.toBeInTheDocument()
   })
 })

@@ -33,6 +33,11 @@ vi.mock('@/components/profile/GoogleLinkCard', () => ({
   default: () => <p>Ingreso con Google</p>,
 }))
 
+// Igual: SessionsCard.test.tsx.
+vi.mock('@/components/profile/SessionsCard', () => ({
+  default: () => <p>Sesiones abiertas</p>,
+}))
+
 vi.mock('@/components/notifications/WebPushSection', () => ({
   default: vi.fn(() => <p>Preferencias del navegador</p>),
 }))

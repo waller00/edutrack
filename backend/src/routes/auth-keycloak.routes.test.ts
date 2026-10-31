@@ -66,6 +66,22 @@ const {
   recordAuditEventMock: vi.fn(),
 }));
 
+const {
+  deleteSessionMock,
+  saveSessionMock,
+  listSessionsForUserMock,
+  deleteOtherSessionsForUserMock,
+  logoutOtherKeycloakSessionsMock,
+  keycloakSessionIdOfMock,
+} = vi.hoisted(() => ({
+  deleteSessionMock: vi.fn(),
+  saveSessionMock: vi.fn(),
+  listSessionsForUserMock: vi.fn().mockResolvedValue([]),
+  deleteOtherSessionsForUserMock: vi.fn().mockResolvedValue(0),
+  logoutOtherKeycloakSessionsMock: vi.fn().mockResolvedValue(0),
+  keycloakSessionIdOfMock: vi.fn((token?: string) => (token ? "kc-sess-1" : null)),
+}));
+
 const { requestPasswordResetMock, completePasswordResetMock, MockPasswordResetTokenError } = vi.hoisted(() => {
   class MockPasswordResetTokenError extends Error {
     readonly code = "RESET_TOKEN_INVALID";
@@ -104,9 +120,11 @@ vi.mock("../notifications/email.js", () => ({
 
 vi.mock("../auth/session-store.js", () => ({
   getSession: getSessionMock,
-  deleteSession: vi.fn(),
+  deleteSession: deleteSessionMock,
   newSessionId: vi.fn(() => "sid-new"),
-  saveSession: vi.fn(),
+  saveSession: saveSessionMock,
+  listSessionsForUser: listSessionsForUserMock,
+  deleteOtherSessionsForUser: deleteOtherSessionsForUserMock,
 }));
 
 vi.mock("../auth/keycloak.js", () => ({
@@ -123,6 +141,8 @@ vi.mock("../auth/keycloak.js", () => ({
   keycloakUserHasPassword: keycloakUserHasPasswordMock,
   setInitialKeycloakPassword: setInitialKeycloakPasswordMock,
   getKeycloakUserGoogleLink: getKeycloakUserGoogleLinkMock,
+  keycloakSessionIdOf: keycloakSessionIdOfMock,
+  logoutOtherKeycloakSessions: logoutOtherKeycloakSessionsMock,
   GOOGLE_IDP_ALIAS: "google",
 }));
 
@@ -448,6 +468,19 @@ describe("auth-keycloak login OIDC", () => {
     expect(cookies.some((c) => c.startsWith("oauth_state=;"))).toBe(true);
   });
 
+  it("GET /auth/callback reemplaza la sesión anterior de este navegador y guarda con qué navegador entró", async () => {
+    const res = await request(app())
+      .get("/auth/callback?state=state-1&code=abc")
+      .set("Cookie", "oauth_state=state-1; sid=sid-viejo")
+      .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0) Chrome/130.0");
+
+    expect(res.status).toBe(302);
+    expect(deleteSessionMock).toHaveBeenCalledWith("sid-viejo");
+    expect(saveSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sid: "sid-new", userAgent: "Mozilla/5.0 (Windows NT 10.0) Chrome/130.0" }),
+    );
+  });
+
   it("GET /auth/callback manda a revisión una cuenta de Keycloak sin vínculo válido", async () => {
     provisionUserFromClaimsMock.mockRejectedValueOnce(new KeycloakAccountConflictError());
 
@@ -682,5 +715,95 @@ describe("auth-keycloak recuperar contraseña (correo de EduTrack)", () => {
     expect(politica.status).toBe(400);
     expect(politica.body.message).toMatch(/Keycloak rechazó/);
     expect(caido.status).toBe(503);
+  });
+});
+
+describe("auth-keycloak sesiones abiertas", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.FRONTEND_URL = "http://localhost:3000";
+    redisMock.set.mockResolvedValue("OK");
+    redisMock.incr.mockResolvedValue(1);
+  });
+
+  const closeOthers = () => request(app()).post("/auth/account/sessions/close-others").set("Cookie", "sid=sid-1");
+
+  it("GET /auth/account/sessions lista primero la de este navegador y nunca devuelve el sid", async () => {
+    listSessionsForUserMock.mockResolvedValueOnce([
+      { sid: "sid-otro", userId: "user-1", createdAt: Date.parse("2026-10-30T10:00:00Z"), userAgent: "Firefox", ip: "190.1.1.1" },
+      { sid: "sid-1", userId: "user-1", createdAt: Date.parse("2026-10-29T10:00:00Z"), userAgent: "Chrome", ip: "190.2.2.2" },
+      { sid: "sid-viejo", userId: "user-1", createdAt: Date.parse("2026-10-28T10:00:00Z") },
+    ]);
+
+    const res = await request(app()).get("/auth/account/sessions").set("Cookie", "sid=sid-1");
+
+    expect(res.status).toBe(200);
+    expect(listSessionsForUserMock).toHaveBeenCalledWith("user-1");
+    expect(res.body.sessions).toEqual([
+      { current: true, createdAt: "2026-10-29T10:00:00.000Z", userAgent: "Chrome", ip: "190.2.2.2" },
+      { current: false, createdAt: "2026-10-30T10:00:00.000Z", userAgent: "Firefox", ip: "190.1.1.1" },
+      { current: false, createdAt: "2026-10-28T10:00:00.000Z", userAgent: null, ip: null },
+    ]);
+    expect(JSON.stringify(res.body)).not.toContain("sid-");
+  });
+
+  it("cierra primero en Keycloak (salvo la de este navegador), después en EduTrack, y lo audita", async () => {
+    logoutOtherKeycloakSessionsMock.mockResolvedValueOnce(2);
+    deleteOtherSessionsForUserMock.mockResolvedValueOnce(3);
+
+    const res = await closeOthers();
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ closed: 3 });
+    expect(logoutOtherKeycloakSessionsMock).toHaveBeenCalledWith("kc-1", "kc-sess-1");
+    expect(deleteOtherSessionsForUserMock).toHaveBeenCalledWith("user-1", "sid-1");
+    expect(logoutOtherKeycloakSessionsMock.mock.invocationCallOrder[0]).toBeLessThan(
+      deleteOtherSessionsForUserMock.mock.invocationCallOrder[0],
+    );
+    expect(recordAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "AUTH_OTHER_SESSIONS_CLOSED", actorUserId: "user-1", metadata: { closed: 3, keycloakSessions: 2 } }),
+    );
+  });
+
+  it("con un ingreso viejo pide reingresar y no cierra nada", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      sid: "sid-1",
+      userId: "user-1",
+      kcId: "kc-1",
+      email: "u@example.com",
+      role: "STAFF",
+      accessToken: "access-1",
+      accessTokenExpiresAt: Date.now() + 60_000,
+      createdAt: Date.now() - 11 * 60 * 1000,
+    });
+
+    const res = await closeOthers();
+
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe("REAUTH_REQUIRED");
+    expect(logoutOtherKeycloakSessionsMock).not.toHaveBeenCalled();
+    expect(deleteOtherSessionsForUserMock).not.toHaveBeenCalled();
+  });
+
+  it("si Keycloak falla no cierra las de EduTrack: el otro navegador volvería a entrar solo", async () => {
+    logoutOtherKeycloakSessionsMock.mockRejectedValueOnce(new Error("down"));
+
+    const res = await closeOthers();
+
+    expect(res.status).toBe(503);
+    expect(deleteOtherSessionsForUserMock).not.toHaveBeenCalled();
+    expect(recordAuditEventMock).not.toHaveBeenCalled();
+  });
+
+  it("GET /auth/account/reauth?then=sessions vuelve al perfil con el cierre de sesiones", async () => {
+    const res = await request(app()).get("/auth/account/reauth?then=sessions").set("Cookie", "sid=sid-1");
+
+    expect(res.status).toBe(302);
+    expect(redisMock.set).toHaveBeenCalledWith(
+      "bff:oauth:state-1",
+      expect.stringContaining('"returnTo":"/profile?cerrar-sesiones=1"'),
+      "EX",
+      600,
+    );
   });
 });

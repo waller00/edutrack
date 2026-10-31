@@ -12,8 +12,10 @@ import {
   getKeycloakUserIdByEmail,
   getKeycloakUserOtpStatus,
   GOOGLE_IDP_ALIAS,
+  keycloakSessionIdOf,
   keycloakUserHasPassword,
   type KeycloakRequiredAction,
+  logoutOtherKeycloakSessions,
   redirectUri,
   refreshTokens,
   setInitialKeycloakPassword,
@@ -26,8 +28,10 @@ import { recordAuditEvent } from "../services/audit-log.js";
 import { sendMail } from "../notifications/email.js";
 import {
   BffSession,
+  deleteOtherSessionsForUser,
   deleteSession,
   getSession,
+  listSessionsForUser,
   newSessionId,
   saveSession,
 } from "../auth/session-store.js";
@@ -122,12 +126,20 @@ function clearOauthStateCookie(res: any) {
   res.clearCookie(OAUTH_STATE_COOKIE, oauthStateCookieOptions());
 }
 
+const SESSION_USER_AGENT_MAX = 512;
+
 async function startSessionFromTokens(
+  req: any,
   res: any,
   tokens: { accessToken: string; refreshToken?: string; idToken?: string; expiresAt: number; claims: Record<string, any> },
 ): Promise<BffSession> {
   const user = await provisionUserFromClaims(tokens.claims);
+  // La sesión anterior de este mismo navegador (p. ej. al reingresar para crear la contraseña) queda
+  // reemplazada: si no, figuraría en "Sesiones abiertas" como si fuera otro dispositivo.
+  const previousSid = req.cookies?.sid as string | undefined;
+  if (previousSid) await deleteSession(previousSid);
   const sid = newSessionId();
+  const userAgent = typeof req.headers?.["user-agent"] === "string" ? req.headers["user-agent"].slice(0, SESSION_USER_AGENT_MAX) : undefined;
   const session: BffSession = {
     sid,
     userId: user.id,
@@ -140,6 +152,8 @@ async function startSessionFromTokens(
     idToken: tokens.idToken,
     accessTokenExpiresAt: tokens.expiresAt,
     createdAt: Date.now(),
+    userAgent,
+    ip: clientIp(req),
   };
   await saveSession(session);
   setSessionCookie(res, sid);
@@ -244,7 +258,7 @@ r.get("/callback", async (req, res) => {
 
     const tokens = await exchangeCode(currentUrl, codeVerifier, state);
     try {
-      await startSessionFromTokens(res, tokens);
+      await startSessionFromTokens(req, res, tokens);
     } catch (error) {
       if (error instanceof SsoRegistrationRequiredError) {
         const token = await createSsoRegistration(error.profile);
@@ -315,10 +329,11 @@ r.get("/account/password", async (req, res) => {
 });
 
 /**
- * Crear contraseña exige un ingreso reciente: con una sesión olvidada abierta, otro podría ponerle
- * una contraseña a la cuenta y volver a entrar cuando quiera. Pasado este plazo se reautentica.
+ * Crear contraseña y cerrar las demás sesiones exigen un ingreso reciente: con una sesión olvidada
+ * abierta, otro podría ponerle una contraseña a la cuenta, o echar al dueño de sus dispositivos.
+ * Pasado este plazo se reautentica.
  */
-const PASSWORD_CREATE_MAX_SESSION_AGE_MS = 10 * 60 * 1000;
+const RECENT_LOGIN_MAX_AGE_MS = 10 * 60 * 1000;
 const PASSWORD_CREATE_LIMIT = { bucket: "password-create", max: 10, windowSeconds: 15 * 60 };
 
 r.get("/account/password-status", async (req, res) => {
@@ -338,7 +353,7 @@ r.post("/account/password", rateLimit(PASSWORD_CREATE_LIMIT), async (req, res) =
   if (!session) return;
   const parsed = strongPasswordSchema.safeParse(req.body?.password);
   if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
-  if (Date.now() - session.createdAt > PASSWORD_CREATE_MAX_SESSION_AGE_MS) {
+  if (Date.now() - session.createdAt > RECENT_LOGIN_MAX_AGE_MS) {
     return res.status(401).json({ code: "REAUTH_REQUIRED", message: "Por seguridad, volvé a ingresar para crear la contraseña." });
   }
   try {
@@ -391,11 +406,79 @@ r.get("/account/link-google", async (req, res) => {
   });
 });
 
-/** Vuelve a pedir el ingreso (Google o contraseña) y regresa al perfil con el formulario abierto. */
+/** A dónde vuelve el perfil después de reingresar, según lo que se estaba haciendo (`?then=`). */
+const REAUTH_RETURN: Record<string, string> = {
+  password: "/profile?crear-contrasena=1",
+  sessions: "/profile?cerrar-sesiones=1",
+};
+
+/** Vuelve a pedir el ingreso (Google o contraseña) y regresa al perfil con lo que estaba haciendo. */
 r.get("/account/reauth", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
-  await beginLoginFlow(res, { prompt: "login", returnTo: "/profile?crear-contrasena=1" });
+  const then = typeof req.query.then === "string" ? req.query.then : "password";
+  await beginLoginFlow(res, { prompt: "login", returnTo: REAUTH_RETURN[then] ?? REAUTH_RETURN.password });
+});
+
+/**
+ * Sesiones abiertas de la cuenta (OWASP ASVS 3.3.4): la de este navegador y las de otros
+ * dispositivos, con navegador, IP y desde cuándo. Nunca el `sid`: es la credencial de la sesión.
+ */
+r.get("/account/sessions", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  try {
+    const sessions = await listSessionsForUser(session.userId);
+    const rows = sessions
+      .map((item) => ({
+        current: item.sid === session.sid,
+        createdAt: new Date(item.createdAt).toISOString(),
+        userAgent: item.userAgent ?? null,
+        ip: item.ip ?? null,
+      }))
+      .sort((a, b) => Number(b.current) - Number(a.current) || b.createdAt.localeCompare(a.createdAt));
+    res.json({ sessions: rows });
+  } catch (error) {
+    console.error("[auth/account/sessions] redis:", error);
+    res.status(503).json({ message: "No se pudieron consultar tus sesiones." });
+  }
+});
+
+const CLOSE_SESSIONS_LIMIT = { bucket: "close-sessions", max: 10, windowSeconds: 15 * 60 };
+
+/**
+ * Cierra las demás sesiones (otros dispositivos) y conserva la de quien lo pide. Primero en
+ * Keycloak y después en EduTrack: si sólo se borrara la de EduTrack, el otro navegador volvería a
+ * entrar sin contraseña con el ingreso único de Keycloak. Pide un ingreso reciente.
+ */
+r.post("/account/sessions/close-others", rateLimit(CLOSE_SESSIONS_LIMIT), async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  if (Date.now() - session.createdAt > RECENT_LOGIN_MAX_AGE_MS) {
+    return res.status(401).json({ code: "REAUTH_REQUIRED", message: "Por seguridad, volvé a ingresar para cerrar las otras sesiones." });
+  }
+  const keepKeycloakSession = keycloakSessionIdOf(session.accessToken) ?? keycloakSessionIdOf(session.idToken);
+  if (!keepKeycloakSession) {
+    console.error("[auth/account/sessions/close-others] el token no trae sid");
+    return res.status(503).json({ message: "No se pudieron cerrar las otras sesiones. Probá de nuevo en unos minutos." });
+  }
+  let keycloakSessions: number;
+  try {
+    keycloakSessions = await logoutOtherKeycloakSessions(session.kcId, keepKeycloakSession);
+  } catch (error) {
+    console.error("[auth/account/sessions/close-others] keycloak:", error);
+    return res.status(503).json({ message: "No se pudieron cerrar las otras sesiones. Probá de nuevo en unos minutos." });
+  }
+  const closed = await deleteOtherSessionsForUser(session.userId, session.sid);
+  recordAuditEvent({
+    action: AuditAction.AUTH_OTHER_SESSIONS_CLOSED,
+    actorUserId: session.userId,
+    req,
+    entityType: "User",
+    entityId: session.userId,
+    metadata: { closed, keycloakSessions },
+  });
+  res.json({ closed });
 });
 
 r.get("/account/2fa", async (req, res) => {

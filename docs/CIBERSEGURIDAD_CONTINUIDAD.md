@@ -33,8 +33,7 @@ Los datos deben ser accesibles solo por usuarios autorizados. Controles:
 - Variables de entorno para secretos (`KEYCLOAK_CLIENT_SECRET`, SMTP, VAPID, etc.).
 - Permisos granulares por `orgRole` en Postgres.
 - Aprobación manual de cada cuenta nueva: el alta queda pendiente (`isApproved: false`) hasta que
-  administración revisa los datos declarados. La prueba de vida con Didit se retiró; ya no se envían
-  documento ni biometría a un tercero.
+  administración revisa los datos declarados. No se envían documento ni datos biométricos a terceros.
 
 ### Integridad
 
@@ -63,7 +62,7 @@ El sistema debe mantenerse operativo y recuperable. Controles existentes:
 | Area | Control | Implementacion actual |
 | --- | --- | --- |
 | Autenticacion | OIDC Keycloak + BFF | `routes/auth-keycloak.ts`, tema `edutrack` |
-| Sesiones | Cookie `sid` + Redis | `session-store.ts`, `middlewares/auth.ts` |
+| Sesiones | Cookie `sid` + Redis; ver y cerrar las de otros dispositivos | `session-store.ts`, `middlewares/auth.ts`, Mi perfil → Seguridad |
 | Contrasenas | IdP Keycloak | Admin API + portal de cuenta |
 | Autorizacion | Roles y permisos | `OrgRole`, `Permission`, `RolePermission` |
 | Datos personales | Validacion de cedula e identidad | Digito verificador de la CI + aprobacion manual |
@@ -73,6 +72,42 @@ El sistema debe mantenerse operativo y recuperable. Controles existentes:
 | Dependencias | Escaneo de vulnerabilidades | GitHub Actions + Trivy |
 | Backups | Exportacion/importacion de DB | Scripts en `scripts/` |
 | Recuperacion | Restore de dump PostgreSQL | `restore_pg_custom_dump_cloud.sh` |
+
+## Sesiones simultáneas
+
+**Decisión.** Un mismo usuario puede tener varias sesiones abiertas a la vez (por ejemplo, el
+celular y la PC). Ingresar en un dispositivo no cierra los demás. Cada sesión vence a los 7 días
+(`SESSION_TTL_DAYS`).
+
+**Por qué no se cierra la sesión anterior al ingresar:**
+
+1. **Es la misma persona en varios dispositivos.** El docente pasa la lista desde el celular en el
+   aula y tiene la libreta abierta en la PC; Adscripción trabaja en más de una computadora. Cerrar
+   la sesión anterior en cada ingreso haría perder trabajo a mitad de una clase.
+2. **No impide compartir cuentas.** Si dos personas usan la misma cuenta, se echan una a la otra y
+   la siguen compartiendo. El control real es que **cada persona tenga su propia cuenta**, para que
+   la auditoría registre quién hizo qué.
+3. **No protege ante una contraseña robada.** Si se cierra la sesión vieja, el atacante echa al
+   dueño; si se rechaza la nueva, el atacante que entró primero deja afuera al dueño. Lo que
+   protege es la verificación en dos pasos y poder revocar sesiones.
+4. **Es la práctica habitual.** Google, Microsoft 365 y Moodle (`limitconcurrentlogins` en 0, sin
+   límite, por defecto) permiten sesiones simultáneas. La *Session Management Cheat Sheet* de OWASP
+   ("Simultaneous Session Logons") lo deja como decisión de cada aplicación.
+
+**Controles que compensan:**
+
+| Control | Implementación |
+| --- | --- |
+| Ver las sesiones abiertas y cerrar las de otros dispositivos (OWASP ASVS 4.0.3, 3.3.4) | Mi perfil → Seguridad → "Sesiones abiertas": navegador, IP y desde cuándo. Cerrar pide un ingreso reciente (10 min), como pide ASVS, para que una sesión robada no pueda echar al dueño. Se cierran en Keycloak y en EduTrack, y queda auditado (`AUTH_OTHER_SESSIONS_CLOSED`). |
+| Revocación de todas las sesiones de EduTrack del usuario | Al recuperar la contraseña, y cuando Administración da de baja, bloquea o cambia el perfil (`deleteSessionsForUser`). |
+| Sesión del lado del servidor (BFF) | El navegador sólo tiene una cookie `HttpOnly` con un identificador opaco; los tokens de Keycloak quedan en Redis. |
+| Verificación en dos pasos (TOTP) | Mi perfil → Seguridad. |
+| Protección contra fuerza bruta | Keycloak, más límites de intentos en ingreso y registro. |
+| Auditoría | Autor e IP real de cada acción (`AuditLog`, `clientIp`). |
+| Cuentas personales | El registro público nunca crea administradores; la cuenta de Administración es la del sistema y cada integrante usa la suya. |
+
+Cerrar las sesiones de otros dispositivos borra también su ingreso único (SSO) de Keycloak: si sólo
+se borrara la sesión de EduTrack, ese navegador volvería a entrar sin contraseña al tocar "Ingresar".
 
 ## Riesgos principales
 

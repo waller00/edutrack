@@ -19,6 +19,9 @@ export type BffSession = {
   /** epoch ms en el que expira el access token de Keycloak */
   accessTokenExpiresAt: number;
   createdAt: number;
+  /** Navegador e IP del ingreso, para que la persona reconozca sus sesiones en Mi perfil. */
+  userAgent?: string;
+  ip?: string;
 };
 
 const PREFIX = "bff:sess:";
@@ -72,6 +75,46 @@ export async function deleteSession(sid: string): Promise<void> {
   if (session?.userId) {
     await redis.srem(userIndexKey(session.userId), sid).catch(() => {});
   }
+}
+
+/** Sesiones vivas del usuario. Las que ya vencieron se sacan del índice. */
+export async function listSessionsForUser(userId: string): Promise<BffSession[]> {
+  const redis = getRedis();
+  if (!redis || !userId) return [];
+  const indexKey = userIndexKey(userId);
+  const sids = await redis.smembers(indexKey);
+  if (!sids.length) return [];
+  const raws = await redis.mget(...sids.map((sid) => PREFIX + sid));
+  const sessions: BffSession[] = [];
+  const expired: string[] = [];
+  raws.forEach((raw, index) => {
+    if (!raw) {
+      expired.push(sids[index]);
+      return;
+    }
+    try {
+      sessions.push(JSON.parse(raw) as BffSession);
+    } catch {
+      expired.push(sids[index]);
+    }
+  });
+  if (expired.length) await redis.srem(indexKey, ...expired).catch(() => {});
+  return sessions;
+}
+
+/**
+ * Cierra las demás sesiones BFF del usuario y conserva `keepSid` (la de quien lo pide). Devuelve
+ * cuántas cerró.
+ */
+export async function deleteOtherSessionsForUser(userId: string, keepSid: string): Promise<number> {
+  const redis = getRedis();
+  if (!redis || !userId) return 0;
+  const indexKey = userIndexKey(userId);
+  const others = (await redis.smembers(indexKey)).filter((sid) => sid !== keepSid);
+  if (!others.length) return 0;
+  const deleted = await redis.del(...others.map((sid) => PREFIX + sid));
+  await redis.srem(indexKey, ...others);
+  return deleted;
 }
 
 /**

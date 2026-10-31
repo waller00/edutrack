@@ -111,12 +111,11 @@ describe('pantalla de ingreso', () => {
     expect(forgotLink()?.href).toBe(`${FRONT}/forgot`)
   })
 
-  it('le dice a quien se registró con Google cómo entrar y cómo crear una contraseña', () => {
+  it('le dice a quien se registró con Google cómo entrar', () => {
     runTheme(LOGIN_PAGE, `/realms/edutrack/protocol/openid-connect/auth${AUTH_QUERY}`)
 
     const hint = document.querySelector('.et-login-hint')
-    expect(hint?.textContent).toContain('¿Te registraste con Google?')
-    expect(hint?.textContent).toContain('«Olvidé mi contraseña»')
+    expect(hint?.textContent).toBe('¿Te registraste con Google? Usá «Continuar con Google».')
     expect(document.querySelector('.et-register-link a')?.getAttribute('href')).toBe(`${FRONT}/register`)
   })
 })

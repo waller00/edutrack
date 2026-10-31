@@ -29,9 +29,13 @@ export function accountPasswordUrl(): string {
   return `${apiBase()}/auth/account/password`
 }
 
-/** Vuelve a pedir el ingreso y regresa al perfil con "Crear contraseña" abierto. */
-export function accountReauthUrl(): string {
-  return `${apiBase()}/auth/account/reauth`
+/**
+ * Vuelve a pedir el ingreso y regresa al perfil con lo que se estaba haciendo: "Crear contraseña"
+ * abierto, o el cierre de las otras sesiones (`sessions`).
+ */
+export function accountReauthUrl(then?: 'sessions'): string {
+  const base = `${apiBase()}/auth/account/reauth`
+  return then ? `${base}?then=${then}` : base
 }
 
 /** Vincula Google a la cuenta (pide volver a ingresar) y regresa al perfil con el resultado. */

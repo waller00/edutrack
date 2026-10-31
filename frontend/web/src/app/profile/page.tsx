@@ -20,6 +20,7 @@ import {
 import ModuleHeader from '@/components/common/ModuleHeader'
 import PasswordCard from '@/components/profile/PasswordCard'
 import GoogleLinkCard from '@/components/profile/GoogleLinkCard'
+import SessionsCard from '@/components/profile/SessionsCard'
 
 /** Lo que se muestra al volver de vincular Google (`/profile?google=…`, ver `/auth/account/link-google`). */
 const GOOGLE_LINK_RESULT: Record<string, { text: string; tone: 'success' | 'error' }> = {
@@ -50,6 +51,7 @@ export default function ProfilePage() {
   const [twoFactorDisableBusy, setTwoFactorDisableBusy] = useState(false)
   const [disableEmailBusy, setDisableEmailBusy] = useState(false)
   const [createPasswordRequested, setCreatePasswordRequested] = useState(false)
+  const [closeSessionsRequested, setCloseSessionsRequested] = useState(false)
 
   useEffect(() => {
     if (loading) return
@@ -77,6 +79,12 @@ export default function ProfilePage() {
     if (params.get('crear-contrasena') === '1') {
       setSection('security')
       setCreatePasswordRequested(true)
+      globalThis.history.replaceState(null, '', '/profile')
+    }
+    // Vuelve de reingresar para cerrar las otras sesiones: muestra la confirmación, no las cierra solo.
+    if (params.get('cerrar-sesiones') === '1') {
+      setSection('security')
+      setCloseSessionsRequested(true)
       globalThis.history.replaceState(null, '', '/profile')
     }
     const googleResult = GOOGLE_LINK_RESULT[params.get('google') ?? '']
@@ -281,7 +289,7 @@ export default function ProfilePage() {
 
       <section id="profile-security" aria-labelledby="profile-security-title" hidden={section !== 'security'} className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
         <h2 id="profile-security-title" className="font-semibold text-slate-900">Seguridad de la cuenta</h2>
-        <p className="mt-1 text-sm text-slate-500">Gestioná tu contraseña, el ingreso con Google y la verificación en dos pasos.</p>
+        <p className="mt-1 text-sm text-slate-500">Gestioná tu contraseña, el ingreso con Google, la verificación en dos pasos y tus sesiones abiertas.</p>
         <div className="mt-5 space-y-5">
           <PasswordCard username={username} openCreate={createPasswordRequested} onCreated={(text) => notify(text, 'success')} />
           <GoogleLinkCard />
@@ -328,6 +336,7 @@ export default function ProfilePage() {
               </>
             ) : <a href={accountTwoFactorUrl()} className="btn-primary w-full sm:w-auto">Configurar 2FA<ExternalLink className="h-4 w-4 shrink-0" aria-hidden /></a>}
           </div>
+          <SessionsCard confirmRequested={closeSessionsRequested} onClosed={(text) => notify(text, 'success')} />
         </div>
       </section>
 

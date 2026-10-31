@@ -59,8 +59,11 @@ for resource in css/edutrack.css js/edutrack-login.js; do
     exit 2
   fi
   served_version="${served_path##*v=}"
-  # `--compressed` pide gzip, como Cloudflare y los navegadores: así sale la copia que guarda Keycloak.
-  served_sha="$(curl -fsS --compressed --max-time 15 "$base$served_path" | sha256sum | cut -d' ' -f1)" || {
+  # Keycloak sólo usa su copia comprimida si la PRIMERA codificación pedida es gzip (corta en la
+  # primera que no conoce): así piden Cloudflare y los navegadores. El `--compressed` de curl solo
+  # manda `deflate` primero y leería el disco; `--compressed` queda para descomprimir.
+  served_sha="$(curl -fsS --compressed -H 'Accept-Encoding: gzip' --max-time 15 "$base$served_path" \
+    | sha256sum | cut -d' ' -f1)" || {
     echo "WARN tema: no pude bajar $base$served_path" >&2
     exit 2
   }

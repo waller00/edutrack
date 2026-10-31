@@ -248,7 +248,27 @@ function kcFetch(input: string, init: RequestInit = {}): Promise<Response> {
   return fetch(input, { ...init, signal: init.signal ?? AbortSignal.timeout(timeoutMs) });
 }
 
-async function getAdminToken(): Promise<string> {
+/**
+ * Token de admin compartido. Pedir uno por consulta hacía logins simultáneos del admin de `master`
+ * (el perfil consulta contraseña, Google y 2FA a la vez) y la protección contra fuerza bruta de
+ * Keycloak rechazaba todos menos uno (`user_temporarily_disabled`). Se reutiliza hasta poco antes de
+ * vencer y los pedidos simultáneos esperan el mismo login.
+ */
+const ADMIN_TOKEN_EXPIRY_MARGIN_MS = 15_000;
+let adminTokenCache: { token: string; expiresAt: number } | null = null;
+let adminTokenPending: Promise<string> | null = null;
+
+function getAdminToken(): Promise<string> {
+  if (adminTokenCache && Date.now() < adminTokenCache.expiresAt) return Promise.resolve(adminTokenCache.token);
+  if (!adminTokenPending) {
+    adminTokenPending = requestAdminToken().finally(() => {
+      adminTokenPending = null;
+    });
+  }
+  return adminTokenPending;
+}
+
+async function requestAdminToken(): Promise<string> {
   const base = adminBaseUrl();
   const body = new URLSearchParams({
     grant_type: "password",
@@ -264,7 +284,9 @@ async function getAdminToken(): Promise<string> {
   if (!res.ok) {
     throw new Error(`Keycloak admin token error ${res.status}`);
   }
-  const json = (await res.json()) as { access_token: string };
+  const json = (await res.json()) as { access_token: string; expires_in?: number };
+  const lifetimeMs = Number(json.expires_in) * 1000 - ADMIN_TOKEN_EXPIRY_MARGIN_MS;
+  adminTokenCache = lifetimeMs > 0 ? { token: json.access_token, expiresAt: Date.now() + lifetimeMs } : null;
   return json.access_token;
 }
 
@@ -901,6 +923,48 @@ export async function getKeycloakUserGoogleLink(kcUserId: string): Promise<{ lin
   const links = (await res.json()) as { identityProvider?: string; userName?: string }[];
   const google = links.find((link) => link.identityProvider === GOOGLE_IDP_ALIAS);
   return { linked: Boolean(google), account: google?.userName ?? null };
+}
+
+/** `sid` del token: la sesión de Keycloak (SSO) del navegador que lo obtuvo. */
+export function keycloakSessionIdOf(token: string | undefined): string | null {
+  const payload = token?.split(".")[1];
+  if (!payload) return null;
+  try {
+    const sid = (JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sid?: unknown }).sid;
+    return typeof sid === "string" && sid ? sid : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cierra en Keycloak las sesiones del usuario salvo `keepSessionId`. Sin esto, cerrar la sesión de
+ * EduTrack de otro dispositivo no alcanza: su navegador conserva el ingreso único de Keycloak y al
+ * tocar "Ingresar" vuelve a entrar sin contraseña. Devuelve cuántas cerró.
+ */
+export async function logoutOtherKeycloakSessions(kcUserId: string, keepSessionId: string): Promise<number> {
+  const token = await getAdminToken();
+  const realmUrl = `${adminBaseUrl()}/admin/realms/${adminRealm()}`;
+  const res = await kcFetch(`${realmUrl}/users/${encodeURIComponent(kcUserId)}/sessions`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Keycloak sessions error ${res.status}: ${detail}`);
+  }
+  const sessions = (await res.json()) as { id?: string }[];
+  let closed = 0;
+  for (const session of sessions) {
+    if (!session.id || session.id === keepSessionId) continue;
+    const del = await kcFetch(`${realmUrl}/sessions/${encodeURIComponent(session.id)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    // 404: ya había vencido o la cerró otro pedido.
+    if (!del.ok && del.status !== 404) throw new Error(`Keycloak session logout error ${del.status}`);
+    closed++;
+  }
+  return closed;
 }
 
 export async function keycloakUserHasPassword(kcUserId: string): Promise<boolean> {

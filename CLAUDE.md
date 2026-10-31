@@ -133,7 +133,8 @@ docker compose up -d --build auth  # rebuild solo el backend
 > llevando a la recuperación de Keycloak (sin correo) en vez de a la de EduTrack. Y Keycloak sirve una
 > copia comprimida de cada CSS/JS (`data/tmp/kc-gzip-cache`) que no ve los cambios y sobrevive a
 > `restart`: el deploy la vacía al cambiar el tema (`keycloak_restart_for_theme`) y al final
-> `scripts/keycloak-verify-theme.sh` exige que lo servido sea lo del commit.
+> `scripts/keycloak-verify-theme.sh` exige que lo servido sea lo del commit. Esa copia sólo sale si
+> `gzip` es la primera codificación pedida (como Cloudflare): un `curl --compressed` lee el disco.
 
 > **El registro público (`POST /auth/register`) nunca da ADMIN.** Un ADMIN nace únicamente del
 > bootstrap; nunca agregarlo al esquema del registro (la lista de usuarios oculta a los ADMIN, así que
@@ -141,6 +142,16 @@ docker compose up -d --build auth  # rebuild solo el backend
 > el perfil y lo advierte (`approvalConfirmMessage`). El registro tiene su propio rate limit por IP y
 > sus errores no enumeran los perfiles válidos. `keycloak-apply-realm-settings.sh` apaga en cada
 > deploy el password grant de los clientes públicos del realm (`admin-cli`).
+
+> **Las sesiones simultáneas se permiten a propósito** (justificación en
+> `docs/CIBERSEGURIDAD_CONTINUIDAD.md`, "Sesiones simultáneas"): ingresar no echa a nadie. Mi perfil
+> lista las sesiones y cierra las de otros dispositivos (`/auth/account/sessions*`, con ingreso de
+> menos de 10 min). Cerrarlas es **primero en Keycloak** (`logoutOtherKeycloakSessions`, conserva el
+> `sid` del token) y después en Redis: sólo con Redis, el otro navegador vuelve a entrar por SSO.
+
+> **El backend pide un solo token de admin a Keycloak y lo reutiliza** (`getAdminToken`). Un login
+> del admin de `master` por consulta, en paralelo, lo bloquea la protección contra fuerza bruta
+> (`user_temporarily_disabled`): el perfil mostraba "no pudimos consultar".
 
 > **La IP del cliente es `clientIp(req)` (`src/lib/client-ip.ts`).** Nunca el primer valor de
 > `X-Forwarded-For`: lo escribe el cliente. `trust proxy` sólo cree en el salto inmediato y privado

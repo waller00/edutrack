@@ -6,8 +6,7 @@ import { accountLinkGoogleUrl } from '@/lib/auth/urls'
 
 type GoogleStatus = { linked: boolean; account: string | null }
 
-function describe(status: GoogleStatus | null, failed: boolean): string {
-  if (failed) return 'No pudimos consultar si tu cuenta tiene Google vinculado. Probá recargar la página.'
+function describe(status: GoogleStatus | null): string {
   if (!status) return 'Consultando…'
   if (status.linked) {
     return `Entrás también con «Continuar con Google»${status.account ? ` (${status.account})` : ''}.`
@@ -38,6 +37,9 @@ export default function GoogleLinkCard() {
     }
   }, [])
 
+  // Es sólo informativa: si no se pudo consultar, no se muestra en vez de dar un aviso de error.
+  if (failed) return null
+
   return (
     <div className="space-y-3 rounded-lg border border-slate-200 p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -52,7 +54,7 @@ export default function GoogleLinkCard() {
                 </span>
               )}
             </div>
-            <p className="mt-1 text-xs text-slate-500">{describe(status, failed)}</p>
+            <p className="mt-1 text-xs text-slate-500">{describe(status)}</p>
           </div>
         </div>
         {status && !status.linked && (
