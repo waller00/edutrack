@@ -74,7 +74,7 @@ function Section({ title, rows, meId, highlight = false }: { title: string; rows
   return (
     <section className="space-y-2" aria-label={title}>
       <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{title}</h2>
-      <ul className="space-y-2">
+      <ul data-tour="roll-call.class" className="space-y-2">
         {rows.map((row) => (
           <ClassCard key={`${row.eventId}-${row.ymd}`} row={row} meId={meId} highlight={highlight} />
         ))}
@@ -137,7 +137,7 @@ export default function RollCallTodayList() {
         </p>
       </ModuleHeader>
 
-      <nav aria-label="Elegir día" className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-2">
+      <nav aria-label="Elegir día" data-tour="roll-call.day" className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-2">
         <button type="button" className="btn-secondary px-2.5 py-1.5 text-sm" onClick={() => goTo(addDaysYmd(date, -1))}>
           <ChevronLeft className="h-4 w-4" aria-hidden />
           <span className="sr-only sm:not-sr-only">Anterior</span>

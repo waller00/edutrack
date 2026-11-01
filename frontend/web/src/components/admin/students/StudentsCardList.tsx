@@ -39,7 +39,7 @@ export default function StudentsCardList({
   }
 
   return (
-    <ul className="space-y-3 border-t border-gray-100 pt-4 md:hidden">
+    <ul data-tour="students.table" className="space-y-3 border-t border-gray-100 pt-4 md:hidden">
       {rows.map((row) => (
         <li key={row.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <button type="button" className="block w-full text-left" onClick={() => onOpen(row)}>

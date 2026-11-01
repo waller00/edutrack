@@ -13,7 +13,7 @@ export default function GradeFollowUp() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end gap-3">
+      <div data-tour="academic.filters" className="flex flex-wrap items-end gap-3">
         <ReportCardPeriodSelect periods={periods} value={periodId} onChange={setPeriodId} />
         <p className="pb-2 text-xs text-gray-500">Se mira el rendimiento (R) de cada boletín.</p>
       </div>

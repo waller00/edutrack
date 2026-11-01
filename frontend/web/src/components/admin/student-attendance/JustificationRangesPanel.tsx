@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { FileCheck2, Loader2, Search } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
@@ -35,25 +35,30 @@ function fullName(s: RangeStudent): string {
 
 /** Buscador de estudiantes con matrícula activa, de cualquier nivel. */
 function StudentPicker({ onPick }: { onPick: (student: RangeStudent) => void }) {
+  const year = useOptionalAdminSchoolYear()?.schoolYearScopedQuery ?? ''
   const [q, setQ] = useState('')
   const [results, setResults] = useState<RangeStudent[]>([])
   const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
 
   useEffect(() => {
     const term = q.trim()
     if (term.length < 2) {
       setResults([])
+      setSearching(false)
+      setSearchError(null)
       return
     }
     let cancelled = false
     const timer = setTimeout(() => {
       setSearching(true)
-      api<{ data: RangeStudent[] }>(`/admin/student-attendance/justification-ranges/students?q=${encodeURIComponent(term)}`)
+      setSearchError(null)
+      api<{ data: RangeStudent[] }>(withSchoolYear(`/admin/student-attendance/justification-ranges/students?q=${encodeURIComponent(term)}`, year))
         .then((res) => {
           if (!cancelled) setResults(res.data)
         })
         .catch(() => {
-          if (!cancelled) setResults([])
+          if (!cancelled) { setResults([]); setSearchError('No se pudo buscar estudiantes. Volvé a intentar.') }
         })
         .finally(() => {
           if (!cancelled) setSearching(false)
@@ -63,7 +68,7 @@ function StudentPicker({ onPick }: { onPick: (student: RangeStudent) => void }) 
       cancelled = true
       clearTimeout(timer)
     }
-  }, [q])
+  }, [q, year])
 
   return (
     <div className="space-y-2">
@@ -74,12 +79,14 @@ function StudentPicker({ onPick }: { onPick: (student: RangeStudent) => void }) 
           <input
             className="input-field w-full pl-8 text-sm"
             value={q}
+            maxLength={80}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Apellido, nombre o documento"
           />
         </span>
       </label>
       {searching && <p className="text-xs text-gray-500">Buscando…</p>}
+      {searchError && <p role="alert" className="text-sm text-red-700">{searchError}</p>}
       {results.length > 0 && (
         <ul className="max-h-56 divide-y divide-gray-100 overflow-y-auto rounded border border-gray-200 bg-white">
           {results.map((student) => (
@@ -107,17 +114,27 @@ function StudentPicker({ onPick }: { onPick: (student: RangeStudent) => void }) 
 }
 
 /** Alta de un justificativo para el estudiante elegido. */
-function RangeForm({ student, onSaved }: { student: RangeStudent; onSaved: (message: string) => void }) {
+export function RangeForm({ student, onSaved, onCancel, initialDate }: { student: RangeStudent; onSaved: (message: string) => void; onCancel?: () => void; initialDate?: string }) {
+  const scopedQuery = useOptionalAdminSchoolYear()?.schoolYearScopedQuery ?? ''
+  const schoolYearId = new URLSearchParams(scopedQuery).get('schoolYearId')
   const today = todayYmdUruguay()
-  const [fromYmd, setFromYmd] = useState(today)
-  const [toYmd, setToYmd] = useState(today)
+  const [fromYmd, setFromYmd] = useState(initialDate ?? today)
+  const [toYmd, setToYmd] = useState(initialDate ?? today)
   const [reason, setReason] = useState('')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  const reasonRef = useRef<HTMLInputElement>(null)
+  const focusOnMount = Boolean(onCancel)
+  useEffect(() => {
+    if (!focusOnMount) return
+    formRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+    reasonRef.current?.focus({ preventScroll: true })
+  }, [student.id, initialDate, focusOnMount])
 
   const invalidRange = fromYmd > toYmd
-  const canSave = !saving && !invalidRange && reason.trim().length >= 3
+  const canSave = !saving && Boolean(fromYmd && toYmd) && !invalidRange && reason.trim().length >= 3
 
   async function submit() {
     setSaving(true)
@@ -125,7 +142,7 @@ function RangeForm({ student, onSaved }: { student: RangeStudent; onSaved: (mess
     try {
       const res = await api<{ justifiedCount: number }>('/admin/student-attendance/justification-ranges', {
         method: 'POST',
-        body: JSON.stringify({ studentId: student.id, fromYmd, toYmd, reason, notes: notes.trim() || null }),
+        body: JSON.stringify({ studentId: student.id, fromYmd, toYmd, reason, notes: notes.trim() || null, ...(schoolYearId ? { schoolYearId } : {}) }),
       })
       setReason('')
       setNotes('')
@@ -142,7 +159,13 @@ function RangeForm({ student, onSaved }: { student: RangeStudent; onSaved: (mess
   }
 
   return (
-    <div className="space-y-3">
+    <form ref={formRef} className="space-y-3" onSubmit={(event) => { event.preventDefault(); if (canSave) void submit() }}>
+      <p className="text-sm text-gray-600">Indicá el motivo y las fechas. Se justifican las faltas ya registradas y las que se registren en esos días.</p>
+      <div role="group" className="flex flex-wrap gap-2" aria-label="Motivos frecuentes">
+        {['Licencia médica', 'Viaje familiar', 'Duelo', 'Trámite'].map((preset) => (
+          <button key={preset} type="button" onClick={() => setReason(preset)} className={`rounded-full border px-3 py-1.5 text-xs font-medium ${reason === preset ? 'border-emerald-400 bg-emerald-50 text-emerald-800' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>{preset}</button>
+        ))}
+      </div>
       <div className="flex flex-wrap gap-3">
         <label className="space-y-1 text-sm">
           <span className="block text-xs font-medium uppercase tracking-wide text-gray-500">Desde</span>
@@ -157,6 +180,7 @@ function RangeForm({ student, onSaved }: { student: RangeStudent; onSaved: (mess
       <label className="block space-y-1">
         <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Motivo *</span>
         <input
+          ref={reasonRef}
           className="input-field w-full text-sm"
           maxLength={500}
           value={reason}
@@ -169,16 +193,17 @@ function RangeForm({ student, onSaved }: { student: RangeStudent; onSaved: (mess
         <textarea className="input-field w-full text-sm" rows={2} maxLength={1000} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </label>
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
-      <div className="flex justify-end">
-        <button type="button" className="btn-primary text-sm" disabled={!canSave} onClick={() => void submit()}>
+      <div className="flex justify-end gap-2">
+        {onCancel && <button type="button" disabled={saving} className="btn-secondary text-sm" onClick={onCancel}>Cancelar</button>}
+        <button type="submit" className="btn-primary text-sm" disabled={!canSave}>
           <PendingButtonContent pending={saving} pendingText="Guardando…" idle="Cargar justificativo" />
         </button>
       </div>
-    </div>
+    </form>
   )
 }
 
-function RangeRow({
+export function RangeRow({
   range,
   onRevoke,
   onPickStudent,
@@ -207,6 +232,7 @@ function RangeRow({
           {range.revokedAt && <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">Revocado</span>}
         </p>
         <p className="text-gray-600">{range.reason}</p>
+        {range.notes && <p className="mt-1 whitespace-pre-wrap text-xs text-gray-500">{range.notes}</p>}
       </div>
       {!range.revokedAt && onRevoke &&
         (confirming ? (
@@ -314,7 +340,7 @@ export default function JustificationRangesPanel() {
       <header className="flex items-start gap-3">
         <FileCheck2 className="mt-0.5 h-5 w-5 text-emerald-600" aria-hidden />
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Justificativos</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Agregar licencia o justificativo</h2>
           <p className="text-sm text-gray-600">
             Certificado médico, viaje, duelo… Cargá el período y toda falta de esos días queda justificada: las ya
             marcadas, en el momento; las que se marquen después, al pasar lista. La llegada tarde no se justifica.

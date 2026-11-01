@@ -25,7 +25,7 @@ export default function StudentsFilterBar({ filters, courses, orientations, acti
   const selectedOrientation = orientations.find((row) => row.orientationId === filters.orientationId)
 
   return (
-    <div className="space-y-3">
+    <div data-tour="students.filters" className="space-y-3">
       <div className="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)]">
         <div className="min-w-0">
           <label htmlFor="student-search" className="mb-1 block text-xs font-medium text-gray-600">Buscar estudiante</label>

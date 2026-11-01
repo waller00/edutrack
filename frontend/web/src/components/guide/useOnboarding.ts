@@ -5,8 +5,16 @@ import { useAuth } from '@/contexts/AuthContext'
 import { onboardingSteps, onboardingStorageKey } from '@/lib/navigation/onboarding'
 import type { ModuleId } from '@/lib/navigation/modules'
 
-type Progress = { started: boolean; active: boolean; completed: string[]; current: string | null; dismissed: boolean }
-const EMPTY: Progress = { started: false, active: false, completed: [], current: null, dismissed: false }
+type Progress = {
+  started: boolean
+  active: boolean
+  completed: string[]
+  current: string | null
+  dismissed: boolean
+  /** Pasos en los que la persona ocultó los globos: no vuelven a aparecer solos. */
+  spotsHidden: string[]
+}
+const EMPTY: Progress = { started: false, active: false, completed: [], current: null, dismissed: false, spotsHidden: [] }
 const EVENT = 'edutrack:onboarding'
 const memory = new Map<string, string>()
 const sessions = new WeakMap<object, string>()
@@ -43,6 +51,7 @@ function parse(raw: string | null): Progress {
       completed: Array.isArray(data.completed) ? data.completed.filter((id): id is string => typeof id === 'string') : [],
       current: typeof data.current === 'string' ? data.current : null,
       dismissed: data.dismissed === true,
+      spotsHidden: Array.isArray(data.spotsHidden) ? data.spotsHidden.filter((id): id is string => typeof id === 'string') : [],
     }
   } catch {
     return EMPTY
@@ -111,6 +120,10 @@ export function useOnboarding() {
     ready: raw !== null, steps, progress, completed, pending, current, finished,
     start, complete,
     pause: () => update((previous) => ({ ...previous, active: false })),
+    hideSpots: (id: string) =>
+      update((previous) => ({ ...previous, spotsHidden: [...new Set([...previous.spotsHidden, id])] })),
+    showSpots: (id: string) =>
+      update((previous) => ({ ...previous, spotsHidden: previous.spotsHidden.filter((hidden) => hidden !== id) })),
     dismiss: () => update((previous) => ({ ...previous, dismissed: true })),
     restart: () => update(() => ({ ...EMPTY })),
   }

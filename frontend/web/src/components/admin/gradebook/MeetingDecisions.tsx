@@ -203,6 +203,7 @@ export default function MeetingDecisions({
   return (
     <section
       id="decisiones-reunion"
+      data-tour="reunion.judgements"
       className="scroll-mt-4 space-y-4 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4"
     >
       <div>

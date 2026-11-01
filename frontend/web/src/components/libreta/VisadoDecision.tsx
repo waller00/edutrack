@@ -309,7 +309,7 @@ export default function VisadoDecision({
   }
 
   return (
-    <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-4" aria-labelledby="visado-decision">
+    <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-4" aria-labelledby="visado-decision" data-tour="visado.decision">
       <DecisionStatus row={row} />
 
       {error && (

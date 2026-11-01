@@ -28,6 +28,7 @@ const direccion = {
     { id: 'gradebook.review', scope: 'all' as const },
     { id: 'academic-analytics.read', scope: 'all' as const },
     { id: 'student-attendance.justify', scope: 'all' as const },
+    { id: 'student-attendance.read', scope: 'all' as const },
   ],
 }
 
@@ -37,6 +38,7 @@ const admin = {
     { id: 'licenses.read', scope: 'all' as const },
     { id: 'analytics.read', scope: 'all' as const },
     { id: 'student-attendance.manage', scope: 'all' as const },
+    { id: 'student-attendance.read', scope: 'all' as const },
     { id: 'academic-analytics.read', scope: 'all' as const },
   ],
 }

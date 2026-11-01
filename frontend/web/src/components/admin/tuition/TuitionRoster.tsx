@@ -10,7 +10,7 @@ export default function TuitionRoster({ students, year, month, onOpen }: {
   onOpen: (student: TuitionStudent, register: boolean) => void
 }) {
   return <>
-    <ScrollRegion label="Mensualidades por estudiante" className="hidden overflow-x-auto md:block">
+    <ScrollRegion label="Mensualidades por estudiante" tour="tuition.roster" className="hidden overflow-x-auto md:block">
       <table className="w-full text-left text-sm">
         <thead className="border-y border-slate-100 bg-slate-50/80 text-xs text-slate-500">
           <tr>{['Estudiante', 'Curso', 'Estado del mes', 'Importe y pago', 'Acciones'].map((name, index) => <th key={index} scope="col" className="whitespace-nowrap px-5 py-3 font-medium">{name || <span className="sr-only">Acciones</span>}</th>)}</tr>
@@ -32,7 +32,7 @@ export default function TuitionRoster({ students, year, month, onOpen }: {
         </tbody>
       </table>
     </ScrollRegion>
-    <ul className="divide-y divide-slate-100 border-t border-slate-100 md:hidden">
+    <ul data-tour="tuition.roster" className="divide-y divide-slate-100 border-t border-slate-100 md:hidden">
       {students.map((student) => {
         const row = student.tuitionMonths.find((item) => item.year === year && item.month === month)
         return <li key={student.id} className="space-y-3 p-4">

@@ -37,7 +37,7 @@ export default function StudentsTable({
   const columns = COLUMNS
 
   return (
-    <ScrollRegion label="Tabla de estudiantes" className="-mx-4 hidden overflow-x-auto border-t border-gray-100 sm:-mx-5 md:block">
+    <ScrollRegion label="Tabla de estudiantes" tour="students.table" className="-mx-4 hidden overflow-x-auto border-t border-gray-100 sm:-mx-5 md:block">
       <table className="w-full min-w-[720px] table-fixed text-sm">
         <colgroup>
           {columns.map((c) => (

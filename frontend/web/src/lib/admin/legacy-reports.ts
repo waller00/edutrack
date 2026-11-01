@@ -6,12 +6,12 @@
 export function legacyReportsTarget(tab: string | null | undefined): string {
   switch (tab) {
     case 'faltas':
-      return '/admin/student-attendance?tab=faltas'
+      return '/admin/student-attendance/indicadores?tab=faltas'
     case 'notas':
     case 'bajas':
       return '/libreta/indicadores?view=seguimiento'
     default:
       // "seguidas", "alertas" (las alertas que avisan son de faltas) o sin pestaña.
-      return '/admin/student-attendance?tab=seguidas'
+      return '/admin/student-attendance/indicadores?tab=seguidas'
   }
 }

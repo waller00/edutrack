@@ -6,13 +6,13 @@ import StudentAttendanceTabs from '@/components/admin/student-attendance/Student
 import ModuleHeader from '@/components/common/ModuleHeader'
 
 /**
- * Asistencia de estudiantes: justificar faltas, seguir a quien falta seguido o llegó a 18/25 faltas,
- * y controlar las listas sin pasar. Antes las faltas vivían en un "Reportes" aparte.
+ * Trabajo diario por estudiante: consultar marcas, cargar licencias y justificar faltas.
+ * Los enlaces antiguos a alertas se derivan a la pantalla de indicadores.
  */
 export default function AdminStudentAttendancePage() {
   return (
     <RoleGuard
-      permission={['student-attendance.manage', 'student-attendance.justify', 'student-reports.read']}
+      permission={['student-attendance.read', 'student-reports.read']}
       permissionScope="all"
     >
       <main className="responsive-page max-w-[1400px] space-y-5">

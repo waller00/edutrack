@@ -176,6 +176,7 @@ function AttendanceContent() {
       <div
         role="group"
         aria-label="Vistas de mis asistencias"
+        data-tour="my-attendance.views"
         className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1"
       >
         {[
@@ -298,7 +299,7 @@ function AttendanceContent() {
               No hay registros de asistencia
             </p>
           ) : (
-            <ul className="space-y-3">
+            <ul data-tour="my-attendance.records" className="space-y-3">
               {visible
                 .slice((safePage - 1) * 20, safePage * 20)
                 .map((record) => (

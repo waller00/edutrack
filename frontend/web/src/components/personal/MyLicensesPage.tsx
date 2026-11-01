@@ -110,6 +110,7 @@ function LicensesContent() {
         <div
           role="group"
           aria-label="Estado de mis licencias"
+          data-tour="my-licenses.status"
           className="flex flex-wrap gap-1"
         >
           {[
@@ -188,7 +189,7 @@ function LicensesContent() {
                 : 'No tienes licencias registradas'}
             </p>
           ) : (
-            <ul className="grid items-start gap-4 lg:grid-cols-2">
+            <ul data-tour="my-licenses.list" className="grid items-start gap-4 lg:grid-cols-2">
               {visible
                 .slice((safePage - 1) * 20, safePage * 20)
                 .map((license) => (

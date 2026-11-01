@@ -96,6 +96,7 @@ export default function EventsCalendar({
 
   return (
     <div
+      data-tour="agenda.calendar"
       className="rounded-xl border border-gray-200 bg-white shadow-sm"
       role="region"
       aria-label="Calendario de actividades"

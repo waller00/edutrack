@@ -62,7 +62,7 @@ export default function SubjectListBlock({
   }
 
   return (
-    <div className="space-y-3">
+    <div data-tour="courses.subjects" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">{title}{!loading ? ` (${subjects.length})` : ''}</h3>

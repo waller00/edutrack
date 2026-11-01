@@ -84,7 +84,7 @@ export default function ConversationList({ onOpen, activeId = null, refreshKey =
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-slate-100 p-3">
+      <div data-tour="messages.contacts" className="border-b border-slate-100 p-3">
         <label htmlFor="messages-search" className="sr-only">Buscar personas o conversaciones</label>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
@@ -100,7 +100,7 @@ export default function ConversationList({ onOpen, activeId = null, refreshKey =
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div data-tour="messages.list" className="min-h-0 flex-1 overflow-y-auto">
         {loading && (
           <p role="status" className="flex items-center gap-2 p-4 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Cargando…

@@ -43,6 +43,55 @@ import { PERSON_SELECT, personRef } from '../services/student-attendance/person.
 
 const r = Router()
 
+/** Directorio de asistencia: sólo alumnos matriculados en el ciclo elegido. */
+r.get('/students', async (req: any, res) => {
+  const parsed = z.object({
+    q: z.string().trim().max(80).default(''),
+    page: z.coerce.number().int().min(1).default(1),
+  }).safeParse(req.query)
+  if (!parsed.success) return res.status(400).json({ message: 'Parámetros inválidos' })
+  try {
+    const schoolYearId = await resolveSchoolYearIdForList(prisma, {
+      role: req.user?.role,
+      requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
+    })
+    if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo seleccionado' })
+    const where = {
+      schoolYearId,
+      enrollmentStatus: 'ACTIVE' as const,
+      AND: parsed.data.q.split(/\s+/).filter(Boolean).slice(0, 5).map((term) => ({
+        OR: [
+          { student: { firstName: { contains: term, mode: 'insensitive' as const } } },
+          { student: { lastName: { contains: term, mode: 'insensitive' as const } } },
+          { student: { documentId: { contains: term } } },
+          { courseOffering: { course: { name: { contains: term, mode: 'insensitive' as const } } } },
+        ],
+      })),
+    }
+    const pageSize = 25
+    const [rows, total] = await Promise.all([
+      prisma.studentEnrollment.findMany({
+        where,
+        select: {
+          student: { select: { id: true, firstName: true, lastName: true, documentId: true } },
+          courseOffering: { select: { course: { select: { name: true } } } },
+        },
+        orderBy: [{ student: { lastName: 'asc' } }, { student: { firstName: 'asc' } }, { id: 'asc' }],
+        skip: (parsed.data.page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.studentEnrollment.count({ where }),
+    ])
+    return res.json({
+      data: rows.map((row) => ({ ...row.student, courseName: row.courseOffering?.course?.name ?? null })),
+      total, page: parsed.data.page, pageSize,
+    })
+  } catch (error) {
+    console.error('[admin-student-attendance] students:', error)
+    return res.status(500).json({ message: 'No se pudieron cargar los estudiantes' })
+  }
+})
+
 const pendingQuerySchema = z.object({
   from: z.string().refine(isYmdDateString, 'Fecha desde inválida').optional(),
   to: z.string().refine(isYmdDateString, 'Fecha hasta inválida').optional(),
@@ -232,6 +281,7 @@ r.post('/entries/:entryId/justify', requirePermission('student-attendance.justif
 const rangeSchema = z
   .object({
     studentId: z.string().uuid(),
+    schoolYearId: z.string().uuid().optional(),
     fromYmd: z.string().refine(isYmdDateString, 'Fecha desde inválida'),
     toYmd: z.string().refine(isYmdDateString, 'Fecha hasta inválida'),
     reason: z.string().trim().min(3).max(500),
@@ -292,9 +342,10 @@ r.post('/justification-ranges', requirePermission('student-attendance.justify', 
     if (!parsed.success) {
       return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
     }
-    const { studentId, fromYmd, toYmd, reason, notes } = parsed.data
+    const { studentId, schoolYearId, fromYmd, toYmd, reason, notes } = parsed.data
     const result = await createJustificationRange({
       studentId: studentId!,
+      schoolYearId,
       fromYmd: fromYmd!,
       toYmd: toYmd!,
       reason: reason!,

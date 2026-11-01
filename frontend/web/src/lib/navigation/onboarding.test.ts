@@ -61,6 +61,29 @@ describe('onboarding por permisos reales', () => {
     expect(steps.some((step) => step.module.id === 'messages')).toBe(false)
   })
 
+  it('los globos de un botón sólo se muestran a quien puede usarlo', () => {
+    const reader: AuthMe = { id: 'r', role: 'CONSULTA', permissions: [{ id: 'users.read', scope: 'all' }] }
+    const targets = (me: AuthMe) => onboardingSteps(me).find((step) => step.module.id === 'users')!.spots.map((spot) => spot.target)
+    expect(targets(reader)).not.toContain('users.new')
+    expect(targets({ ...reader, permissions: [...reader.permissions!, { id: 'users.create', scope: 'all' }] })).toContain('users.new')
+  })
+
+  it('los globos compartidos van al final: «¿Buscás…?» y dónde está en el menú', () => {
+    const steps = onboardingSteps(profile('ADMIN'))
+    const attendance = steps.find((step) => step.module.id === 'staff-attendance')!
+    expect(attendance.spots.slice(-2).map((spot) => spot.target)).toEqual(['module-related', 'nav:staff-attendance'])
+    expect(attendance.spots.at(-1)!.text).toBe('Para volver, está en el menú: Personal › Asistencia del personal.')
+  })
+
+  it('sin el menú de Configuración no se señala Mi perfil en el menú, y Mensajes se señala por su ícono', () => {
+    const steps = onboardingSteps(profile('STAFF'))
+    const targets = (id: string) => steps.find((step) => step.module.id === id)!.spots.map((spot) => spot.target)
+    expect(targets('profile').some((target) => target.startsWith('nav:'))).toBe(false)
+    expect(targets('messages')).toContain('messages.button')
+    expect(targets('messages').some((target) => target.startsWith('nav:'))).toBe(false)
+    expect(targets('my-attendance')).toContain('nav:my-attendance')
+  })
+
   it('aísla el progreso por cuenta, rol y alcance, con orden de permisos estable', () => {
     const me = profile('STAFF')
     const key = onboardingStorageKey(me)

@@ -453,6 +453,13 @@ y `lib/messages/`.
 > desborda, se vuelve enfocable para recorrerla con el teclado. Un `div` con `overflow-x-auto`
 > suelto deja las columnas de la derecha fuera del alcance de quien navega con Tab.
 
+> **El onboarding señala la pantalla con globos** (`OnboardingSpotlight`, en la pantalla del paso).
+> Cada globo apunta a un `data-tour="…"` (en `ScrollRegion`, la prop `tour`) y sus textos viven en
+> `lib/navigation/onboarding-spots.ts`; el del menú (`nav:<id>`) y el de «¿Buscás…?» se agregan
+> solos. Una sección nueva del catálogo que entra al recorrido trae al menos dos globos:
+> `onboarding-anchors.test.ts` lo exige, y también que cada ancla exista en el código. El resaltado
+> deja pasar los clics: nunca bloquear la pantalla real.
+
 ## Tests
 
 - Framework: **Vitest** (backend y frontend)

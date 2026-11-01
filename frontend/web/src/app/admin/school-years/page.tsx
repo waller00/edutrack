@@ -776,7 +776,7 @@ export default function AdminSchoolYearsPage() {
         <ModuleHeader
           id="school-years"
           actions={
-            <button type="button" className="btn-primary shrink-0 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={!canCreateSchoolYear} aria-expanded={createOpen} onClick={() => setCreateOpen((open) => !open)} title={!canCreateSchoolYear ? 'Primero cerrá el ciclo lectivo activo.' : undefined}>
+            <button type="button" data-tour="school-years.new" className="btn-primary shrink-0 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={!canCreateSchoolYear} aria-expanded={createOpen} onClick={() => setCreateOpen((open) => !open)} title={!canCreateSchoolYear ? 'Primero cerrá el ciclo lectivo activo.' : undefined}>
               <Plus className="h-4 w-4" aria-hidden />Nuevo ciclo lectivo
             </button>
           }
@@ -887,7 +887,7 @@ export default function AdminSchoolYearsPage() {
               Recargar
             </button>
           </div>
-          <ScrollRegion label="Tabla de ciclos lectivos" className="hidden overflow-x-auto sm:block">
+          <ScrollRegion label="Tabla de ciclos lectivos" tour="school-years.list" className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[720px] table-fixed text-left text-sm">
               <colgroup>
                 <col className="w-[34%]" />
@@ -935,7 +935,7 @@ export default function AdminSchoolYearsPage() {
             </table>
           </ScrollRegion>
 
-          <div className="space-y-3 p-4 sm:hidden">
+          <div data-tour="school-years.list" className="space-y-3 p-4 sm:hidden">
             {visibleYears.length === 0 ? (
               <div className="py-5 text-center text-sm text-gray-500">{years.length === 0 ? 'No hay ciclos cargados.' : 'No hay ciclos con estos filtros.'}</div>
             ) : (

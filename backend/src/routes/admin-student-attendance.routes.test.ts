@@ -12,7 +12,7 @@ const { prismaMock } = vi.hoisted(() => ({
     studentAttendanceSession: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     studentAttendanceEntry: { findUnique: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn(), findMany: vi.fn() },
     studentAttendanceJustification: { create: vi.fn() },
-    studentEnrollment: { findFirst: vi.fn(), findMany: vi.fn() },
+    studentEnrollment: { findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     studentAbsenceJustificationRange: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn() },
     $executeRaw: vi.fn().mockResolvedValue(1),
@@ -76,6 +76,27 @@ describe("admin student-attendance routes", () => {
       .set("Authorization", `Bearer ${tok()}`);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ total: 0, data: [] });
+  });
+
+  it('lista alumnos del ciclo con búsqueda, curso y paginación acotada', async () => {
+    prismaMock.studentEnrollment.findMany.mockResolvedValue([
+      { student: { id: 'st-1', firstName: 'Ana', lastName: 'Díaz', documentId: '5123' }, courseOffering: { course: { name: '7 EBI' } } },
+    ]);
+    prismaMock.studentEnrollment.count.mockResolvedValue(31);
+    const res = await request(app()).get('/admin/student-attendance/students?q=Ana%207&page=2').set('Authorization', `Bearer ${tok()}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ total: 31, page: 2, pageSize: 25, data: [{ id: 'st-1', courseName: '7 EBI' }] });
+    const query = prismaMock.studentEnrollment.findMany.mock.calls[0][0];
+    expect(query).toMatchObject({ where: { schoolYearId: 'sy-1', enrollmentStatus: 'ACTIVE' }, skip: 25, take: 25 });
+    expect(query.where.AND).toHaveLength(2);
+    expect(query.where.AND[0].OR).toContainEqual({ student: { firstName: { contains: 'Ana', mode: 'insensitive' } } });
+    expect(query.where.AND[1].OR).toContainEqual({ courseOffering: { course: { name: { contains: '7', mode: 'insensitive' } } } });
+  });
+
+  it('rechaza una página inválida en el directorio', async () => {
+    const res = await request(app()).get('/admin/student-attendance/students?page=-1').set('Authorization', `Bearer ${tok()}`);
+    expect(res.status).toBe(400);
+    expect(prismaMock.studentEnrollment.findMany).not.toHaveBeenCalled();
   });
 
   describe("un día cubierto por un suplente", () => {

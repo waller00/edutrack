@@ -41,7 +41,7 @@ const ATTENDANCE_TAB: Partial<Record<StudentAlertType, string>> = {
   ABSENCE_THRESHOLD: 'faltas',
 }
 
-const attendanceUrl = (type: StudentAlertType) => `/admin/student-attendance?tab=${ATTENDANCE_TAB[type] ?? 'faltas'}`
+const attendanceUrl = (type: StudentAlertType) => `/admin/student-attendance/indicadores?tab=${ATTENDANCE_TAB[type] ?? 'faltas'}`
 
 const fullName = (s: { firstName: string; lastName: string }) => `${s.lastName}, ${s.firstName}`
 const gradeUnits = (hundredths: number) => formatAbsenceUnits(hundredths)

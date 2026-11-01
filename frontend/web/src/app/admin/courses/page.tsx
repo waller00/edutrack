@@ -429,7 +429,7 @@ function CoursesContent() {
       <main className="responsive-page max-w-[1600px] space-y-5">
         <ModuleHeader
           id="courses"
-          actions={canManage && <button type="button" aria-expanded={showCreateCourse} aria-controls="new-course-form" onClick={() => {
+          actions={canManage && <button type="button" data-tour="courses.new" aria-expanded={showCreateCourse} aria-controls="new-course-form" onClick={() => {
             setCourseDraft((draft) => ({ ...draft, offerInSchoolYear: Boolean(activeSchoolYearId) }))
             setShowCreateCourse((value) => !value)
           }} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
@@ -500,7 +500,7 @@ function CoursesContent() {
                 <button type="button" onClick={() => { setCourseSearch(''); setOfferingFilter('all') }} className="font-medium text-emerald-700 hover:underline">Limpiar filtros</button>
               </div>
             ) : (
-              <ul className="max-h-80 space-y-1 overflow-y-auto p-2 lg:max-h-[min(70vh,640px)]">
+              <ul data-tour="courses.list" className="max-h-80 space-y-1 overflow-y-auto p-2 lg:max-h-[min(70vh,640px)]">
                 {filteredCourses.map((course) => (
                   <li key={course.id}>
                     <button type="button" aria-current={selectedCourseId === course.id ? 'true' : undefined} onClick={() => setSelectedCourseId(course.id)} className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left ${selectedCourseId === course.id ? 'border-emerald-300 bg-emerald-50' : 'border-transparent hover:bg-gray-50'}`}>

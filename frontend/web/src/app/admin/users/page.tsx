@@ -444,7 +444,7 @@ function AdminUsersPageContent() {
       <main className="responsive-page max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <ModuleHeader id="users" />
-          {canCreate && <button type="button" onClick={() => setCreating(true)} className="btn-primary shrink-0">
+          {canCreate && <button type="button" data-tour="users.new" onClick={() => setCreating(true)} className="btn-primary shrink-0">
             <Plus className="h-4 w-4" aria-hidden />Nuevo usuario
           </button>}
         </div>
@@ -527,7 +527,7 @@ function AdminUsersPageContent() {
           </section>
         ) : null}
 
-        <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
+        <section data-tour="users.search" className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="mb-3 text-sm font-semibold text-slate-800">Buscar usuarios</h2>
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="sm:col-span-2">
@@ -727,7 +727,7 @@ function AdminUsersPageContent() {
           )}
         </div>
 
-        <div className="hidden overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm sm:block">
+        <div data-tour="users.list" className="hidden overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm sm:block">
           <ScrollRegion label="Tabla de usuarios" className="overflow-x-auto">
             <table className="w-full min-w-[720px] table-fixed text-sm">
               <colgroup>
@@ -760,7 +760,7 @@ function AdminUsersPageContent() {
           </ScrollRegion>
         </div>
 
-        <div className="space-y-3 sm:hidden">
+        <div data-tour="users.list" className="space-y-3 sm:hidden">
           {loading ? (
             <div className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white py-10 text-sm text-slate-500 shadow-sm">
               <Loader2 className="h-5 w-5 animate-spin text-emerald-600" aria-hidden />

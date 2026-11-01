@@ -178,6 +178,7 @@ export default function AdminSystemSettingsPage() {
         <div
           role="group"
           aria-label="Secciones de configuración"
+          data-tour="settings.tabs"
           className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:grid-cols-5"
         >
           {SETTINGS_SECTIONS.map(({ id, label, Icon }) => (
@@ -200,6 +201,7 @@ export default function AdminSystemSettingsPage() {
         </div>
         <div
           id="settings-operational"
+          data-tour="settings.content"
           hidden={section === 'readers' || section === 'moodle' || section === 'institution'}
         >
           {loading ? (
@@ -242,13 +244,13 @@ export default function AdminSystemSettingsPage() {
             )
           )}
         </div>
-        <div id="settings-institution" hidden={section !== 'institution'}>
+        <div id="settings-institution" data-tour="settings.content" hidden={section !== 'institution'}>
           {visited.includes('institution') && <AdminInstitutionPanel />}
         </div>
-        <div id="settings-moodle" hidden={section !== 'moodle'}>
+        <div id="settings-moodle" data-tour="settings.content" hidden={section !== 'moodle'}>
           {visited.includes('moodle') && <AdminMoodlePanel />}
         </div>
-        <div id="settings-readers" hidden={section !== 'readers'}>
+        <div id="settings-readers" data-tour="settings.content" hidden={section !== 'readers'}>
           {visited.includes('readers') && <AdminBiometricDevicesPanel />}
         </div>
       </main>

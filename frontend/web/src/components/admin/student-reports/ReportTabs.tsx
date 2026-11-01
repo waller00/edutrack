@@ -1,5 +1,8 @@
 'use client'
 
+import Link from 'next/link'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import {
   absencesText,
@@ -12,6 +15,12 @@ import {
   useSchoolYearQuery,
   type StudentRef,
 } from './shared'
+
+function AttendanceStudentLink({ student }: { student: StudentRef }) {
+  const canRead = hasPermission(useOptionalAuth()?.me, 'student-attendance.read', 'all')
+  if (!canRead) return <>{studentName(student)}</>
+  return <Link href={`/admin/student-attendance?studentId=${encodeURIComponent(student.studentId)}`} className="font-semibold text-emerald-700 hover:underline" title="Ver asistencia del estudiante">{studentName(student)}</Link>
+}
 
 // ─── % de notas bajas por materia y curso ───────────────────────────────────
 
@@ -147,7 +156,7 @@ export function StreaksTab() {
         <Table head={['Alumno', 'Curso', 'Desde', 'Hasta', 'Días', 'Estado']}>
           {rows.map((row) => (
             <tr key={`${row.studentId}-${row.from}`}>
-              <td className="px-3 py-1.5 font-medium">{studentName(row)}</td>
+              <td className="px-3 py-1.5 font-medium"><AttendanceStudentLink student={row} /></td>
               <td className="px-3 py-1.5">{row.courseName}</td>
               <td className="px-3 py-1.5 tabular-nums">{shortDate(row.from)}</td>
               <td className="px-3 py-1.5 tabular-nums">{shortDate(row.to)}</td>
@@ -179,7 +188,7 @@ export function ThresholdsTab() {
         <Table head={['Alumno', 'Curso', 'Faltas', 'Umbral']} minWidth={520}>
           {rows.map((row) => (
             <tr key={row.studentId}>
-              <td className="px-3 py-1.5 font-medium">{studentName(row)}</td>
+              <td className="px-3 py-1.5 font-medium"><AttendanceStudentLink student={row} /></td>
               <td className="px-3 py-1.5">{row.courseName}</td>
               <td className="px-3 py-1.5 tabular-nums">{absencesText(row.absenceHundredths)}</td>
               <td className="px-3 py-1.5">

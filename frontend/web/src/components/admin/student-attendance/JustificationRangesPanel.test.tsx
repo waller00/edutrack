@@ -39,7 +39,7 @@ describe('<JustificationRangesPanel />', () => {
     await pickStudent()
     fireEvent.change(screen.getByLabelText(/Desde/), { target: { value: '2026-10-05' } })
     fireEvent.change(screen.getByLabelText(/Hasta/), { target: { value: '2026-10-07' } })
-    fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: 'Viaje familiar' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /Motivo/ }), { target: { value: 'Viaje familiar' } })
     fireEvent.click(screen.getByRole('button', { name: /Cargar justificativo/ }))
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/2 falta\(s\) ya marcadas/))
@@ -58,7 +58,7 @@ describe('<JustificationRangesPanel />', () => {
     await pickStudent()
     fireEvent.change(screen.getByLabelText(/Desde/), { target: { value: '2026-10-07' } })
     fireEvent.change(screen.getByLabelText(/Hasta/), { target: { value: '2026-10-05' } })
-    fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: 'Viaje familiar' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /Motivo/ }), { target: { value: 'Viaje familiar' } })
 
     expect(screen.getByText(/no puede ser posterior/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Cargar justificativo/ })).toBeDisabled()

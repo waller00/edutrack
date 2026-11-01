@@ -159,7 +159,7 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
 
       {/* En el celular, las siete secciones con su explicación empujaban el contenido una pantalla
           entera hacia abajo: un selector ocupa una línea. */}
-      <label className="block rounded-xl border border-slate-200 bg-white p-3 lg:hidden">
+      <label data-tour="libreta.menu" className="block rounded-xl border border-slate-200 bg-white p-3 lg:hidden">
         <span className="mb-1.5 block text-xs font-medium text-slate-500">Sección de la libreta</span>
         <select
           value={openSection ?? ''}
@@ -178,6 +178,7 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
       <div className="flex flex-col items-start gap-5 lg:flex-row">
         <nav
           aria-label="Secciones de la libreta"
+          data-tour="libreta.menu"
           className={`hidden rounded-xl border border-slate-200 bg-white p-2 lg:sticky lg:top-20 lg:block lg:shrink-0 ${menuCollapsed ? 'lg:w-16' : 'lg:w-56'}`}
         >
           <div className="mb-2 flex items-center justify-between gap-2">

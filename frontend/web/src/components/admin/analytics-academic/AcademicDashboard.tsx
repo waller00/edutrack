@@ -140,6 +140,7 @@ function ViewSwitcher({
     <div
       role="group"
       aria-label="Vistas de indicadores académicos"
+      data-tour="academic.views"
       className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1"
     >
       {options.map(([id, label]) => (
@@ -297,7 +298,7 @@ export default function AcademicDashboard({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+      <div data-tour="academic.filters" className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
         <div
           role="radiogroup"
           aria-label="Nivel"

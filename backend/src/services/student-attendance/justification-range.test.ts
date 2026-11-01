@@ -35,6 +35,12 @@ beforeEach(() => {
 })
 
 describe('createJustificationRange', () => {
+  it('carga la licencia en el ciclo elegido y no toma otra matrícula del estudiante', async () => {
+    await createJustificationRange({ ...BASE, schoolYearId: 'sy-1' })
+    expect(prismaMock.studentEnrollment.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { studentId: BASE.studentId, enrollmentStatus: 'ACTIVE', schoolYearId: 'sy-1' },
+    }))
+  })
   it('exige motivo', async () => {
     await expect(createJustificationRange({ ...BASE, reason: '  ' })).rejects.toMatchObject({ code: 'REASON_REQUIRED' })
   })

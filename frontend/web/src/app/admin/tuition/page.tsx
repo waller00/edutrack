@@ -106,7 +106,7 @@ function TuitionWorkspace({ initialYear }: { initialYear: number }) {
 
     <section aria-label={`Mensualidades de ${period}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="space-y-4 p-4 sm:p-5">
-        <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[14rem_minmax(0,1fr)_14rem]">
+        <div data-tour="tuition.filters" className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[14rem_minmax(0,1fr)_14rem]">
           <div className="min-w-0">
             <div className="mb-1 flex items-center justify-between gap-2">
               <label htmlFor="tuition-period" className="text-xs font-medium text-slate-600">Período</label>

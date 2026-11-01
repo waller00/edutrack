@@ -16,6 +16,7 @@ export default function MessagesButton() {
       aria-label={label}
       aria-haspopup="dialog"
       aria-expanded={drawerOpen}
+      data-tour="messages.button"
       className="relative rounded-full p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
     >
       <MessageCircle className="h-5 w-5" aria-hidden />

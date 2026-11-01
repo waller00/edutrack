@@ -43,7 +43,7 @@ export default function AttendanceExportMenu({ pending, onAttendance, onPayroll 
   }
 
   return (
-    <div ref={root} className="relative">
+    <div ref={root} data-tour="staff-attendance.export" className="relative">
       <button ref={trigger} type="button" disabled={pending} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)} className="btn-secondary w-full text-sm disabled:cursor-wait disabled:opacity-60 sm:w-auto">
         {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
         {pending ? 'Generando archivo…' : 'Exportar'}

@@ -152,6 +152,7 @@ function EventsContent() {
           className="flex flex-wrap gap-1"
           role="group"
           aria-label="Período de la agenda"
+          data-tour="my-agenda.period"
         >
           {[
             ['upcoming', 'Próximos días'],
@@ -225,7 +226,7 @@ function EventsContent() {
               No hay actividades para mostrar
             </p>
           ) : (
-            <ul className="grid items-start gap-4 lg:grid-cols-2">
+            <ul data-tour="my-agenda.event" className="grid items-start gap-4 lg:grid-cols-2">
               {visible
                 .slice((safePage - 1) * 20, safePage * 20)
                 .map((event) => (

@@ -309,7 +309,7 @@ export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: 
               <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar nombre o documento" className="min-h-12 w-full rounded-xl border border-slate-200 bg-white py-3 pl-9 pr-3 text-base focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
             </label>
             {canEdit && (
-              <details className="relative shrink-0" onKeyDown={(event) => {
+              <details data-tour="roll-call.options" className="relative shrink-0" onKeyDown={(event) => {
                 if (event.key === 'Escape') {
                   event.currentTarget.open = false
                   event.currentTarget.querySelector('summary')?.focus()
@@ -341,7 +341,7 @@ export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: 
               <button type="button" onClick={() => setSearch('')} className="mt-2 min-h-11 rounded-lg px-3 font-medium text-emerald-700 hover:bg-emerald-50">Limpiar búsqueda</button>
             </div>
           )}
-          <ul aria-label="Lista de estudiantes" className="space-y-2">
+          <ul aria-label="Lista de estudiantes" data-tour="roll-call.students" className="space-y-2">
             {visibleStudents.map(({ student, number }) => (
               <RollCallStudentRow
                 key={student.studentId}

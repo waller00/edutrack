@@ -562,6 +562,7 @@ function LicensesPageContent() {
             <div className="flex flex-col items-end gap-3 shrink-0">
               {canCreate && <button
                 type="button"
+                data-tour="staff-licenses.new"
                 onClick={() => {
                   setCreateModalError('')
                   setCreating(true)
@@ -739,7 +740,7 @@ function LicensesPageContent() {
 
         {activeSection === 'licenses' && (
           <section className="space-y-4">
-            <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
+            <div data-tour="staff-licenses.filters" className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
               <h2 className="mb-3 text-sm font-semibold text-slate-800">Buscar licencias</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 <DateRangePicker startDate={filters.startDate} endDate={filters.endDate} onChange={updateLicenseFilters} />
@@ -800,7 +801,7 @@ function LicensesPageContent() {
                   </div>
                 )}
               </div>
-              <ScrollRegion label="Tabla de licencias del personal" className="hidden overflow-x-auto sm:block">
+              <ScrollRegion label="Tabla de licencias del personal" tour="staff-licenses.list" className="hidden overflow-x-auto sm:block">
                 <table className="w-full min-w-[720px] table-fixed divide-y divide-gray-200">
                   <colgroup>
                     <col className="w-[6%]" />
@@ -835,7 +836,7 @@ function LicensesPageContent() {
                 </table>
               </ScrollRegion>
 
-              <div className="space-y-3 p-4 sm:hidden">
+              <div data-tour="staff-licenses.list" className="space-y-3 p-4 sm:hidden">
                 {loading ? (
                   <div className="flex items-center justify-center gap-2 py-5 text-sm text-gray-500">
                     <Loader2 className="h-5 w-5 animate-spin text-emerald-600" aria-hidden />

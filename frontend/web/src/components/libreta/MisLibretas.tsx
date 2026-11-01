@@ -157,7 +157,7 @@ export default function MisLibretas() {
 
   return (
     <div className="space-y-4">
-      <section aria-label="Filtros de libretas" className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
+      <section aria-label="Filtros de libretas" data-tour="libretas.filters" className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(200px,280px)]">
           <label className="min-w-0">
             <span className="mb-1.5 block text-sm font-medium text-slate-700">Buscar libreta</span>
@@ -235,7 +235,7 @@ export default function MisLibretas() {
               </p>
               {hasFilters && <button type="button" onClick={clearFilters} className="mt-4 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">Ver todas las libretas</button>}
             </div>
-          ) : <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          ) : <ul data-tour="libretas.card" className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {visible.map((book) => <li key={book.id} className="min-w-0"><LibretaCard book={book} /></li>)}
           </ul>}
           {totalPages > 1 && <nav aria-label="Páginas de libretas" className="flex flex-wrap items-center justify-end gap-2 text-sm text-slate-600">

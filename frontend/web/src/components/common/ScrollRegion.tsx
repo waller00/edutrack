@@ -13,8 +13,15 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 export default function ScrollRegion({
   label,
   className = '',
+  tour,
   children,
-}: Readonly<{ label: string; className?: string; children: ReactNode }>) {
+}: Readonly<{
+  label: string
+  className?: string
+  /** Ancla del onboarding (`data-tour`), cuando un globo señala la tabla. */
+  tour?: string
+  children: ReactNode
+}>) {
   const ref = useRef<HTMLDivElement>(null)
   const [scrollable, setScrollable] = useState(false)
 
@@ -33,6 +40,7 @@ export default function ScrollRegion({
   return (
     <div
       ref={ref}
+      data-tour={tour}
       className={className}
       role={scrollable ? 'region' : undefined}
       aria-label={scrollable ? label : undefined}

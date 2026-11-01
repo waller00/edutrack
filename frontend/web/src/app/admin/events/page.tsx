@@ -1353,6 +1353,7 @@ function AdminEventsContent() {
               }}
             />
             {canCreate && <button
+              data-tour="agenda.new"
               onClick={() => {
                 setMessage('')
                 setImportErrors([])
@@ -1371,7 +1372,7 @@ function AdminEventsContent() {
         </div>
 
         {/* Selector de vista */}
-        <div role="group" aria-label="Vista de agenda" className="inline-flex rounded-xl bg-slate-100 p-1 text-sm">
+        <div role="group" aria-label="Vista de agenda" data-tour="agenda.view" className="inline-flex rounded-xl bg-slate-100 p-1 text-sm">
           {(['list', 'calendar'] as const).map((v) => (
             <button
               key={v}
@@ -1419,7 +1420,7 @@ function AdminEventsContent() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div data-tour="agenda.filters" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <DateRangePicker startDate={filters.startDate} endDate={filters.endDate} presets={periodPresets} onChange={updateFilters} />
             <div>
               <label htmlFor="agenda-assignee" className="block text-sm font-medium text-gray-700 mb-1">Asignado</label>

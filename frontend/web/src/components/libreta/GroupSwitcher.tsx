@@ -50,7 +50,7 @@ export default function GroupSwitcher({
   if (books.length < 2) return null
 
   return (
-    <label className="flex min-w-0 flex-1 items-center gap-2 text-sm sm:flex-initial">
+    <label data-tour="libreta.groups" className="flex min-w-0 flex-1 items-center gap-2 text-sm sm:flex-initial">
       <span className="sr-only">Grupo</span>
       <select
         aria-label="Cambiar de grupo"

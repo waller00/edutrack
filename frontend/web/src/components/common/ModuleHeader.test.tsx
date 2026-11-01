@@ -29,6 +29,7 @@ describe('ModuleHeader', () => {
     signedIn([
       { id: 'attendance.read', scope: 'all' },
       { id: 'student-attendance.justify', scope: 'all' },
+      { id: 'student-attendance.read', scope: 'all' },
     ])
     render(<ModuleHeader id="staff-attendance" />)
     expect(screen.getByText('¿Buscás las faltas de los estudiantes?')).toBeInTheDocument()

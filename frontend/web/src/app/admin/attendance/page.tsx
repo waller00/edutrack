@@ -476,7 +476,7 @@ function renderAttendancesTable(
   const rows = buildAttendancePairRows(attendances)
 
   return (
-    <ScrollRegion label="Tabla de asistencias" className="hidden overflow-x-auto sm:block">
+    <ScrollRegion label="Tabla de asistencias" tour="staff-attendance.table" className="hidden overflow-x-auto sm:block">
       <table className="w-full min-w-[820px] text-left">
         <thead className="bg-gray-50">
           <tr>
@@ -570,7 +570,7 @@ function renderAttendanceCards(
   const rows = buildAttendancePairRows(attendances)
 
   return (
-    <div className="space-y-3 p-3 sm:hidden">
+    <div data-tour="staff-attendance.table" className="space-y-3 p-3 sm:hidden">
       {rows.map((row) => {
         const primaryAttendance = row.incident ?? row.checkIn ?? row.checkOut
         if (!primaryAttendance) return null

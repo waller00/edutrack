@@ -277,7 +277,7 @@ function ReviewNavigation({
   const next = queue ? nextForReview(queue, gradeBookId) : null
 
   return (
-    <nav aria-label="Revisión de libretas" className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-4">
+    <nav aria-label="Revisión de libretas" data-tour="visado.next" className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-4">
       <Link href="/libreta/control?paso=visado" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-emerald-700">
         <ArrowLeft className="h-4 w-4" aria-hidden />
         Volver a Control y visado
@@ -375,7 +375,7 @@ export default function VisadoDireccionSection() {
             />
           )}
 
-          <section className="space-y-3" aria-labelledby="visado-revision">
+          <section className="space-y-3" aria-labelledby="visado-revision" data-tour="visado.review">
             <div>
               <h3 id="visado-revision" className="text-sm font-semibold text-gray-900">
                 1. Lo que cerró el docente · {selected.period.name}

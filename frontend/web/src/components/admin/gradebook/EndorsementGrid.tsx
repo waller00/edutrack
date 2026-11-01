@@ -128,7 +128,11 @@ export default function EndorsementGrid({
       )}
 
       {!loading && rows.length > 0 && (
-        <ScrollRegion label="Libretas para revisar" className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+        <ScrollRegion
+          label="Libretas para revisar"
+          tour="control.review"
+          className="overflow-x-auto rounded-xl border border-gray-200 bg-white"
+        >
           <table className="w-full min-w-[760px] text-sm">
             <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
               <tr>

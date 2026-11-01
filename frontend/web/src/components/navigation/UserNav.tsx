@@ -111,6 +111,7 @@ function NavItemLink({ item, active }: { item: AppModule; active: boolean }) {
   return (
     <a
       href={item.href}
+      data-tour={`nav:${item.id}`}
       aria-current={active ? 'page' : undefined}
       className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
         active ? 'bg-emerald-600 text-white shadow-sm' : 'text-gray-600 hover:bg-emerald-50 hover:text-emerald-800'

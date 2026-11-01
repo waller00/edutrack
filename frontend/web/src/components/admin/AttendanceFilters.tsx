@@ -99,7 +99,7 @@ export default function AttendanceFilters({ filters, users, events, onChange }: 
   if (filters.role) chips.push({ key: 'role', label: ROLES.find(([key]) => key === filters.role)?.[1] || filters.role, clear: { role: '' } })
 
   return (
-    <section aria-label="Filtros de asistencia" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+    <section aria-label="Filtros de asistencia" data-tour="staff-attendance.filters" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900"><SlidersHorizontal className="h-4 w-4 text-slate-400" aria-hidden />Filtrar registros</h2>
         <span className="text-xs text-slate-500">Los filtros se aplican al seleccionar</span>

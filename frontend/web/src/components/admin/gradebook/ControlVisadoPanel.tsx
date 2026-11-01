@@ -169,7 +169,7 @@ function MeetingFilters({
   onGroupChange: (group: Group | null) => void
 }) {
   return (
-    <div className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+    <div data-tour="control.filters" className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
       <label className="text-sm">
         <span className="mb-1 block text-xs text-gray-600">Reunión</span>
         <select className="select-field" value={periodId} onChange={(e) => onMeetingChange(e.target.value)}>
@@ -215,7 +215,7 @@ function StepTabs({
   onChange: (step: Step) => void
 }) {
   return (
-    <div role="tablist" aria-label="Pasos de la reunión" className="flex flex-wrap gap-1 border-b border-gray-200">
+    <div role="tablist" aria-label="Pasos de la reunión" data-tour="control.steps" className="flex flex-wrap gap-1 border-b border-gray-200">
       {steps.map((step, index) => {
         const selected = step === active
         return (

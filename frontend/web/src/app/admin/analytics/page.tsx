@@ -948,7 +948,7 @@ export default function AdminAnalyticsPage() {
             )}
           </div>
         </div>
-        <section aria-label="Filtros de indicadores" className={cardClass}>
+        <section aria-label="Filtros de indicadores" data-tour="staff-indicators.filters" className={cardClass}>
           <div className="grid gap-3 md:grid-cols-2">
             <DateRangePicker
               startDate={requestedFrom}
@@ -1193,6 +1193,7 @@ export default function AdminAnalyticsPage() {
         <div
           role="group"
           aria-label="Vistas de indicadores"
+          data-tour="staff-indicators.views"
           className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1"
         >
           {(
@@ -1288,6 +1289,7 @@ export default function AdminAnalyticsPage() {
                       <>
                         <section
                           aria-label="Indicadores principales"
+                          data-tour="staff-indicators.charts"
                           className="space-y-3"
                         >
                           {dashboard.comparison && (

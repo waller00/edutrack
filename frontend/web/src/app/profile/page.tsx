@@ -212,7 +212,7 @@ export default function ProfilePage() {
         }
       />
 
-      <div role="group" aria-label="Secciones del perfil" className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1">
+      <div role="group" aria-label="Secciones del perfil" data-tour="profile.sections" className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1">
         {([
           ['personal', 'Datos personales', FileText],
           ['security', 'Seguridad', ShieldCheck],
@@ -236,7 +236,7 @@ export default function ProfilePage() {
         </div>
       )}
 
-      <section id="profile-personal" aria-labelledby="profile-personal-title" hidden={section !== 'personal'} className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+      <section id="profile-personal" aria-labelledby="profile-personal-title" data-tour="profile.data" hidden={section !== 'personal'} className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
         <h2 id="profile-personal-title" className="font-semibold text-slate-900">Datos personales</h2>
         <p className="mt-1 text-sm text-slate-500">Mantené tus datos de contacto al día.</p>
         <form noValidate onSubmit={(event) => { event.preventDefault(); void saveProfile() }} className="mt-5 space-y-5">
@@ -287,7 +287,7 @@ export default function ProfilePage() {
         </form>
       </section>
 
-      <section id="profile-security" aria-labelledby="profile-security-title" hidden={section !== 'security'} className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+      <section id="profile-security" aria-labelledby="profile-security-title" data-tour="profile.security" hidden={section !== 'security'} className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
         <h2 id="profile-security-title" className="font-semibold text-slate-900">Seguridad de la cuenta</h2>
         <p className="mt-1 text-sm text-slate-500">Gestioná tu contraseña, el ingreso con Google, la verificación en dos pasos y tus sesiones abiertas.</p>
         <div className="mt-5 space-y-5">

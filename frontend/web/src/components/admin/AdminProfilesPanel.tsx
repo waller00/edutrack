@@ -647,6 +647,7 @@ export default function AdminProfilesPanel({
             startAction()
           }}
           disabled={busy || newProfileOpen}
+          data-tour="profiles.create"
           className="btn-primary gap-2 disabled:opacity-50"
         >
           <Plus className="h-4 w-4" aria-hidden />
@@ -768,6 +769,7 @@ export default function AdminProfilesPanel({
           <div className="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
             <aside
               aria-label="Lista de perfiles"
+              data-tour="profiles.list"
               className={`${showEditor ? 'hidden lg:block' : ''} min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm`}
             >
               <div className="space-y-3 border-b border-slate-100 p-4">
@@ -889,6 +891,7 @@ export default function AdminProfilesPanel({
             {selectedProfile && (
               <section
                 aria-label={`Configuración de ${selectedProfile.label}`}
+                data-tour="profiles.permissions"
                 className={`${showEditor ? '' : 'hidden lg:block'} min-w-0 space-y-4`}
               >
                 <button

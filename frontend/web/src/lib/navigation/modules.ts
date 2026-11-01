@@ -58,6 +58,7 @@ export type ModuleId =
   | 'staff-indicators'
   | 'students'
   | 'student-attendance'
+  | 'student-attendance-indicators'
   | 'tuition'
   | 'school-years'
   | 'courses'
@@ -158,12 +159,6 @@ export const NAV_GROUP_META: Record<NavGroupId, NavGroupMeta> = {
     showChip: true,
   },
 }
-
-const STUDENT_ATTENDANCE_PERMISSIONS = [
-  'student-attendance.justify',
-  'student-attendance.manage',
-  'student-reports.read',
-] as const
 
 export const APP_MODULES: readonly AppModule[] = [
   // Inicio
@@ -337,13 +332,24 @@ export const APP_MODULES: readonly AppModule[] = [
     label: 'Asistencia de estudiantes',
     href: '/admin/student-attendance',
     description:
-      'Justificativos y faltas de estudiantes: quién falta seguido, quién llega a 18 o 25 faltas y las listas sin pasar.',
+      'La ficha de asistencia de cada estudiante: faltas, llegadas tarde, licencias y justificativos.',
     group: 'students',
     icon: ClipboardList,
-    permission: STUDENT_ATTENDANCE_PERMISSIONS,
+    permission: 'student-attendance.read',
     permissionScope: 'all',
     related: [{ id: 'staff-attendance', text: '¿Buscás la asistencia de docentes y funcionarios?' }],
     quickAccess: 11,
+  },
+  {
+    id: 'student-attendance-indicators',
+    label: 'Indicadores de asistencia de estudiantes',
+    href: '/admin/student-attendance/indicadores',
+    description: 'Alertas de faltas seguidas y estudiantes que llegan a 18 o 25 faltas en el ciclo.',
+    group: 'students',
+    icon: BarChart3,
+    permission: 'student-reports.read',
+    permissionScope: 'all',
+    related: [{ id: 'student-attendance', text: 'Consultá las faltas y cargá licencias por estudiante en' }],
   },
   {
     id: 'tuition',

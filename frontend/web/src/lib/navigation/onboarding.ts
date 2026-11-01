@@ -1,6 +1,7 @@
 import type { AuthMe } from '@/contexts/AuthContext'
 import { hasPermission, permissionScope, type PermissionScope } from '@/lib/auth/permissions'
-import { APP_MODULES, canSeeModule, moduleById, visibleModules, type AppModule, type ModuleId } from './modules'
+import { APP_MODULES, canSeeModule, moduleById, visibleModules, visibleNavGroups, visibleRelated, type AppModule, type ModuleId, type VisibleNavGroup } from './modules'
+import { navSpot, RELATED_SPOT, SCREEN_SPOTS, type Spot } from './onboarding-spots'
 
 type Capability = { permission: string; text: string; scope?: PermissionScope }
 type StepContent = { task: string; instructions: string; capabilities?: Capability[] }
@@ -49,11 +50,15 @@ const CONTENT: Partial<Record<ModuleId, StepContent>> = {
     capabilities: [{ permission: 'students.manage', scope: 'all', text: 'Registrar y actualizar los datos de los estudiantes.' }],
   },
   'student-attendance': {
-    task: 'Seguí la asistencia de estudiantes', instructions: 'Elegí un grupo y un período. Revisá las faltas, las alertas y las listas pendientes.',
+    task: 'Consultá la asistencia de un estudiante', instructions: 'Buscá por nombre, documento o curso y abrí «Ver asistencia». En la ficha, revisá las faltas y llegadas tarde. Usá las fechas y el filtro «Sólo faltas» para encontrar el registro que necesitás.',
     capabilities: [
-      { permission: 'student-attendance.justify', scope: 'all', text: 'Registrar justificativos y ajustar la media falta de un estudiante.' },
+      { permission: 'student-attendance.justify', scope: 'all', text: 'Agregar licencias o justificativos desde la ficha, con sus fechas y motivo, o justificar una falta desde su registro.' },
       { permission: 'student-attendance.manage', scope: 'all', text: 'Controlar y gestionar las listas de asistencia del centro.' },
     ],
+  },
+  'student-attendance-indicators': {
+    task: 'Revisá las alertas de asistencia', instructions: 'Consultá las faltas seguidas y los umbrales de 18 y 25 faltas. Identificá qué estudiantes necesitan seguimiento.',
+    capabilities: [{ permission: 'student-attendance.read', scope: 'all', text: 'Abrir la ficha del estudiante desde su nombre en la alerta.' }],
   },
   tuition: {
     task: 'Revisá cuotas y pagos', instructions: 'Elegí un mes y un estudiante para consultar sus cuotas y los pagos registrados.',
@@ -95,16 +100,34 @@ const GRADEBOOK_CONTENT: StepContent = {
 // Primero la cuenta y la preparación del centro; luego el trabajo cotidiano y su seguimiento.
 const ORDER: ModuleId[] = [
   'profile', 'school-years', 'courses', 'gradebook-config', 'users', 'students', 'agenda',
-  'my-agenda', 'roll-call', 'my-gradebooks', 'gradebooks', 'student-attendance',
+  'my-agenda', 'roll-call', 'my-gradebooks', 'gradebooks', 'student-attendance', 'student-attendance-indicators',
   'gradebook-control', 'teachers-meeting', 'academic-performance', 'my-attendance',
   'my-licenses', 'staff-attendance', 'staff-licenses', 'staff-indicators', 'tuition',
   'messages', 'settings', 'profiles', 'audit',
 ]
 
+export type OnboardingSpot = Omit<Spot, 'permission'>
+
 export type OnboardingStep = StepContent & {
   module: AppModule
   scopeLabel: string
   actions: string[]
+  /** Los globos que señalan la pantalla, en orden; los compartidos («¿Buscás…?», el menú) al final. */
+  spots: OnboardingSpot[]
+}
+
+/** Los globos de la pantalla que le tocan a quien mira, más los compartidos al final. */
+function stepSpots(me: AuthMe, entry: AppModule, menu: readonly VisibleNavGroup[]): OnboardingSpot[] {
+  const own = (SCREEN_SPOTS[entry.id] ?? []).filter(
+    (spot) => !spot.permission || hasPermission(me, spot.permission.id, spot.permission.scope),
+  )
+  const shared: Spot[] = []
+  if (visibleRelated(me, entry).length > 0) shared.push(RELATED_SPOT)
+  // Sólo si está en el menú de quien mira: Mensajes se abre por su ícono, y Personal no tiene
+  // Configuración aunque pueda abrir Mi perfil.
+  const group = menu.find((candidate) => candidate.modules.some((item) => item.id === entry.id))
+  if (group) shared.push(navSpot(entry.id, `${group.title} › ${entry.label}`))
+  return [...own, ...shared].map(({ target, title, text }) => ({ target, title, text }))
 }
 
 export function onboardingSteps(me: AuthMe | null): OnboardingStep[] {
@@ -112,6 +135,7 @@ export function onboardingSteps(me: AuthMe | null): OnboardingStep[] {
   const modules = visibleModules(me)
   const messages = moduleById('messages')
   if (canSeeModule(me, messages)) modules.push(messages)
+  const menu = visibleNavGroups(me)
   return ORDER.flatMap((id) => {
     const entry = modules.find((candidate) => candidate.id === id)
     if (!entry) return []
@@ -126,6 +150,7 @@ export function onboardingSteps(me: AuthMe | null): OnboardingStep[] {
       actions: (content.capabilities ?? [])
         .filter((action) => hasPermission(me, action.permission, action.scope ?? (institutional ? 'all' : 'own')))
         .map((action) => action.text),
+      spots: stepSpots(me, entry, menu),
     }]
   })
 }

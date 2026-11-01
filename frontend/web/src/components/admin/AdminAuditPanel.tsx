@@ -352,6 +352,7 @@ export default function AdminAuditPanel({
 
       <section
         aria-label="Filtros de auditoría"
+        data-tour="audit.filters"
         className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
       >
         <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -435,6 +436,7 @@ export default function AdminAuditPanel({
 
       <section
         aria-label="Movimientos registrados"
+        data-tour="audit.list"
         aria-busy={loading}
         className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
       >

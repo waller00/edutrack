@@ -40,6 +40,7 @@ export default function AcademicConfigPanel() {
       <div
         role="tablist"
         aria-label="Secciones de configuración académica"
+        data-tour="gradebook-config.tabs"
         className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-2 sm:grid-cols-5"
       >
         {TABS.map((item) => {
@@ -89,7 +90,7 @@ export default function AcademicConfigPanel() {
         })}
       </div>
 
-      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} data-tour="gradebook-config.content">
         {tab === 'periods' && <PeriodsTab onError={onError} />}
         {tab === 'scales' && <ScalesTab onError={onError} />}
         {tab === 'activity-types' && <ActivityTypesTab onError={onError} />}

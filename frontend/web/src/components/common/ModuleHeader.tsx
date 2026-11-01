@@ -49,7 +49,7 @@ export default function ModuleHeader({
         {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
       {related.length > 0 && (
-        <ul aria-label="Secciones relacionadas" className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
+        <ul aria-label="Secciones relacionadas" data-tour="module-related" className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
           {related.map((item) => (
             <li key={item.id}>
               {item.text}{' '}

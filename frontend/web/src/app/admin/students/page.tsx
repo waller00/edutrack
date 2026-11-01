@@ -331,7 +331,7 @@ export default function AdminStudentsPage() {
                 <Receipt className="h-4 w-4" aria-hidden />
                 Mensualidades
               </Link>
-              <button type="button" onClick={openCreate} className="btn-primary shrink-0">
+              <button type="button" data-tour="students.new" onClick={openCreate} className="btn-primary shrink-0">
                 <Plus className="h-4 w-4" aria-hidden />
                 Nuevo estudiante
               </button>

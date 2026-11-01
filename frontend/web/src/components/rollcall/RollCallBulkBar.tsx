@@ -31,6 +31,7 @@ export default function RollCallBulkBar({ counts, disabled, saving, taken, hasCh
         </p>
         <button
           type="button"
+          data-tour="roll-call.save"
           className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={disabled || saving || (taken && !hasChanges)}
           onClick={onSave}

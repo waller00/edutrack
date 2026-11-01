@@ -12,6 +12,18 @@ export default function OnboardingStepDetails({ step }: Readonly<{ step: Onboard
         <p className="font-medium text-slate-900">Probá este paso</p>
         <p className="mt-1 leading-relaxed">{step.instructions}</p>
       </div>
+      {step.spots.length > 0 && (
+        <div>
+          <p className="font-medium text-slate-900">Lo que vas a ver en la pantalla</p>
+          <ol className="mt-2 list-decimal space-y-1.5 pl-5">
+            {step.spots.map((spot) => (
+              <li key={spot.target}>
+                <span className="font-medium text-slate-800">{spot.title}:</span> {spot.text}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
       {step.actions.length > 0 && (
         <div>
           <p className="font-medium text-slate-900">También podés hacer</p>

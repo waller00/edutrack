@@ -399,7 +399,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-2">
+      <div data-tour="reunion.filters" className="flex flex-wrap items-end gap-2">
         <label>
           <span className="mb-1 block text-xs text-gray-600">Grupo</span>
           <select
@@ -449,7 +449,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
         </p>
       ) : (
         <>
-          <ScrollRegion label="Matriz de calificaciones del grupo" className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+          <ScrollRegion label="Matriz de calificaciones del grupo" tour="reunion.matrix" className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
             <table className={`w-full ${projection ? 'text-base' : 'text-sm'}`}>
               <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
@@ -462,7 +462,12 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                   <th scope="col" className="px-2 py-2 text-left font-medium" title={matrix.averageLabel}>
                     Promedio
                   </th>
-                  <th scope="col" className="px-2 py-2 text-left font-medium" title="Lo elige la reunión; el promedio es sólo una referencia">
+                  <th
+                    scope="col"
+                    data-tour="reunion.performance"
+                    className="px-2 py-2 text-left font-medium"
+                    title="Lo elige la reunión; el promedio es sólo una referencia"
+                  >
                     Rendimiento
                   </th>
                   <th scope="col" className="px-2 py-2 text-left font-medium" title="La pone adscripción, para todo el liceo">

@@ -22,6 +22,7 @@ import { RollCallError } from './roll-call.js'
 
 export type CreateRangeInput = {
   studentId: string
+  schoolYearId?: string
   fromYmd: string
   toYmd: string
   reason: string
@@ -43,7 +44,7 @@ export async function createJustificationRange(input: CreateRangeInput) {
   }
 
   const enrollment = await prisma.studentEnrollment.findFirst({
-    where: { studentId: input.studentId, enrollmentStatus: 'ACTIVE' },
+    where: { studentId: input.studentId, enrollmentStatus: 'ACTIVE', ...(input.schoolYearId ? { schoolYearId: input.schoolYearId } : {}) },
     select: { schoolYearId: true },
     orderBy: { createdAt: 'desc' },
   })
