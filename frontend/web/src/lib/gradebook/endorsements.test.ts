@@ -3,8 +3,12 @@ import {
   canActOnSection,
   endorsementAbilities,
   formatEndorsementDate,
+  nextForReview,
+  observedLabels,
   readyToEndorse,
+  reviewState,
   sectionState,
+  visadoHref,
   type EndorsementRow,
 } from './endorsements'
 
@@ -59,7 +63,7 @@ describe('atribuciones de visado', () => {
   })
 })
 
-describe('visado en lote', () => {
+describe('listas para visar', () => {
   it('toma sólo lo cerrado, sin visar y sin observaciones vivas', () => {
     const rows = [
       row({ gradeBookPeriodId: 'lista' }),
@@ -71,7 +75,64 @@ describe('visado en lote', () => {
   })
 })
 
+describe('estado de la revisión', () => {
+  it('sin observaciones vivas, está para revisar', () => {
+    expect(reviewState(row())).toMatchObject({ kind: 'TO_REVIEW', label: 'Para revisar' })
+  })
+
+  it('observada, se espera al docente; si volvió a cerrar, hay que revisar la corrección', () => {
+    expect(reviewState(row({ blockingSections: ['GRADES'], canFinalize: false })).kind).toBe('OBSERVED')
+    expect(
+      reviewState(row({ blockingSections: ['GRADES'], canFinalize: false, reclosedAfterObservation: true })).label,
+    ).toBe('Volvió a cerrarse: revisá la corrección')
+  })
+
+  it('reabierta, el docente está corrigiendo aunque la observación siga viva', () => {
+    expect(reviewState(row({ periodStatus: 'REOPENED', blockingSections: ['JUDGEMENTS'] })).kind).toBe('REOPENED')
+  })
+
+  it('visada pesa más que todo lo demás, y siempre lleva símbolo además del color', () => {
+    const state = reviewState(row({ overallStatus: 'ENDORSED', blockingSections: ['GRADES'] }))
+    expect(state).toMatchObject({ kind: 'ENDORSED', label: 'Visada', symbol: '✓' })
+  })
+
+  it('dice qué partes se observaron', () => {
+    expect(observedLabels(row({ blockingSections: ['GRADES', 'JUDGEMENTS'] }))).toBe('Calificaciones, Juicios')
+  })
+})
+
+describe('siguiente para revisar', () => {
+  const queue = [
+    row({ gradeBookId: 'a' }),
+    row({ gradeBookId: 'b', blockingSections: ['GRADES'], canFinalize: false }),
+    row({ gradeBookId: 'c' }),
+    row({ gradeBookId: 'd', blockingSections: ['GRADES'], canFinalize: false, reclosedAfterObservation: true }),
+  ]
+  const next = (current: string) => nextForReview(queue, current)?.gradeBookId ?? null
+
+  it('sigue después de la actual y saltea las que esperan al docente', () => {
+    expect(next('a')).toBe('c')
+    expect(next('c')).toBe('d')
+  })
+
+  it('al final vuelve a empezar, sin volver a la actual', () => {
+    expect(next('d')).toBe('a')
+    expect(nextForReview([row({ gradeBookId: 'a' })], 'a')).toBeNull()
+  })
+
+  it('si la actual ya no está en la bandeja (se acaba de visar), toma la primera', () => {
+    expect(next('z')).toBe('a')
+  })
+})
+
 describe('auxiliares', () => {
+  it('la revisión lleva la reunión y, si hay, el grupo filtrado', () => {
+    expect(visadoHref('gb-1', 'p-1')).toBe('/libreta/gb-1/visado?reunion=p-1')
+    expect(visadoHref('gb-1', 'p-1', { courseOfferingId: 'off-1', courseOrientationId: 'co-1' })).toBe(
+      '/libreta/gb-1/visado?reunion=p-1&courseOfferingId=off-1&courseOrientationId=co-1',
+    )
+  })
+
   it('una sección sin filas está pendiente', () => {
     expect(sectionState(row(), 'CLOSURE')).toEqual({ section: 'CLOSURE', status: 'PENDING', occurredAt: null, observations: null })
   })

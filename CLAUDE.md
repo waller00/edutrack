@@ -309,10 +309,10 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > renombran, y los permisos que ninguna ruta consulta (`RETIRED_PERMISSION_CODES`) no se ofrecen.
 
 > **El menú de la libreta depende de quién mira** (`sectionsFor`, `lib/libreta/menu.ts`). Quien
-> supervisa tiene "Visado y seguimiento"; visar no es del docente. La libreta **no tiene sección de
+> supervisa tiene "Revisión y visado"; visar no es del docente. La libreta **no tiene sección de
 > mensajes**: lo que el visado le observó al docente lo ve arriba de "Cierre de períodos"
 > (`ObservacionesDireccion`), y la supervisión le escribe por la mensajería 1 a 1 ("Escribirle al
-> docente" en Visado). `/libreta/:id/mensajes` sólo redirige, por los avisos viejos de la campana.
+> docente" en la revisión). `/libreta/:id/mensajes` sólo redirige, por los avisos viejos de la campana.
 
 > **El suplente tiene un acceso provisorio y ve sólo lo suyo** (`services/gradebook/access.ts`).
 > Entra desde su primera clase cubierta hasta `SUBSTITUTE_ACCESS_DAYS_AFTER` (7) días después de la
@@ -381,7 +381,8 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > boletín** ni al "Juicio Reu." del docente: es de la reunión, no se usa de respaldo del alumno.
 > Las faltas son las **acumuladas del año** hasta el fin del período (el límite reglamentario es por
 > grado; cortar ahí hace que reimprimir dé lo mismo), y el total son las fictas **redondeadas para
-> abajo** (`wholeAbsences`): no sumar ni redondear a mano. Nombre y logo de la institución salen de
+> abajo** (`wholeAbsences`): no sumar ni redondear a mano. Como en la planilla, sólo J, I y TOTAL:
+> la tarde suma su media falta al total aunque no tenga columna ni aclaración. Nombre y logo de la institución salen de
 > `InstitutionBranding` (Configuración → Institución), no del código: el logo va en su tabla para
 > no arrastrarlo en cada lectura de `SystemSettings`, y sólo PNG/JPEG porque pdfkit no dibuja otros.
 
@@ -390,6 +391,12 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > lo que le falta. Carga y Cierre son sólo de las reuniones de boletín y piden `gradebook.review`;
 > Visado, `gradebook.read`. Las filas las pide la pantalla, no cada paso: de ahí salen los contadores.
 > `/libreta/visado` sólo redirige (`?paso=visado`).
+
+> **Se visa dentro de la libreta, después de mirarla.** El paso Visado de Control es una bandeja
+> (estado en palabras, `reviewState`) con "Revisar", que abre `/libreta/:id/visado?reunion=`:
+> arriba lo que cerró el docente (`CierreGrupoTable` con `readOnly`) y abajo la decisión
+> (`VisadoDecision`: visar, observar, dar por corregido, reabrir), con "Siguiente para revisar".
+> No hay visado desde la fila ni en lote (se sacó `POST /endorsements/bulk`): no volver a ofrecerlo.
 
 > **Las adecuaciones guardan un enlace, nunca el informe.** Un informe psicológico de un menor es un
 > documento clínico, y la política de privacidad lo prohíbe (§4 bis). Las cargan Administración,

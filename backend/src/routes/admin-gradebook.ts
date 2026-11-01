@@ -1079,7 +1079,8 @@ async function notifyEndorsement(
 /**
  * Valida y registra un acto de visado. Lanza `EndorsementError` si no corresponde.
  *
- * Es el mismo camino de a uno y en lote: visar en lote no puede saltearse ninguna regla.
+ * Se visa de a una libreta, desde su revisión: no hay visado en lote, porque visar sin haberla
+ * mirado era dar por buena una libreta a ciegas.
  */
 async function registerEndorsement(params: {
   req: any
@@ -1172,68 +1173,6 @@ r.post('/endorsements', async (req: any, res) => {
   } catch (error) {
     if (error instanceof EndorsementError) return endorsementErrorResponse(res, error)
     console.error('[admin-gradebook] endorsement create:', error)
-    return res.status(500).json({ message: 'Error interno del servidor' })
-  }
-})
-
-const bulkEndorsementSchema = z.object({
-  gradeBookPeriodIds: z.array(z.string().uuid()).min(1).max(300),
-})
-
-/** Por qué una fila del lote no se visa. `null` si está lista. */
-function bulkSkipCode(row: EndorsementTarget | undefined): string | null {
-  if (!row) return 'NOT_FOUND'
-  if (row.gradeBook.status === 'ARCHIVED') return 'SCHOOL_YEAR_CLOSED'
-  if (row.status !== 'CLOSED') return 'PERIOD_NOT_CLOSED'
-  const states = currentStates(row.endorsements)
-  if (statusOf(states, 'ALL') === 'ENDORSED') return 'ALREADY_ENDORSED'
-  if (!canFinalize(states)) return 'SECTIONS_OBSERVED'
-  return null
-}
-
-/**
- * Visado en lote: Dirección visa de una vez lo que ya está listo (cerrado y sin observaciones).
- * Lo que no está listo queda afuera con su motivo; cada libreta se visa, audita y avisa igual que
- * de a una.
- */
-r.post('/endorsements/bulk', async (req: any, res) => {
-  const parsed = bulkEndorsementSchema.safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
-
-  try {
-    const actor = await endorsementScopes(req)
-    if (!actor.scopes.canEndorse) {
-      return res.status(403).json({ message: 'Sólo Dirección puede visar una libreta.', code: 'CANNOT_ENDORSE' })
-    }
-
-    const ids = [...new Set(parsed.data.gradeBookPeriodIds)]
-    const rows = await prisma.gradeBookPeriod.findMany({
-      where: { id: { in: ids } },
-      include: ENDORSEMENT_TARGET_INCLUDE,
-    })
-    const byId = new Map(rows.map((row) => [row.id, row]))
-
-    let endorsed = 0
-    const skipped: Array<{ gradeBookPeriodId: string; code: string }> = []
-    for (const id of ids) {
-      const row = byId.get(id)
-      const code = bulkSkipCode(row)
-      if (code || !row) {
-        skipped.push({ gradeBookPeriodId: id, code: code ?? 'NOT_FOUND' })
-        continue
-      }
-      try {
-        await registerEndorsement({ req, row, actor, section: 'ALL', status: 'ENDORSED' })
-        endorsed++
-      } catch (error) {
-        if (!(error instanceof EndorsementError)) throw error
-        skipped.push({ gradeBookPeriodId: id, code: error.code })
-      }
-    }
-
-    return res.json({ endorsed, skipped })
-  } catch (error) {
-    console.error('[admin-gradebook] endorsement bulk:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

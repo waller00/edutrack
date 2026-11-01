@@ -23,7 +23,7 @@ const SECTION_ICONS = {
 
 /**
  * ¿Mira la libreta como supervisor? El titular y el suplente la trabajan; quien entra con alcance
- * de control (Dirección, adscripción, administración) tiene además "Visado y seguimiento". Dirección
+ * de control (Dirección, adscripción, administración) tiene además "Revisión y visado". Dirección
  * y Adscripción la ven de sólo lectura; Administración también la edita (`canGrade`, `canPlan`).
  */
 export function supervisesLibreta(

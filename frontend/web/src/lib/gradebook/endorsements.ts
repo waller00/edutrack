@@ -1,4 +1,5 @@
 import { hasAnyPermission, hasPermission, type WithPermissions } from '@/lib/auth/permissions'
+import { groupParams, type GroupFilter } from '@/lib/gradebook/group-filter'
 
 /**
  * Visado de la libreta (RF-080 a RF-083), del lado del cliente: las formas que devuelve la API, los
@@ -92,7 +93,7 @@ export function canActOnSection(status: EndorsementStatus, abilities: Endorsemen
   return status !== 'ENDORSED' || abilities.canEndorse
 }
 
-/** Lo que el visado en lote tomaría: cerrado, sin visar y sin observaciones vivas. */
+/** Lo que Dirección puede visar ya: cerrado, sin visar y sin observaciones vivas. */
 export function readyToEndorse(rows: readonly EndorsementRow[]): EndorsementRow[] {
   return rows.filter((row) => row.periodStatus === 'CLOSED' && row.overallStatus !== 'ENDORSED' && row.canFinalize)
 }
@@ -101,6 +102,63 @@ export function sectionState(row: Pick<EndorsementRow, 'sections'>, section: End
   return (
     row.sections.find((s) => s.section === section) ?? { section, status: 'PENDING', occurredAt: null, observations: null }
   )
+}
+
+export type ReviewKind = 'TO_REVIEW' | 'OBSERVED' | 'RECLOSED' | 'REOPENED' | 'ENDORSED'
+
+export type ReviewState = { kind: ReviewKind; label: string; symbol: string; className: string }
+
+const REVIEW_STATES: Record<ReviewKind, Omit<ReviewState, 'kind'>> = {
+  TO_REVIEW: { label: 'Para revisar', symbol: '·', className: ENDORSEMENT_STATUS_STYLES.PENDING.className },
+  OBSERVED: { label: 'Observada: espera al docente', symbol: '▲', className: ENDORSEMENT_STATUS_STYLES.OBSERVED.className },
+  RECLOSED: { label: 'Volvió a cerrarse: revisá la corrección', symbol: '↻', className: ENDORSEMENT_STATUS_STYLES.CORRECTED.className },
+  REOPENED: { label: 'Reabierta: el docente está corrigiendo', symbol: '↻', className: ENDORSEMENT_STATUS_STYLES.OBSERVED.className },
+  ENDORSED: { label: 'Visada', symbol: '✓', className: ENDORSEMENT_STATUS_STYLES.ENDORSED.className },
+}
+
+/**
+ * En qué está una libreta en una reunión, dicho para quien la revisa. Las cinco secciones con su
+ * estado cada una no se entendían de un vistazo: lo que importa es si hay que mirarla, si se espera
+ * al docente o si ya está visada.
+ */
+export function reviewState(
+  row: Pick<EndorsementRow, 'overallStatus' | 'periodStatus' | 'blockingSections' | 'reclosedAfterObservation'>,
+): ReviewState {
+  let kind: ReviewKind = 'TO_REVIEW'
+  if (row.overallStatus === 'ENDORSED') kind = 'ENDORSED'
+  else if (row.periodStatus === 'REOPENED') kind = 'REOPENED'
+  else if (row.blockingSections.length > 0) kind = row.reclosedAfterObservation ? 'RECLOSED' : 'OBSERVED'
+  return { kind, ...REVIEW_STATES[kind] }
+}
+
+/**
+ * La libreta que sigue en la bandeja después de la actual, entre las que esperan que alguien las
+ * mire: las que están para revisar y las que el docente volvió a cerrar. Las observadas esperan al
+ * docente, así que se saltean. Al llegar al final vuelve a empezar.
+ */
+export function nextForReview(queue: readonly EndorsementRow[], currentGradeBookId: string): EndorsementRow | null {
+  const at = queue.findIndex((row) => row.gradeBookId === currentGradeBookId)
+  const ordered = at < 0 ? queue : [...queue.slice(at + 1), ...queue.slice(0, at)]
+  return (
+    ordered.find((row) => {
+      const kind = reviewState(row).kind
+      return row.gradeBookId !== currentGradeBookId && (kind === 'TO_REVIEW' || kind === 'RECLOSED')
+    }) ?? null
+  )
+}
+
+/** Qué partes tienen una observación viva, como se leen: "Calificaciones, Juicios". */
+export function observedLabels(row: Pick<EndorsementRow, 'blockingSections'>): string {
+  return row.blockingSections.map((section) => ENDORSEMENT_SECTION_LABELS[section]).join(', ')
+}
+
+/**
+ * La revisión de una libreta en una reunión. El grupo viaja para que "Siguiente para revisar"
+ * recorra la misma lista que se filtró en Control.
+ */
+export function visadoHref(gradeBookId: string, periodId: string, group: GroupFilter | null = null): string {
+  const params = new URLSearchParams({ reunion: periodId, ...groupParams(group) })
+  return `/libreta/${gradeBookId}/visado?${params}`
 }
 
 /** "12/06/2026" a partir de un ISO; vacío si no hay fecha. */

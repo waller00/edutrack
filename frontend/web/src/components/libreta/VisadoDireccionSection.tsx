@@ -2,32 +2,27 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ClipboardList, FileText, Loader2, MessageCircle } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
+import { ArrowLeft, ArrowRight, ClipboardList, Loader2, MessageCircle } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { useLibreta } from '@/contexts/LibretaContext'
 import { useOptionalMessages } from '@/components/messages/MessagesProvider'
-import EndorsementBadge from '@/components/gradebook/EndorsementBadge'
-import EndorsementRowDetail from '@/components/admin/gradebook/EndorsementRowDetail'
+import CierreGrupoTable from '@/components/gradebook/CierreGrupoTable'
+import { endorsementGridPath } from '@/components/admin/gradebook/EndorsementGrid'
+import { hasPermission } from '@/lib/auth/permissions'
+import { withSchoolYear } from '@/lib/admin/school-year-query'
 import {
-  ENDORSEMENT_SECTION_LABELS,
   endorsementAbilities,
   formatEndorsementDate,
-  type EndorsementHistoryEntry,
+  nextForReview,
+  reviewState,
+  visadoHref,
   type EndorsementRow,
 } from '@/lib/gradebook/endorsements'
+import type { GroupFilter } from '@/lib/gradebook/group-filter'
 import { sectionHref } from '@/lib/libreta/menu'
-
-type Row = EndorsementRow & { reopenReason: string | null; history: EndorsementHistoryEntry[] }
-
-type PeriodRow = {
-  periodId: string
-  name: string
-  status: 'OPEN' | 'CLOSED' | 'REOPENED'
-  groupReport: string | null
-  groupReportUpdatedAt: string | null
-  requiresGroupReport: boolean
-}
+import VisadoDecision, { type DecisionRow } from './VisadoDecision'
 
 type Planning = { formative: string | null; replanning: string | null; updatedAt: string | null }
 type Development = {
@@ -123,37 +118,6 @@ function Seguimiento({ gradeBookId }: { gradeBookId: string }) {
   )
 }
 
-/** Informe general del grupo de cada reunión de boletín, como lo dejó el docente. */
-function InformesDelGrupo({ periods }: { periods: PeriodRow[] }) {
-  const meetings = periods.filter((p) => p.requiresGroupReport)
-  if (meetings.length === 0) return null
-  return (
-    <section className={CARD} aria-labelledby="informes-title">
-      <h3 id="informes-title" className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-        <FileText className="h-4 w-4 text-gray-400" aria-hidden />
-        Informe general del grupo
-      </h3>
-      <ul className="mt-3 space-y-3">
-        {meetings.map((period) => (
-          <li key={period.periodId} className="text-sm">
-            <p className="font-medium text-gray-700">{period.name}</p>
-            {period.groupReport?.trim() ? (
-              <>
-                <p className="whitespace-pre-wrap text-gray-700">{period.groupReport}</p>
-                {period.groupReportUpdatedAt && (
-                  <p className="text-xs text-gray-500">Cargado el {formatEndorsementDate(period.groupReportUpdatedAt)}</p>
-                )}
-              </>
-            ) : (
-              <p className="text-amber-900">▲ Falta el informe del grupo.</p>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
 /**
  * Abre la mensajería 1 a 1 directo en la conversación con el docente de la libreta. Reemplaza al
  * viejo cuadro "Mensajes al docente": lo que se le dice al docente va por el mismo canal que todo
@@ -210,31 +174,155 @@ function WriteToTeacher({ teacher }: { teacher: { id: string; name: string | nul
   )
 }
 
+/** Las reuniones que se revisan: las cerradas, y las reabiertas para corregir (siguen mostrando qué se observó). */
+export function reviewableMeetings(rows: readonly DecisionRow[]): DecisionRow[] {
+  return rows.filter((row) => row.periodStatus === 'CLOSED' || row.history.length > 0)
+}
+
 /**
- * "Visado y seguimiento" de una libreta, para Dirección (y adscripción, que observa).
+ * La reunión con la que abre: la pedida (`?reunion=`, desde Control); si no, la primera cerrada
+ * sin visar; si están todas visadas, la última.
+ */
+export function openingMeeting(rows: readonly DecisionRow[], requested: string | null): DecisionRow | null {
+  return (
+    rows.find((row) => row.period.id === requested) ??
+    rows.find((row) => row.periodStatus === 'CLOSED' && row.overallStatus !== 'ENDORSED') ??
+    rows.at(-1) ??
+    null
+  )
+}
+
+/** El grupo que se filtró en Control, si vino en la URL: "Siguiente" recorre esa misma lista. */
+function groupFromParams(params: Pick<URLSearchParams, 'get'> | null): GroupFilter | null {
+  const courseOfferingId = params?.get('courseOfferingId')
+  if (!courseOfferingId) return null
+  return { courseOfferingId, courseOrientationId: params?.get('courseOrientationId') ?? null }
+}
+
+function MeetingPicker({
+  rows,
+  selectedId,
+  onSelect,
+}: {
+  rows: readonly DecisionRow[]
+  selectedId: string
+  onSelect: (periodId: string) => void
+}) {
+  return (
+    <div role="group" aria-label="Reunión a revisar" className="flex flex-wrap gap-2">
+      {rows.map((row) => {
+        const state = reviewState(row)
+        const selected = row.period.id === selectedId
+        return (
+          <button
+            key={row.gradeBookPeriodId}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onSelect(row.period.id)}
+            className={`rounded-lg border px-3 py-2 text-left ${
+              selected ? 'border-emerald-600 bg-emerald-50 ring-1 ring-emerald-600' : 'border-gray-200 bg-white hover:border-gray-300'
+            }`}
+          >
+            <span className="block text-sm font-semibold text-gray-900">{row.period.name}</span>
+            <span className="block text-xs text-gray-600">
+              <span aria-hidden>{state.symbol}</span> {state.label}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * Volver a la bandeja de Control o seguir con la próxima libreta de la misma reunión que espera
+ * que alguien la mire. Sólo para quien ve todas las libretas: la bandeja es de supervisión.
+ */
+function ReviewNavigation({
+  gradeBookId,
+  periodId,
+  schoolYearId,
+  group,
+  refreshKey,
+}: {
+  gradeBookId: string
+  periodId: string
+  schoolYearId: string
+  group: GroupFilter | null
+  /** Cambia después de cada decisión: la bandeja se vuelve a pedir. */
+  refreshKey: number
+}) {
+  const me = useOptionalAuth()?.me ?? null
+  const canList = hasPermission(me, 'gradebook.read', 'all') && periodId !== ''
+  const [queue, setQueue] = useState<EndorsementRow[] | null>(null)
+  const path = withSchoolYear(endorsementGridPath({ periodId, group, pendingOnly: true }), `schoolYearId=${schoolYearId}`)
+
+  useEffect(() => {
+    if (!canList) return
+    let cancelled = false
+    setQueue(null)
+    api<{ data: EndorsementRow[] }>(path)
+      .then((res) => {
+        if (!cancelled) setQueue(res.data)
+      })
+      .catch(() => {
+        if (!cancelled) setQueue([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [canList, path, refreshKey])
+
+  if (!canList) return null
+  const next = queue ? nextForReview(queue, gradeBookId) : null
+
+  return (
+    <nav aria-label="Revisión de libretas" className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-4">
+      <Link href="/libreta/control?paso=visado" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-emerald-700">
+        <ArrowLeft className="h-4 w-4" aria-hidden />
+        Volver a Control y visado
+      </Link>
+      {next ? (
+        <Link
+          href={visadoHref(next.gradeBookId, periodId, group)}
+          className="inline-flex items-center gap-1 rounded-lg border border-emerald-600 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+        >
+          Siguiente para revisar: {next.subject.name} ({next.courseName})
+          <ArrowRight className="h-4 w-4" aria-hidden />
+        </Link>
+      ) : (
+        queue && <span className="text-sm text-gray-500">No quedan libretas para revisar en esta reunión.</span>
+      )}
+    </nav>
+  )
+}
+
+/**
+ * "Revisión y visado" de una libreta: se revisa una reunión a la vez, en dos pasos.
  *
- * Reúne lo que el director revisa antes de visar: las calificaciones y los juicios de cada reunión
- * cerrada, si el docente dio lo que planificó y si dejó el informe del grupo. No edita nada de la
- * libreta: observa y visa. Lo observado el docente lo ve en "Cierre de períodos"; para escribirle
- * está la mensajería 1 a 1.
+ * 1. **Lo que cerró el docente**: la C, la R y el juicio de cada alumno con el informe del grupo,
+ *    de sólo lectura, y si dio lo que planificó.
+ * 2. **Tu decisión**: Dirección la visa; Adscripción o Dirección le hacen una observación.
+ *
+ * Es el único lugar donde se visa: la bandeja de Control trae hasta acá ("Revisar") y desde acá se
+ * sigue con la próxima. Visar sin haber mirado la libreta —desde la fila, o en lote— no existe más.
  */
 export default function VisadoDireccionSection() {
   const { gradeBookId, detail } = useLibreta()
   const me = useOptionalAuth()?.me ?? null
   const abilities = useMemo(() => endorsementAbilities(me), [me])
-  const [rows, setRows] = useState<Row[] | null>(null)
-  const [periods, setPeriods] = useState<PeriodRow[]>([])
+  const params = useSearchParams()
+  const requested = params?.get('reunion') ?? null
+  const group = useMemo(() => groupFromParams(params), [params])
+  const [rows, setRows] = useState<DecisionRow[] | null>(null)
+  const [chosen, setChosen] = useState<string | null>(null)
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const load = useCallback(async () => {
     try {
-      const [endorsements, periodList] = await Promise.all([
-        api<{ data: Row[] }>(`/gradebook/${gradeBookId}/endorsements`),
-        api<{ data: PeriodRow[] }>(`/gradebook/${gradeBookId}/periods`),
-      ])
-      setRows(endorsements.data)
-      setPeriods(periodList.data)
+      const res = await api<{ data: DecisionRow[] }>(`/gradebook/${gradeBookId}/endorsements`)
+      setRows(res.data)
     } catch (err) {
       setRows([])
       setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'No se pudo cargar el visado' })
@@ -247,23 +335,8 @@ export default function VisadoDireccionSection() {
 
   async function afterChange(text: string) {
     setMessage({ kind: 'ok', text })
+    setRefreshKey((key) => key + 1)
     await load()
-  }
-
-  async function endorse(row: Row) {
-    setBusy(true)
-    setMessage(null)
-    try {
-      await api('/admin/gradebook/endorsements', {
-        method: 'POST',
-        body: JSON.stringify({ gradeBookPeriodId: row.gradeBookPeriodId, section: 'ALL', status: 'ENDORSED' }),
-      })
-      await afterChange(`Se visó ${row.period.name}. El docente recibió el aviso.`)
-    } catch (err) {
-      setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'No se pudo visar' })
-    } finally {
-      setBusy(false)
-    }
   }
 
   if (rows === null) {
@@ -275,8 +348,8 @@ export default function VisadoDireccionSection() {
     )
   }
 
-  // Lo cerrado, y lo reabierto para corregir: tiene que seguir mostrando qué se observó.
-  const visible = rows.filter((row) => row.periodStatus === 'CLOSED' || row.history.length > 0)
+  const meetings = reviewableMeetings(rows)
+  const selected = openingMeeting(meetings, chosen ?? requested)
 
   return (
     <div className="space-y-4">
@@ -289,51 +362,58 @@ export default function VisadoDireccionSection() {
         </p>
       )}
 
-      <section className="space-y-2" aria-labelledby="visado-periodos">
-        <h3 id="visado-periodos" className="text-sm font-semibold text-gray-900">
-          Reuniones cerradas
-        </h3>
-        {visible.length === 0 ? (
+      {selected ? (
+        <>
+          {meetings.length > 1 && (
+            <MeetingPicker
+              rows={meetings}
+              selectedId={selected.period.id}
+              onSelect={(periodId) => {
+                setChosen(periodId)
+                setMessage(null)
+              }}
+            />
+          )}
+
+          <section className="space-y-3" aria-labelledby="visado-revision">
+            <div>
+              <h3 id="visado-revision" className="text-sm font-semibold text-gray-900">
+                1. Lo que cerró el docente · {selected.period.name}
+              </h3>
+              <p className="text-xs text-gray-600">
+                C, R y juicio de cada alumno, y el informe del grupo, tal como los cerró.{' '}
+                <Link href={sectionHref(gradeBookId, 'evaluaciones')} className="text-emerald-700 hover:underline">
+                  Ver cada evaluación
+                </Link>
+              </p>
+            </div>
+            <CierreGrupoTable key={selected.period.id} gradeBookId={gradeBookId} periodId={selected.period.id} readOnly />
+            <Seguimiento gradeBookId={gradeBookId} />
+          </section>
+
+          <VisadoDecision key={selected.gradeBookPeriodId} row={selected} abilities={abilities} onChanged={afterChange} />
+        </>
+      ) : (
+        <>
           <p className="rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm text-gray-500">
             {detail?.teacher?.name ?? 'El docente'} todavía no cerró ninguna reunión: no hay nada para visar. Igual
             podés revisar el seguimiento y escribirle.
           </p>
-        ) : (
-          <ul className="space-y-3">
-            {visible.map((row) => (
-              <li key={row.gradeBookPeriodId} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-                <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-                  <span className="text-sm font-semibold text-gray-900">{row.period.name}</span>
-                  <EndorsementBadge status={row.overallStatus} />
-                  {row.closedLate && <span className="text-xs text-amber-800">▲ Cerrado fuera de plazo</span>}
-                  {abilities.canEndorse && row.overallStatus !== 'ENDORSED' && row.periodStatus === 'CLOSED' && (
-                    <button
-                      type="button"
-                      disabled={busy || !row.canFinalize}
-                      title={
-                        row.canFinalize
-                          ? undefined
-                          : `Hay secciones observadas sin corregir: ${row.blockingSections.map((s) => ENDORSEMENT_SECTION_LABELS[s]).join(', ')}`
-                      }
-                      onClick={() => void endorse(row)}
-                      className="ml-auto inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-                      Visar {row.period.name}
-                    </button>
-                  )}
-                </div>
-                <EndorsementRowDetail row={row} abilities={abilities} onChanged={afterChange} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <Seguimiento gradeBookId={gradeBookId} />
-      <InformesDelGrupo periods={periods} />
+          <Seguimiento gradeBookId={gradeBookId} />
+        </>
+      )}
 
       <WriteToTeacher teacher={detail?.teacher} />
+
+      {detail && (
+        <ReviewNavigation
+          gradeBookId={gradeBookId}
+          periodId={selected?.period.id ?? requested ?? ''}
+          schoolYearId={detail.schoolYear.id}
+          group={group}
+          refreshKey={refreshKey}
+        />
+      )}
     </div>
   )
 }

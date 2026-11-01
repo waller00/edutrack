@@ -104,7 +104,6 @@ function respond() {
     if (url.pathname === '/admin/gradebook/periods') return Promise.resolve({ data: MEETINGS } as never)
     if (url.pathname === '/admin/gradebook/groups') return Promise.resolve({ data: GROUPS } as never)
     if (url.pathname === '/admin/gradebook/completeness') return Promise.resolve({ data: CONTROL } as never)
-    if (url.pathname === '/admin/gradebook/endorsements/bulk') return Promise.resolve({ endorsed: 1, skipped: [] } as never)
     if (init?.method === 'POST') return Promise.resolve({ data: {} } as never)
     if (url.pathname === '/admin/gradebook/endorsements') {
       const periodId = url.searchParams.get('periodId')
@@ -166,7 +165,12 @@ describe('<ControlVisadoPanel />', () => {
     expect(await screen.findByRole('tab', { name: /Visado/ })).toHaveAttribute('aria-selected', 'true')
     expect(meetingSelect().value).toBe('e3')
     expect(await screen.findByText('Materia lista')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Visar las 1 listas' })).toBeInTheDocument()
+    // Desde la bandeja no se visa: se abre la libreta en esa reunión para mirarla primero.
+    expect(screen.queryByRole('button', { name: /Visar/ })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Revisar Materia lista (e3)' })).toHaveAttribute(
+      'href',
+      '/libreta/gb-lista/visado?reunion=e3',
+    )
   })
 
   it('el enlace viejo de Visado abre en ese paso', async () => {
@@ -239,18 +243,25 @@ describe('<ControlVisadoPanel />', () => {
     await waitFor(() =>
       expect(calls('/admin/gradebook/endorsements').at(-1)).toBe('/admin/gradebook/endorsements?pending=true&schoolYearId=sy-1'),
     )
-    expect(await screen.findByText('Materia vieja')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Visar las/ })).toBeNull()
+    // Cada fila se revisa en su propia reunión.
+    expect(await screen.findByRole('link', { name: 'Revisar Materia vieja (e3-anterior)' })).toHaveAttribute(
+      'href',
+      '/libreta/gb-vieja/visado?reunion=e3-anterior',
+    )
   })
 
-  it('visar recuenta también el control: reabrir devuelve la libreta a Cierre', async () => {
+  it('la revisión lleva el grupo filtrado, para que "Siguiente" recorra la misma lista', async () => {
     state.permissions = DIRECCION
     render(<ControlVisadoPanel />)
-    await waitFor(() => expect(calls('/admin/gradebook/completeness')).toHaveLength(1))
+    await screen.findByText('Materia lista')
+    fireEvent.change(groupSelect(), { target: { value: 'off-1::' } })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Visar las 1 listas' }))
-
-    await waitFor(() => expect(calls('/admin/gradebook/completeness')).toHaveLength(2))
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: 'Revisar Materia lista (e3)' })).toHaveAttribute(
+        'href',
+        '/libreta/gb-lista/visado?reunion=e3&courseOfferingId=off-1',
+      ),
+    )
   })
 
   it('espera al ciclo lectivo antes de pedir nada', async () => {

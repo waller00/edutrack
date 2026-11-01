@@ -1,45 +1,108 @@
-import { render, screen, within } from '@testing-library/react'
-import GuidePage from '@/components/guide/GuidePage'
-import { useAuth, useOptionalAuth } from '@/contexts/AuthContext'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import GuidePage from './GuidePage'
+import OnboardingCompanion from './OnboardingCompanion'
+import { useAuth, useOptionalAuth, type AuthMe } from '@/contexts/AuthContext'
+import { onboardingStorageKey } from '@/lib/navigation/onboarding'
 
+const navigation = vi.hoisted(() => ({ pathname: '/guia', push: vi.fn() }))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: navigation.push }), usePathname: () => navigation.pathname }))
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: vi.fn(), useOptionalAuth: vi.fn() }))
 
-function signedIn(permissions: Array<{ id: string; scope: 'own' | 'all' }>) {
-  const value = { me: { role: 'X', permissions }, loading: false, error: false, refresh: async () => {} }
+function signedIn(me: AuthMe) {
+  const value = { me, loading: false, error: false, refresh: async () => {} }
   vi.mocked(useAuth).mockReturnValue(value)
   vi.mocked(useOptionalAuth).mockReturnValue(value)
 }
 
-describe('GuidePage', () => {
-  it('explica que hay dos asistencias distintas, con enlaces sólo a lo que se puede abrir', () => {
-    signedIn([
-      { id: 'attendance.read', scope: 'own' },
-      { id: 'student-attendance.take', scope: 'own' },
-    ])
-    render(<GuidePage />)
+const staff: AuthMe = { id: 'staff-guide', role: 'STAFF', permissions: [
+  { id: 'attendance.read', scope: 'own' }, { id: 'licenses.read', scope: 'own' },
+] }
 
-    const box = screen.getByRole('region', { name: 'Dos asistencias distintas' })
-    expect(within(box).getByRole('heading', { name: 'Del personal' })).toBeInTheDocument()
-    expect(within(box).getByRole('heading', { name: 'De los estudiantes' })).toBeInTheDocument()
-    // Lo suyo, con enlace; lo institucional sólo nombrado.
-    expect(within(box).getByRole('link', { name: 'Mis asistencias' })).toHaveAttribute('href', '/me/attendance')
-    expect(within(box).getByRole('link', { name: 'Pase de lista' })).toHaveAttribute('href', '/me/roll-call')
-    expect(within(box).queryByRole('link', { name: 'Asistencia del personal' })).not.toBeInTheDocument()
-    expect(within(box).getByText('Asistencia del personal')).toBeInTheDocument()
+describe('onboarding práctico', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    navigation.pathname = '/guia'
+    signedIn(staff)
   })
 
-  it('lista los grupos del menú con lo que la persona puede usar y para qué sirve', () => {
-    signedIn([
-      { id: 'attendance.read', scope: 'own' },
-      { id: 'student-attendance.take', scope: 'own' },
-    ])
+  it('muestra los pasos propios y permite elegir la pantalla que se quiere conocer', () => {
     render(<GuidePage />)
+    expect(screen.getByRole('heading', { name: 'Onboarding' })).toBeInTheDocument()
+    const steps = screen.getByRole('navigation', { name: 'Pasos de tu onboarding' })
+    expect(within(steps).queryByRole('button', { name: /Libretas/ })).not.toBeInTheDocument()
+    expect(within(steps).queryByRole('button', { name: /Asistencia del personal/ })).not.toBeInTheDocument()
+    fireEvent.click(within(steps).getByRole('button', { name: /Mis asistencias/ }))
+    expect(screen.getByRole('heading', { name: 'Consultá tus entradas y salidas' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Empezar recorrido' }))
+    expect(navigation.push).toHaveBeenCalledWith('/me/attendance')
+    expect(JSON.parse(localStorage.getItem(onboardingStorageKey(staff)!)!).completed).toEqual([])
+  })
 
-    const mine = screen.getByRole('region', { name: 'Mi trabajo' })
-    expect(within(mine).getByRole('link', { name: /Pase de lista/ })).toHaveTextContent(
-      'Marcá qué estudiantes vinieron a cada una de tus clases.',
-    )
-    expect(screen.queryByRole('region', { name: 'Personal' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: 'Estudiantes' })).not.toBeInTheDocument()
+  it('acompaña dentro de las pantallas, persiste avance, permite pausar y terminar', () => {
+    const { rerender, unmount } = render(<><GuidePage /><OnboardingCompanion /></>)
+    fireEvent.click(screen.getByRole('button', { name: 'Empezar recorrido' }))
+    expect(navigation.push).toHaveBeenLastCalledWith('/profile')
+
+    navigation.pathname = '/me/attendance'
+    rerender(<OnboardingCompanion />)
+    expect(screen.queryByRole('button', { name: /Ya lo hice/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Ir a Mi perfil' })).toBeInTheDocument()
+
+    navigation.pathname = '/profile'
+    rerender(<OnboardingCompanion />)
+    fireEvent.click(screen.getByRole('button', { name: /Ya lo hice/ }))
+    expect(navigation.push).toHaveBeenLastCalledWith('/me/attendance')
+    expect(screen.getByText('1 de 3 completados')).toBeInTheDocument()
+    unmount()
+
+    navigation.pathname = '/me/attendance'
+    const companion = render(<OnboardingCompanion />)
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar más tarde' }))
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+    companion.unmount()
+
+    navigation.pathname = '/guia'
+    const guide = render(<GuidePage />)
+    expect(screen.getByText('1 de 3 pasos completados')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Consultá tus entradas y salidas' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir este paso' }))
+    guide.unmount()
+
+    navigation.pathname = '/me/attendance'
+    const resumed = render(<OnboardingCompanion />)
+    fireEvent.click(screen.getByRole('button', { name: /Ya lo hice/ }))
+    expect(navigation.push).toHaveBeenLastCalledWith('/me/licenses')
+    navigation.pathname = '/me/licenses'
+    resumed.rerender(<OnboardingCompanion />)
+    fireEvent.click(screen.getByRole('button', { name: /Finalizar recorrido/ }))
+    expect(navigation.push).toHaveBeenLastCalledWith('/guia')
+    resumed.unmount()
+
+    navigation.pathname = '/guia'
+    render(<GuidePage />)
+    expect(screen.getByRole('heading', { name: '¡Terminaste tu recorrido!' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reiniciar recorrido' }))
+    expect(screen.getByText('0 de 3 pasos completados')).toBeInTheDocument()
+  })
+
+  it('al cambiar de cuenta o de permisos no conserva pasos completados ajenos', () => {
+    localStorage.setItem(onboardingStorageKey(staff)!, JSON.stringify({ started: true, completed: ['profile'] }))
+    const { rerender } = render(<GuidePage />)
+    expect(screen.getByText('1 de 3 pasos completados')).toBeInTheDocument()
+    signedIn({ ...staff, id: 'another-user' })
+    rerender(<GuidePage />)
+    expect(screen.getByText('0 de 3 pasos completados')).toBeInTheDocument()
+    signedIn({ ...staff, permissions: [{ id: 'attendance.read', scope: 'all' }] })
+    rerender(<GuidePage />)
+    expect(screen.getByRole('button', { name: /Asistencia del personal/ })).toBeInTheDocument()
+    expect(screen.getByText('0 de 3 pasos completados')).toBeInTheDocument()
+  })
+
+  it('recupera un progreso corrupto sin bloquear el recorrido', () => {
+    localStorage.setItem(onboardingStorageKey(staff)!, '{invalid')
+    render(<GuidePage />)
+    expect(screen.getByText('0 de 3 pasos completados')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Empezar recorrido' }))
+    expect(navigation.push).toHaveBeenCalledWith('/profile')
   })
 })

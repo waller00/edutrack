@@ -7,9 +7,9 @@
  *
  * El menú depende de quién mira. El docente trabaja su libreta; lo que el visado le observó lo ve
  * en "Cierre de períodos". Quien supervisa (Dirección, adscripción, administración) la recorre de
- * sólo lectura y tiene "Visado y seguimiento", donde visa. Para escribirle al docente está la
- * mensajería 1 a 1, no una sección de la libreta. Las inasistencias no son una sección: salen del
- * pase de lista y se ven en la carta de cada alumno.
+ * sólo lectura y tiene "Revisión y visado", donde la mira y la visa. Para escribirle al docente
+ * está la mensajería 1 a 1, no una sección de la libreta. Las inasistencias no son una sección:
+ * salen del pase de lista y se ven en la carta de cada alumno.
  */
 
 export type LibretaSectionId = 'planificacion' | 'desarrollo' | 'evaluaciones' | 'cierre' | 'visado'
@@ -37,9 +37,9 @@ const WORK_SECTIONS: readonly LibretaSection[] = [
 
 const ENDORSEMENT_SECTION: LibretaSection = {
   id: 'visado',
-  label: 'Visado y seguimiento',
+  label: 'Revisión y visado',
   abbr: 'Vis',
-  hint: 'Visar calificaciones, seguir si se dio lo planificado y si está el informe del grupo, y escribirle al docente.',
+  hint: 'Mirá lo que cerró el docente en cada reunión y visalo o hacele una observación.',
 }
 
 /** Todas las secciones, para resolver una por id sin importar quién mira. */

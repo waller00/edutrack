@@ -35,7 +35,8 @@ const STEP_LABELS: Record<Step, string> = { carga: 'Carga', cierre: 'Cierre', vi
 const STEP_HINTS: Record<Step, string> = {
   carga: 'Antes de la reunión: qué le falta cargar a cada docente, con aviso.',
   cierre: 'Después de la reunión: quién no cerró el período. Lo que se cierra pasa a Visado.',
-  visado: 'Lo cerrado, para observarlo y visarlo. Observar es de Adscripción y Dirección; visar, sólo de Dirección.',
+  visado:
+    'Lo que cerraron los docentes. Con «Revisar» abrís la libreta en esa reunión: la mirás y ahí la visás (Dirección) o le hacés una observación (Adscripción y Dirección).',
 }
 
 type Group = {
@@ -248,9 +249,9 @@ function summaryOf(source: Rows<unknown>, text: string): string {
 
 /**
  * Control y visado de libretas: una reunión de punta a punta, en tres pasos que comparten la
- * reunión y el grupo de arriba. Carga y Cierre controlan al docente y le avisan; en Visado,
- * Adscripción observa y Dirección visa. Cada paso dice cuánto le queda, así se ve de un vistazo en
- * qué está la reunión. El paso va en la URL (`?paso=`): `/libreta/visado` redirige al de visado.
+ * reunión y el grupo de arriba. Carga y Cierre controlan al docente y le avisan; Visado es la
+ * bandeja de lo cerrado, y cada libreta se revisa —y se visa u observa— dentro de ella. Cada paso
+ * dice cuánto le queda, así se ve de un vistazo en qué está la reunión. El paso va en la URL (`?paso=`): `/libreta/visado` redirige al de visado.
  */
 export default function ControlVisadoPanel() {
   const me = useOptionalAuth()?.me ?? null
@@ -365,11 +366,6 @@ export default function ControlVisadoPanel() {
     if (group?.level && next?.level && group.level !== next.level) setGroup(null)
   }
 
-  async function reloadAll() {
-    // Reabrir desde el visado devuelve la libreta a Cierre: se recuentan los dos pasos.
-    await Promise.all([endorsements.reload(), control.reload()])
-  }
-
   return (
     <div className="space-y-4">
       <MeetingFilters
@@ -408,14 +404,11 @@ export default function ControlVisadoPanel() {
             rows={endorsements.rows}
             loading={endorsements.loading}
             error={endorsements.error}
-            abilities={abilities}
-            periodId={periodId}
-            periodName={meeting?.name ?? ''}
+            group={group}
             allMeetings={allMeetings}
             onAllMeetingsChange={setAllMeetings}
             pendingOnly={pendingOnly}
             onPendingOnlyChange={setPendingOnly}
-            onChanged={reloadAll}
           />
         ) : (
           <CompletenessPanel

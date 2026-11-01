@@ -50,7 +50,7 @@ describe('ModuleHeader', () => {
   it('en Inicio no muestra el grupo', () => {
     mockedAuth.mockReturnValue(null)
     render(<ModuleHeader id="guide" />)
-    expect(screen.getByRole('heading', { level: 1, name: 'Guía' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Onboarding' })).toBeInTheDocument()
     expect(screen.queryByText('Inicio')).not.toBeInTheDocument()
   })
 })

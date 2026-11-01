@@ -115,6 +115,18 @@ describe('<CierreGrupoTable />', () => {
     expect(screen.getByText('Buen grupo.')).toBeInTheDocument()
     expect(screen.queryByLabelText('Texto del informe del grupo')).not.toBeInTheDocument()
   })
+
+  it('en la revisión del visado muestra el período pedido y nunca edita, aunque se pueda', async () => {
+    respond(true, { body: 'Buen grupo.', updatedAt: null, required: true })
+    render(<CierreGrupoTable gradeBookId="gb-1" periodId="p-e2" readOnly />)
+    await waitFor(() => expect(screen.getByText('Bien.')).toBeInTheDocument())
+    expect(apiMock).toHaveBeenCalledWith('/gradebook/gb-1/periods/p-e2')
+    expect(screen.queryByLabelText('Período')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('R (rendimiento) de Benítez, Ana')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Guardar' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Texto del informe del grupo')).not.toBeInTheDocument()
+    expect(screen.getByText('Buen grupo.')).toBeInTheDocument()
+  })
 })
 
 describe('currentPeriodId', () => {

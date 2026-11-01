@@ -229,12 +229,6 @@ function meetingRow(doc: Doc, card: ReportCard, y: number, height: number, size:
   box(doc, X_INFORME, y, INFORME_W, height, judgement ?? '', label(size + 1.5))
 }
 
-/** Las tardes suman media falta: si las hay, el rótulo lo dice para que el total cierre. */
-function totalLabel(lates: number): string {
-  if (lates === 0) return 'TOTAL'
-  return `TOTAL (incluye ${lates} ${lates === 1 ? 'tarde' : 'tardes'})`
-}
-
 /** Recuadro de firma: el rótulo arriba y el resto en blanco para firmar a mano. */
 function signature(doc: Doc, x: number, y: number, text: string) {
   cell(doc, x, y, SIGNATURE_W, CLOSING_H)
@@ -252,7 +246,7 @@ function absencesSpan(untilYmd: string | null): string {
 }
 
 function closingRows(doc: Doc, card: ReportCard, y: number) {
-  const { justified, unjustified, lates } = card.attendance
+  const { justified, unjustified } = card.attendance
   const second = y + ABSENCE_ROW_H
   cell(doc, LEFT, y, SUBJECT_W, 2 * ABSENCE_ROW_H, HEAD_FILL)
   textIn(doc, LEFT, y + 1, SUBJECT_W, ABSENCE_ROW_H + 2, 'INASISTENCIAS', label(9))
@@ -265,7 +259,8 @@ function closingRows(doc: Doc, card: ReportCard, y: number) {
   box(doc, X_R, y, GRADE_W, ABSENCE_ROW_H, 'I', label(8), HEAD_FILL)
   box(doc, X_C, second, GRADE_W, ABSENCE_ROW_H, String(justified), label(10))
   box(doc, X_R, second, GRADE_W, ABSENCE_ROW_H, String(unjustified), label(10))
-  box(doc, X_INFORME, y, TOTAL_W, ABSENCE_ROW_H, totalLabel(lates), label(7.5), HEAD_FILL)
+  // Las tardes suman media falta al total, pero la planilla no las detalla: sólo J, I y TOTAL.
+  box(doc, X_INFORME, y, TOTAL_W, ABSENCE_ROW_H, 'TOTAL', label(8), HEAD_FILL)
   box(doc, X_INFORME, second, TOTAL_W, ABSENCE_ROW_H, String(card.absenceTotal), label(10))
 
   const dateY = y + 2 * ABSENCE_ROW_H

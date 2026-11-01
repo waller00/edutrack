@@ -116,7 +116,7 @@ describe('<LibretaShell />', () => {
       expect(within(nav).getByText(section.hint)).toBeInTheDocument()
     }
     expect(within(nav).queryByText('Mensajes de Dirección y Adscripción')).not.toBeInTheDocument()
-    expect(within(nav).queryByText('Visado y seguimiento')).not.toBeInTheDocument()
+    expect(within(nav).queryByText('Revisión y visado')).not.toBeInTheDocument()
     expect(within(nav).queryByText('Inasistencias')).not.toBeInTheDocument()
   })
 
@@ -127,7 +127,7 @@ describe('<LibretaShell />', () => {
     renderShell()
 
     const nav = await screen.findByRole('navigation', { name: 'Secciones de la libreta' })
-    expect(within(nav).getByText('Visado y seguimiento')).toBeInTheDocument()
+    expect(within(nav).getByText('Revisión y visado')).toBeInTheDocument()
   })
 
   it('el docente que abre el visado vuelve a la portada de su libreta', async () => {

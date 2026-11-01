@@ -158,7 +158,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Para quien recién llega: qué hace cada sección. Se cierra una vez. */}
+      {/* Recorrido por las herramientas habilitadas para este perfil. */}
       {canRoleDashboard && <GuideWelcomeBanner />}
 
       {canRoleDashboard && canTeamDashboard && (

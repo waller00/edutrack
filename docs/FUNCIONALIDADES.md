@@ -397,8 +397,9 @@ pantalla con paneles apilados.
   le observó en el visado lo ve arriba de *Cierre de períodos*. La libreta ya no tiene sección de
   mensajes: la supervisión le escribe por la mensajería 1 a 1.
 - **Supervisión** (Dirección, adscripción, inspección): las mismas cuatro, de sólo lectura, y
-  **Visado y seguimiento** (`visado`): visar cada reunión cerrada, seguir si el docente dio lo que
-  planificó (planificación al lado del desarrollo clase a clase), leer el informe del grupo y
+  **Revisión y visado** (`visado`): de a una reunión cerrada, primero lo que cerró el docente (C, R
+  y juicio de cada alumno, informe del grupo, y si dio lo que planificó: planificación al lado del
+  desarrollo clase a clase) y abajo la decisión: visar, hacer una observación o reabrir. También
   escribirle al docente.
 
 Una sección que no es de quien mira vuelve a la portada de la libreta. Las inasistencias ya no son
@@ -643,8 +644,8 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
   podría cambiar una nota parcial después del cierre y el cierre dejaría de significar algo.
 - **Reapertura:** sólo `gradebook.manage`, con motivo obligatorio y auditoría garantizada. **No
   borra el cierre previo** (`closedAt` y `closedByUserId` se conservan): es lo que permitirá que un
-  visado hecho sobre el cierre anterior siga existiendo (RF-083). Se hace desde la grilla de visado
-  o desde la barra de reuniones del cierre. Reabrir una **entrega reabre también los tramos** que su
+  visado hecho sobre el cierre anterior siga existiendo (RF-083). Se hace desde la revisión de la
+  libreta (*Revisión y visado*) o desde la barra de reuniones del cierre. Reabrir una **entrega reabre también los tramos** que su
   cierre congeló (si no, sus notas de evaluación seguirían bloqueadas para todos), y el docente
   recibe un aviso (`GRADEBOOK_PERIOD_REOPENED`) con el motivo.
 - **Importación desde Moodle (§11 ter · Moodle):** previsualizar y confirmar. Idempotente por
@@ -680,8 +681,17 @@ adscripción, dirección, inspección y administración.
 
 ### Visado (RF-080 a RF-083)
 
-**Pantalla:** el paso *Visado* de `/libreta/control` (*Control y visado de libretas*);
-`/libreta/visado` redirige ahí.
+**Pantallas:** el paso *Visado* de `/libreta/control` (*Control y visado de libretas*) es la
+bandeja; se revisa y se visa en *Revisión y visado* de cada libreta (`/libreta/:id/visado`).
+`/libreta/visado` redirige a la bandeja.
+
+- **Primero se mira, después se visa.** La bandeja dice en palabras en qué está cada libreta
+  ("Para revisar", "Observada: espera al docente", "Volvió a cerrarse: revisá la corrección",
+  "Visada") y no tiene botón de visar: "Revisar" abre la libreta en esa reunión. Ahí arriba está lo
+  que cerró el docente, de sólo lectura (C, R y juicio de cada alumno, informe del grupo, lo
+  planificado al lado de lo dictado) y abajo *Tu decisión*. "Siguiente para revisar" lleva a la
+  próxima de la misma reunión (y del grupo filtrado) que espera que alguien la mire; las observadas
+  esperan al docente y se saltean.
 
 - **Append-only.** El estado vigente de cada sección es su última fila; nada se actualiza ni se
   borra. Una observación posterior a un visado no lo elimina, lo **sucede**, y el visado anterior
@@ -699,31 +709,29 @@ adscripción, dirección, inspección y administración.
   tiene `gradebook.endorse`**. Sin esa regla, como el estado vigente es la última fila, una
   observación de Inspección —o de Adscripción— revertiría de hecho el visado sin tener la
   atribución para hacerlo. Es lo que cumple la nota funcional del pliego.
-- **Circuito de corrección:** se observa una sección → administración reabre el período → el
-  docente corrige y vuelve a cerrar (la grilla marca "volvió a cerrarse tras la observación") →
-  adscripción o dirección la **da por corregida** → Dirección visa. Cada fila de la grilla se abre
-  para observar por sección, dar por corregido, reabrir y ver el historial; los botones aparecen
-  sólo para quien tiene la atribución.
-- **Visado en lote:** con una reunión elegida, Dirección visa de una vez lo que está cerrado y sin
-  observaciones (`POST /admin/gradebook/endorsements/bulk`). Cada libreta pasa por las mismas
-  reglas, auditoría y aviso que de a una; lo que no está listo queda afuera con su motivo.
+- **Circuito de corrección:** "Hacer una observación" (eligiendo sobre qué parte y qué corregir) →
+  administración reabre el período → el docente corrige y vuelve a cerrar (la bandeja lo marca
+  "Volvió a cerrarse: revisá la corrección") → adscripción o dirección, en la revisión, toca **"Ya
+  está corregido"** en esa observación → Dirección visa. El historial y los accesos quedan
+  plegados al pie; los botones aparecen sólo para quien tiene la atribución.
+- **Sin visado en lote ni desde la fila.** Visar de una vez lo que estaba "listo" era dar por
+  buenas libretas que nadie había mirado; se sacó (también la ruta `/endorsements/bulk`).
 - **Secciones del visado:** Calificaciones, Cierre, Juicios, **Seguimiento** (`PLANNING`: si dio lo
   que planificó) e **Informe del grupo** (`GROUP_REPORT`), más el visado del período (`ALL`).
-- **Visar es de Dirección, no del docente.** Dirección visa desde el paso Visado de *Control y
-  visado de libretas* o desde *Visado y seguimiento* dentro de cada libreta. **El docente ve lo que
-  le observaron** arriba de
+- **Visar es de Dirección, no del docente.** Dirección visa en *Revisión y visado* de cada libreta,
+  después de mirarla. **El docente ve lo que le observaron** arriba de
   *Cierre de períodos* (`GET /gradebook/:id/endorsements`), incluidas las observaciones de un
   período reabierto para corregir; los avisos de observación, visado y reapertura lo llevan ahí.
-- **Antigüedad del pendiente** en la grilla, para priorizar (§5.9), junto con la marca de cierre
-  fuera de plazo. La grilla filtra por reunión y por grupo (orientación más tronco común), sin tope
-  de filas; con *Todas las reuniones* muestra también lo pendiente de las anteriores (sin lote).
+- **Antigüedad del pendiente** en la bandeja, para priorizar (§5.9), junto con la marca de cierre
+  fuera de plazo. La bandeja filtra por reunión y por grupo (orientación más tronco común), sin
+  tope de filas; con *Todas las reuniones* muestra también lo pendiente de las anteriores.
 - El rol del actor se **congela** en cada evento: si mañana cambia de rol, el historial sigue
   diciendo con qué atribución se visó.
 
 ### Observaciones, mensajería y accesos (RF-090, RF-091, RF-100)
 
 - **Espacio de intercambio** por libreta (`GradeBookMessage`): **retirado de la pantalla**. Lo
-  reemplaza la mensajería 1 a 1: en *Visado y seguimiento*, "Escribirle al docente" abre la
+  reemplaza la mensajería 1 a 1: en *Revisión y visado*, "Escribirle al docente" abre la
   conversación con el titular. Las rutas y los hilos viejos se conservan como historial.
 - Va **separado de la cadena de visado** a propósito: acá viven las consultas y aclaraciones; en
   `Endorsement` sólo lo que cambia un estado formal.
@@ -734,8 +742,8 @@ adscripción, dirección, inspección y administración.
 - **Registro de acceso (RF-100):** cada apertura de una libreta deja usuario, rol, fecha e IP en
   `GradeBookAccessLog`. Es tabla aparte de `AuditLog` a propósito —alto volumen y retención
   distinta—; mezclarlas sepultaría la auditoría real bajo las consultas. Se escribe
-  *fire-and-forget*: si falla, la lectura responde igual. Supervisión lo consulta en el detalle de
-  cada fila de la grilla de visado, *Accesos a la libreta*
+  *fire-and-forget*: si falla, la lectura responde igual. Supervisión lo consulta al pie de la
+  revisión de cada libreta, *Accesos a la libreta*
   (`GET /admin/gradebook/gradebooks/:gradeBookId/access-log`, las últimas 100).
 
 ### Exportaciones (RF-120)

@@ -147,7 +147,7 @@ describe('UserNav', () => {
     const menuLinks = screen.getAllByRole('link')
     expect(menuLinks.map((link) => link.textContent?.trim()).slice(-3)).toEqual([
       'Mi perfil',
-      'Guía de EduTrack',
+      'Onboarding de EduTrack',
       'Configuración del sistema',
     ])
     expect(screen.getByRole('link', { name: /configuración del sistema/i })).toBeInTheDocument()

@@ -118,7 +118,7 @@ export const NAV_GROUP_META: Record<NavGroupId, NavGroupMeta> = {
   inicio: {
     title: 'Inicio',
     icon: LayoutDashboard,
-    description: 'El resumen del día y esta guía.',
+    description: 'El resumen del día y tu onboarding.',
     showChip: false,
   },
   mine: {
@@ -177,9 +177,9 @@ export const APP_MODULES: readonly AppModule[] = [
   },
   {
     id: 'guide',
-    label: 'Guía',
+    label: 'Onboarding',
     href: '/guia',
-    description: 'Qué hace cada sección del menú y en qué se diferencian las que se parecen.',
+    description: 'Conocé qué podés ver y hacer con tu perfil, paso a paso dentro de cada pantalla.',
     group: 'inicio',
     icon: CircleHelp,
   },
@@ -316,6 +316,7 @@ export const APP_MODULES: readonly AppModule[] = [
     group: 'staff',
     icon: BarChart3,
     permission: 'analytics.read',
+    permissionScope: 'all',
     related: [{ id: 'academic-performance', text: '¿Buscás las notas y el rendimiento de los estudiantes?' }],
   },
 
@@ -397,7 +398,7 @@ export const APP_MODULES: readonly AppModule[] = [
     id: 'gradebook-control',
     label: 'Control y visado de libretas',
     href: '/libreta/control',
-    description: 'Cada reunión, libreta por libreta: qué falta cargar, quién no cerró y qué está listo para visar.',
+    description: 'Cada reunión, libreta por libreta: qué falta cargar, quién no cerró y qué está para revisar y visar.',
     group: 'gradebooks',
     icon: FileCheck2,
     // Con la lectura de todas se entra al visado; la carga y el cierre piden además `gradebook.review`.

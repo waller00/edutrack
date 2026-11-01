@@ -26,6 +26,7 @@ import { NotificationsProvider } from '@/components/notifications/NotificationsP
 import { MessagesProvider } from '@/components/messages/MessagesProvider'
 import MessagesButton from '@/components/messages/MessagesButton'
 import MessagesDrawer from '@/components/messages/MessagesDrawer'
+import OnboardingCompanion from '@/components/guide/OnboardingCompanion'
 import { SidebarSlotContext } from './sidebar-slot'
 
 type MeUser = AuthMe
@@ -339,7 +340,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
             className="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
           >
             <CircleHelp className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
-            Guía de EduTrack
+            Onboarding de EduTrack
           </a>
           {hasPermission(me, 'settings.manage', 'all') && (
             <a
@@ -518,6 +519,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
               {me && hasPermission(me, 'student-attendance.take') && <RollCallReminderBar />}
             </header>
             <div id="contenido-principal" tabIndex={-1} className="min-w-0 focus:outline-none">
+              <OnboardingCompanion />
               {children}
             </div>
           </div>

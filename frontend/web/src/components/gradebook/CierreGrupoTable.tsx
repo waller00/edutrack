@@ -245,19 +245,28 @@ export function GroupReportCard({
 
 /**
  * Cierre de un período para todo el grupo: C (conducta), R (rendimiento) y el texto de cada alumno
- * en una tabla, como se pasa en la planilla, y el informe general del grupo. Es la forma rápida de cerrar una entrega; la carta por alumno sigue para mirar a
- * uno solo con todas sus notas.
+ * en una tabla, como se pasa en la planilla, y el informe general del grupo. Es la forma rápida de
+ * cerrar una entrega; la carta por alumno sigue para mirar a uno solo con todas sus notas.
+ *
+ * El visado la usa para mostrar lo que cerró el docente: con `period` fijo y `readOnly`, porque
+ * quien revisa mira, no edita (Administración podría, en un período reabierto).
  */
 export default function CierreGrupoTable({
   gradeBookId,
+  periodId: fixedPeriodId,
+  readOnly = false,
   onDirtyChange,
 }: {
   gradeBookId: string
+  /** Período fijo: no se ofrece el selector. */
+  periodId?: string
+  readOnly?: boolean
   /** El padre lo necesita para no cambiar de vista con cambios sin guardar. */
   onDirtyChange?: (dirty: boolean) => void
 }) {
   const [options, setOptions] = useState<Options | null>(null)
-  const [periodId, setPeriodId] = useState('')
+  const [chosenPeriodId, setPeriodId] = useState('')
+  const periodId = fixedPeriodId ?? chosenPeriodId
   const [sheet, setSheet] = useState<Sheet | null>(null)
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({})
   const [loading, setLoading] = useState(true)
@@ -327,36 +336,39 @@ export default function CierreGrupoTable({
     }
   }
 
-  const editable = Boolean(sheet?.canEdit) && !saving
+  const canEdit = Boolean(sheet?.canEdit) && !readOnly
+  const editable = canEdit && !saving
   const conduct = options?.conduct ?? []
 
   return (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <label htmlFor="cierre-grupo-periodo" className="font-medium text-slate-700">
-          Período
-        </label>
-        <select
-          id="cierre-grupo-periodo"
-          value={periodId}
-          onChange={(e) => {
-            if (!confirmDiscard(dirty, DISCARD_MESSAGE)) return
-            setMessage(null)
-            setPeriodId(e.target.value)
-          }}
-          className="min-w-[12rem] rounded border border-slate-300 bg-white px-2 py-1.5"
-        >
-          {(options?.periods ?? []).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        {sheet?.state.status === 'CLOSED' && <span className="text-xs text-slate-500">Cerrado: sólo lectura.</span>}
-        {sheet && !sheet.canEdit && sheet.state.status !== 'CLOSED' && (
-          <span className="text-xs text-slate-500">No se puede editar todavía.</span>
-        )}
-      </div>
+      {!fixedPeriodId && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <label htmlFor="cierre-grupo-periodo" className="font-medium text-slate-700">
+            Período
+          </label>
+          <select
+            id="cierre-grupo-periodo"
+            value={periodId}
+            onChange={(e) => {
+              if (!confirmDiscard(dirty, DISCARD_MESSAGE)) return
+              setMessage(null)
+              setPeriodId(e.target.value)
+            }}
+            className="min-w-[12rem] rounded border border-slate-300 bg-white px-2 py-1.5"
+          >
+            {(options?.periods ?? []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {sheet?.state.status === 'CLOSED' && <span className="text-xs text-slate-500">Cerrado: sólo lectura.</span>}
+          {sheet && !sheet.canEdit && sheet.state.status !== 'CLOSED' && (
+            <span className="text-xs text-slate-500">No se puede editar todavía.</span>
+          )}
+        </div>
+      )}
 
       {message && (
         <p
@@ -417,14 +429,14 @@ export default function CierreGrupoTable({
           gradeBookId={gradeBookId}
           periodId={periodId}
           report={sheet.groupReport}
-          editable={Boolean(sheet.canEdit)}
+          editable={canEdit}
           onSaved={(body) =>
             setSheet((prev) => (prev?.groupReport ? { ...prev, groupReport: { ...prev.groupReport, body } } : prev))
           }
         />
       )}
 
-      {sheet?.canEdit && (
+      {canEdit && (
         <div className="flex flex-wrap items-center justify-end gap-3">
           <span className="text-xs text-slate-500">
             {dirty ? `${entries.length} alumno${entries.length === 1 ? '' : 's'} con cambios` : 'Sin cambios'}
