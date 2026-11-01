@@ -16,6 +16,7 @@ import { formatAbsenceUnits } from '@/lib/libreta/absences'
 import MeetingDecisions from './MeetingDecisions'
 import ScrollRegion from '@/components/common/ScrollRegion'
 import ConductSelect, { conductText, type ConductOption } from '@/components/gradebook/ConductSelect'
+import { formatGrade, gradeSelectOptions, type GradeRange } from '@/lib/gradebook/grade-scale'
 
 export { conductText } from '@/components/gradebook/ConductSelect'
 
@@ -59,6 +60,8 @@ type Row = {
   averageHundredths: number | null
   /** Conducta institucional del período, la que pone adscripción. */
   conductValueHundredths?: number | null
+  /** Rendimiento general que eligió la reunión. El promedio es sólo su referencia. */
+  performanceValueHundredths?: number | null
   /** Faltas del ciclo en todo el liceo, en centésimos. */
   absenceHundredths?: number
   pendingCount: number
@@ -77,6 +80,8 @@ type Matrix = {
   alertSubjectsThreshold?: number | null
   /** Tramos de la escala de conducta: rotulan la columna y son las opciones al cargarla. */
   conductLevels?: ConductOption[]
+  /** Rango del rendimiento de la reunión: la escala del nivel (1–10 EBI, 1–12 EMS). */
+  performanceScale?: GradeRange | null
 }
 
 function groupKey(g: Group) {
@@ -151,6 +156,40 @@ function ConductCell({
       onChange={(value) => onChange(value === '' ? null : Number(value))}
       className="rounded border border-gray-300 px-1 py-0.5 text-xs"
     />
+  )
+}
+
+/**
+ * Rendimiento general del alumno: lo elige la reunión, con la escala del nivel. El promedio de la
+ * columna de al lado es una estadística para ayudar a decidirlo; nunca llena este casillero.
+ */
+function PerformanceCell({
+  row,
+  scale,
+  editable,
+  onChange,
+}: {
+  row: Row
+  scale: GradeRange | null
+  editable: boolean
+  onChange: (value: number | null) => void
+}) {
+  const value = row.performanceValueHundredths ?? null
+  if (!editable) return <>{formatGrade(value)}</>
+  return (
+    <select
+      aria-label={`Rendimiento de ${row.lastName}, ${row.firstName}`}
+      value={value == null ? '' : String(value)}
+      onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+      className="rounded border border-gray-300 px-1 py-0.5 text-xs"
+    >
+      <option value="">—</option>
+      {gradeSelectOptions(scale, value).map((option) => (
+        <option key={option} value={String(option)}>
+          {formatGrade(option)}
+        </option>
+      ))}
+    </select>
   )
 }
 
@@ -311,6 +350,24 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
     }
   }
 
+  async function savePerformance(studentId: string, value: number | null) {
+    const schoolYearId = matrix?.group.schoolYear.id
+    if (!matrix || !schoolYearId) return
+    setMatrix({
+      ...matrix,
+      students: matrix.students.map((row) => (row.studentId === studentId ? { ...row, performanceValueHundredths: value } : row)),
+    })
+    try {
+      await api('/admin/gradebook/meeting-performance', {
+        method: 'PUT',
+        body: JSON.stringify({ schoolYearId, periodId, studentId, valueHundredths: value }),
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo guardar el rendimiento')
+      void loadMatrix()
+    }
+  }
+
   async function saveConduct(studentId: string, value: number | null) {
     const schoolYearId = matrix?.group.schoolYear.id
     if (!matrix || !schoolYearId) return
@@ -405,6 +462,9 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                   <th scope="col" className="px-2 py-2 text-left font-medium" title={matrix.averageLabel}>
                     Promedio
                   </th>
+                  <th scope="col" className="px-2 py-2 text-left font-medium" title="Lo elige la reunión; el promedio es sólo una referencia">
+                    Rendimiento
+                  </th>
                   <th scope="col" className="px-2 py-2 text-left font-medium" title="La pone adscripción, para todo el liceo">
                     Conducta
                   </th>
@@ -441,6 +501,14 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                       {formatHundredths(row.averageHundredths, matrix.averageDecimals ?? 1)}
                     </td>
                     <td className="px-2 py-1.5 text-gray-700">
+                      <PerformanceCell
+                        row={row}
+                        scale={matrix.performanceScale ?? null}
+                        editable={canEditConduct}
+                        onChange={(value) => void savePerformance(row.studentId, value)}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5 text-gray-700">
                       <ConductCell
                         row={row}
                         levels={conductLevels}
@@ -463,7 +531,8 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
           <p className="text-xs text-gray-500">
             <strong>{matrix.averageLabel}.</strong> Se calcula con el rendimiento (R); una celda con{' '}
             <span className="rounded border border-dashed border-gray-300 px-1">C</span> es la propuesta del
-            docente y todavía no cuenta. No sustituye las decisiones pedagógicas de la reunión de profesores.
+            docente y todavía no cuenta. Es una referencia: el <strong>rendimiento</strong> del alumno lo elige la
+            reunión, y ése es el que va al boletín junto con la conducta y el juicio.
             {matrix.alertSubjectsThreshold != null &&
               ` En alerta: ${matrix.alertSubjectsThreshold} o más asignaturas en el tramo de alerta.`}{' '}
             Las alertas son informativas y no generan por sí solas decisiones administrativas.

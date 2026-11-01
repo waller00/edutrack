@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildReportCard,
-  currentMeetingJudgement,
+  studentMeetingJudgement,
   reportCardColumnLabel,
   reportCardSubject,
   reportCardWindow,
@@ -13,7 +13,7 @@ describe('buildReportCard', () => {
     group: { courseName: '7.º', orientationName: null, schoolYearLabel: '2026' },
     period: { name: '3.ª Entrega', columnLabel: 'Ago-Set', judgementLabel: 'Informe de actuación' },
     subjects: [],
-    meetingJudgement: null,
+    meeting: { conductValueHundredths: null, performanceValueHundredths: null, judgement: null },
   }
 
   it('el total de faltas redondea para abajo: 2 injustificadas y 1 justificada son 2', () => {
@@ -79,7 +79,7 @@ describe('reportCardSubject', () => {
   })
 })
 
-describe('currentMeetingJudgement', () => {
+describe('studentMeetingJudgement', () => {
   const at = (iso: string) => new Date(iso)
 
   it('toma la decisión más reciente sobre el alumno', () => {
@@ -88,19 +88,20 @@ describe('currentMeetingJudgement', () => {
       { studentId: 'st-1', decision: ' Valoramos su cambio de actitud. ', createdAt: at('2026-10-01') },
       { studentId: null, decision: 'Del grupo.', createdAt: at('2026-10-05') },
     ]
-    expect(currentMeetingJudgement(records, 'st-1')).toBe('Valoramos su cambio de actitud.')
+    expect(studentMeetingJudgement(records, 'st-1')).toBe('Valoramos su cambio de actitud.')
   })
 
-  it('sin una propia, vale la del grupo', () => {
+  it('el juicio general del grupo nunca pasa por el del alumno', () => {
+    // Es de la reunión, no de la familia: el boletín no lo imprime aunque el alumno no tenga uno.
     const records = [
       { studentId: 'st-2', decision: 'De otro.', createdAt: at('2026-10-01') },
       { studentId: null, decision: 'Del grupo.', createdAt: at('2026-10-05') },
     ]
-    expect(currentMeetingJudgement(records, 'st-1')).toBe('Del grupo.')
+    expect(studentMeetingJudgement(records, 'st-1')).toBeNull()
   })
 
-  it('sin ninguna, null: la fila queda en blanco', () => {
-    expect(currentMeetingJudgement([], 'st-1')).toBeNull()
+  it('sin ninguno, null: la fila queda en blanco', () => {
+    expect(studentMeetingJudgement([], 'st-1')).toBeNull()
   })
 })
 

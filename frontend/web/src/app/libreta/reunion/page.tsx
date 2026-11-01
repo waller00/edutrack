@@ -11,7 +11,7 @@ export default function Page() {
       <main className="responsive-page max-w-[1800px] space-y-4">
         <ModuleHeader id="teachers-meeting">
           <p className="text-sm text-gray-600">
-            El <strong>juicio de reunión</strong> se carga más abajo, en el panel «Juicio / decisiones de la
+            El <strong>juicio de cada alumno</strong> y el general del grupo se cargan más abajo, en «Juicios de la
             reunión»: no hace falta abrir la ficha del alumno.
           </p>
         </ModuleHeader>

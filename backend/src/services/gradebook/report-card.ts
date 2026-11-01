@@ -9,8 +9,8 @@ import { assessmentPeriodsFor, officialPeriodValue } from './period-closure.js'
  * todas sus asignaturas.
  *
  * Sigue la planilla impresa del liceo: por asignatura C (conducta), R (rendimiento) y el informe de
- * actuación; abajo el juicio de la reunión y las inasistencias. No lleva promedio: ése vive en la
- * matriz y en la planilla de reunión.
+ * actuación; abajo lo que decidió la reunión sobre el alumno (conducta, rendimiento y juicio) y las
+ * inasistencias. No lleva promedio: es un indicador de la matriz, no una nota.
  *
  * Este archivo arma el contenido; el PDF lo dibuja `exports/reportCardPdf.ts`. La separación es la
  * de siempre en el repo: la lógica queda testeable sin generar un binario.
@@ -29,6 +29,16 @@ export type ReportCardSubject = {
 }
 
 /** Las del año hasta `untilYmd` (fin del período que informa); `null`, todo el ciclo. */
+/**
+ * Conducta institucional y rendimiento general (`StudentConductRecord`) y el juicio del alumno.
+ * El juicio general del grupo **no** va: es de la reunión, no de la familia.
+ */
+export type ReportCardMeeting = {
+  conductValueHundredths: number | null
+  performanceValueHundredths: number | null
+  judgement: string | null
+}
+
 export type ReportCardAttendance = AbsenceCounts & { absenceHundredths: number; untilYmd: string | null }
 
 export type ReportCardInput = {
@@ -42,8 +52,8 @@ export type ReportCardInput = {
     judgementLabel: string | null
   }
   subjects: readonly ReportCardSubject[]
-  /** Juicio de la reunión de profesores sobre el alumno: el "Informe reunión" de la planilla. */
-  meetingJudgement: string | null
+  /** La fila "Informe reunión" de la planilla: lo que la reunión decidió sobre el alumno. */
+  meeting: ReportCardMeeting
   attendance: ReportCardAttendance
 }
 
@@ -90,13 +100,11 @@ function newest(rows: readonly MeetingRecordRow[]): MeetingRecordRow | null {
 }
 
 /**
- * Juicio de reunión vigente: la decisión más reciente sobre el alumno o, si no tiene una propia, la
- * del grupo. Es lo mismo que el docente ve como "Juicio Reu." en su cierre.
+ * Juicio de reunión vigente del alumno: su decisión más reciente (las anteriores quedan de historia).
+ * Nunca la del grupo: ese juicio general es de la reunión y no se le imprime a cada familia.
  */
-export function currentMeetingJudgement(records: readonly MeetingRecordRow[], studentId: string): string | null {
-  const pick =
-    newest(records.filter((row) => row.studentId === studentId)) ?? newest(records.filter((row) => row.studentId == null))
-  return pick?.decision.trim() || null
+export function studentMeetingJudgement(records: readonly MeetingRecordRow[], studentId: string): string | null {
+  return newest(records.filter((row) => row.studentId === studentId))?.decision.trim() || null
 }
 
 /** Días civiles YYYY-MM-DD, ambos inclusive. */

@@ -14,12 +14,14 @@ const STUDENTS = [
   { studentId: 's2', firstName: 'Beto', lastName: 'Sosa' },
 ]
 
+const ANA = { id: 's1', firstName: 'Ana', lastName: 'Díaz' }
+
 function setup(rows: unknown[] = []) {
   mockedApi.mockResolvedValue({ data: rows })
-  return render(
-    <MeetingDecisions courseOfferingId="off-1" periodId="p-1" students={STUDENTS} />,
-  )
+  return render(<MeetingDecisions courseOfferingId="off-1" periodId="p-1" students={STUDENTS} />)
 }
+
+const rowOf = (name: string) => screen.getByText(name).closest('li')!
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -27,48 +29,37 @@ beforeEach(() => {
 })
 
 describe('<MeetingDecisions />', () => {
-  it('sin decisiones lo dice en vez de dejar un hueco', async () => {
-    setup()
-    expect(await screen.findByText(/no se registró ninguna decisión/)).toBeInTheDocument()
-  })
-
-  it('lista las decisiones con su autor y sobre quién son', async () => {
+  it('separa el juicio general del grupo del de cada alumno', async () => {
     setup([
-      {
-        id: 'd-1',
-        decision: 'Se cita a la familia.',
-        createdAt: '2026-06-10T12:00:00.000Z',
-        student: { id: 's1', firstName: 'Ana', lastName: 'Díaz' },
-        createdBy: { id: 'u-1', name: 'Adscripción' },
-      },
-      {
-        id: 'd-2',
-        decision: 'El grupo continúa con apoyo en Matemática.',
-        createdAt: '2026-06-10T12:00:00.000Z',
-        student: null,
-        createdBy: null,
-      },
+      { id: 'g', decision: 'El grupo mejoró la convivencia.', createdAt: '2026-06-10T12:00:00.000Z', student: null, createdBy: { id: 'u', name: 'Adscripción' } },
+      { id: 'a', decision: 'Valoramos su cambio de actitud.', createdAt: '2026-06-10T12:00:00.000Z', student: ANA, createdBy: null },
     ])
 
-    // Acotado a la lista: los nombres también son opciones del selector de alta.
-    const item = (await screen.findByText('Se cita a la familia.')).closest('li')!
-    expect(within(item).getByText('Díaz, Ana')).toBeInTheDocument()
-    // Sin estudiante, la decisión es del grupo entero. "Todo el grupo" también es la opción por
-    // defecto del selector, así que se busca dentro de la fila.
-    const grupo = screen.getByText('El grupo continúa con apoyo en Matemática.').closest('li')!
-    expect(within(grupo).getByText('Todo el grupo')).toBeInTheDocument()
-    expect(within(grupo).getByText(/Sin autor/)).toBeInTheDocument()
+    expect(await screen.findByText('El grupo mejoró la convivencia.')).toBeInTheDocument()
+    expect(within(rowOf('Díaz, Ana')).getByText('Valoramos su cambio de actitud.')).toBeInTheDocument()
+    // El del grupo no se le asigna a quien no tiene juicio propio.
+    expect(within(rowOf('Sosa, Beto')).getByText('Sin juicio')).toBeInTheDocument()
+    expect(screen.getByText(/1 de 2 con juicio/)).toBeInTheDocument()
+    // Y se explica qué va al boletín y qué no.
+    expect(screen.getByText(/queda en la reunión: no se imprime/)).toBeInTheDocument()
   })
 
-  it('registra una decisión sobre un estudiante', async () => {
-    setup()
-    await screen.findByText(/no se registró ninguna decisión/)
+  it('muestra sólo el juicio vigente de cada alumno', async () => {
+    setup([
+      { id: 'nueva', decision: 'Se cita a la familia.', createdAt: '2026-06-12T12:00:00.000Z', student: ANA, createdBy: null },
+      { id: 'vieja', decision: 'Continúa con apoyo.', createdAt: '2026-06-10T12:00:00.000Z', student: ANA, createdBy: null },
+    ])
+    expect(await screen.findByText('Se cita a la familia.')).toBeInTheDocument()
+    expect(screen.queryByText('Continúa con apoyo.')).toBeNull()
+  })
 
-    const picker = screen.getByRole('combobox', { name: 'Sobre' })
-    fireEvent.focus(picker)
-    fireEvent.mouseDown(screen.getByRole('option', { name: /SOSA, Beto/ }))
-    fireEvent.change(screen.getByLabelText('Decisión'), { target: { value: 'Se deriva a APE.' } })
-    fireEvent.click(screen.getByRole('button', { name: /Guardar juicio/ }))
+  it('escribe el juicio de un alumno desde su fila', async () => {
+    setup()
+    await screen.findByText(/0 de 2 con juicio/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Escribir el juicio de Sosa, Beto' }))
+    fireEvent.change(screen.getByLabelText('Juicio de Sosa, Beto'), { target: { value: 'Se deriva a APE.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     const [path, init] = mockedApi.mock.calls[1]
@@ -81,65 +72,61 @@ describe('<MeetingDecisions />', () => {
     })
   })
 
-  it('sin estudiante la decisión es del grupo: no manda studentId', async () => {
+  it('el juicio general del grupo no manda studentId', async () => {
     setup()
-    await screen.findByText(/no se registró ninguna decisión/)
+    await screen.findByText(/0 de 2 con juicio/)
 
-    fireEvent.change(screen.getByLabelText('Decisión'), { target: { value: 'Se refuerza convivencia.' } })
-    fireEvent.click(screen.getByRole('button', { name: /Guardar juicio/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Escribir el juicio del grupo' }))
+    fireEvent.change(screen.getByLabelText('Juicio del grupo'), { target: { value: 'Se refuerza convivencia.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     expect(JSON.parse(String(mockedApi.mock.calls[1][1]?.body)).studentId).toBeUndefined()
   })
 
-  it('no manda una decisión vacía', async () => {
-    setup()
-    await screen.findByText(/no se registró ninguna decisión/)
-
-    fireEvent.click(screen.getByRole('button', { name: /Guardar juicio/ }))
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('Escribí la decisión.')
-    expect(mockedApi).toHaveBeenCalledTimes(1)
+  it('cambiar un juicio arranca del vigente', async () => {
+    setup([{ id: 'a', decision: 'Trabaja bien.', createdAt: '2026-06-10T12:00:00.000Z', student: ANA, createdBy: null }])
+    fireEvent.click(await screen.findByRole('button', { name: 'Cambiar el juicio de Díaz, Ana' }))
+    expect(screen.getByLabelText('Juicio de Díaz, Ana')).toHaveValue('Trabaja bien.')
   })
 
-  it('muestra el error del backend', async () => {
+  it('no deja guardar un juicio vacío', async () => {
+    setup()
+    await screen.findByText(/0 de 2 con juicio/)
+    fireEvent.click(screen.getByRole('button', { name: 'Escribir el juicio de Díaz, Ana' }))
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled()
+  })
+
+  it('muestra el error del backend y deja el texto para reintentar', async () => {
     mockedApi.mockResolvedValueOnce({ data: [] }).mockRejectedValueOnce(new Error('Período cerrado'))
     render(<MeetingDecisions courseOfferingId="off-1" periodId="p-1" students={STUDENTS} />)
-    await screen.findByText(/no se registró ninguna decisión/)
+    await screen.findByText(/0 de 2 con juicio/)
 
-    fireEvent.change(screen.getByLabelText('Decisión'), { target: { value: 'Algo' } })
-    fireEvent.click(screen.getByRole('button', { name: /Guardar juicio/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Escribir el juicio de Díaz, Ana' }))
+    fireEvent.change(screen.getByLabelText('Juicio de Díaz, Ana'), { target: { value: 'Algo más' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Período cerrado')
+    expect(screen.getByLabelText('Juicio de Díaz, Ana')).toHaveValue('Algo más')
   })
 
-  it('pide las decisiones del grupo con su orientación', async () => {
+  it('pide los juicios del grupo con su orientación', async () => {
     mockedApi.mockResolvedValue({ data: [] })
     render(<MeetingDecisions courseOfferingId="off-1" courseOrientationId="co-1" periodId="p-1" students={STUDENTS} />)
-    await screen.findByText(/no se registró ninguna decisión/)
+    await screen.findByText(/0 de 2 con juicio/)
     expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/meeting-records?courseOfferingId=off-1&periodId=p-1&courseOrientationId=co-1')
   })
 
-  it('marca cuál decisión es la vigente: la más reciente de cada alumno', async () => {
-    setup([
-      { id: 'nueva', decision: 'Se cita a la familia.', createdAt: '2026-06-12T12:00:00.000Z', student: { id: 's1', firstName: 'Ana', lastName: 'Díaz' }, createdBy: null },
-      { id: 'vieja', decision: 'Continúa con apoyo.', createdAt: '2026-06-10T12:00:00.000Z', student: { id: 's1', firstName: 'Ana', lastName: 'Díaz' }, createdBy: null },
-    ])
-    const nueva = (await screen.findByText('Se cita a la familia.')).closest('li')!
-    expect(within(nueva).getByText(/Vigente/)).toBeInTheDocument()
-    expect(within(screen.getByText('Continúa con apoyo.').closest('li')!).getByText(/Reemplazada/)).toBeInTheDocument()
-  })
-
-  it('sin permiso de control lee pero no registra', async () => {
-    authState.me = { permissions: [{ id: 'gradebook.read', scope: 'all' }, { id: 'gradebook.inspect', scope: 'all' }] }
+  it('sin permiso de control lee pero no escribe', async () => {
+    authState.me = { permissions: [{ id: 'gradebook.read', scope: 'all' }] }
     setup()
-    expect(await screen.findByText(/las registran adscripción y dirección/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Guardar juicio/ })).toBeNull()
+    expect(await screen.findByText(/los registran adscripción y dirección/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Escribir el juicio/ })).toBeNull()
   })
 })
 
-describe('auxiliares de decisiones', () => {
-  it('la vigente es la más reciente por alumno y la del grupo aparte', () => {
+describe('auxiliares de juicios', () => {
+  it('el vigente es el más reciente por alumno y el del grupo aparte', () => {
     const rows = [
       { id: 'g1', decision: 'a', createdAt: '2026-06-01', student: null, createdBy: null },
       { id: 'g2', decision: 'b', createdAt: '2026-06-05', student: null, createdBy: null },

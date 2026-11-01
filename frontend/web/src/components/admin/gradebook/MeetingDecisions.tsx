@@ -1,11 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Plus } from 'lucide-react'
+import { Loader2, Pencil } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
-import StudentCombobox from '@/components/forms/StudentCombobox'
 
 type Decision = {
   id: string
@@ -18,8 +17,8 @@ type Decision = {
 type StudentOption = { studentId: string; firstName: string; lastName: string }
 
 /**
- * La decisión vigente de cada alumno —y la del grupo— es la más reciente: es la que el docente ve
- * como "Juicio Reu." en su cierre. Las anteriores quedan como historia, no se borran.
+ * La decisión vigente de cada alumno —y la del grupo— es la más reciente. Las anteriores quedan
+ * como historia, no se borran.
  */
 export function currentDecisionIds(rows: readonly Decision[]): Set<string> {
   const newest = new Map<string, Decision>()
@@ -37,12 +36,111 @@ export function meetingRecordsPath(courseOfferingId: string, courseOrientationId
   return `/admin/gradebook/meeting-records?${params}`
 }
 
+/** El juicio vigente de cada alumno y el del grupo (clave `null`). */
+function currentByKey(rows: readonly Decision[]): Map<string | null, Decision> {
+  const current = currentDecisionIds(rows)
+  return new Map(rows.filter((row) => current.has(row.id)).map((row) => [row.student?.id ?? null, row]))
+}
+
 /**
- * Decisiones de la reunión de profesores.
+ * Un juicio vigente con su autor y, para quien conduce la reunión, cómo reemplazarlo. Guardar uno
+ * nuevo no borra el anterior: lo sucede.
+ */
+function JudgementEditor({
+  of,
+  current,
+  canWrite,
+  onSave,
+}: {
+  /** Sobre quién es, con su preposición: rotula los controles ("del grupo", "de Díaz, Ana"). */
+  of: string
+  current: Decision | undefined
+  canWrite: boolean
+  onSave: (text: string) => Promise<boolean>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  function start() {
+    setDraft(current?.decision ?? '')
+    setEditing(true)
+  }
+
+  async function save() {
+    setSaving(true)
+    const ok = await onSave(draft)
+    setSaving(false)
+    if (ok) setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div className="space-y-2">
+        <textarea
+          aria-label={`Juicio ${of}`}
+          className="input-field min-h-[64px] w-full text-sm"
+          value={draft}
+          maxLength={2000}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving || draft.trim().length < 3}
+            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+            Guardar
+          </button>
+          <button type="button" onClick={() => setEditing(false)} disabled={saving} className="btn-secondary text-sm">
+            Cancelar
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        {current ? (
+          <>
+            <p className="whitespace-pre-line text-sm text-gray-900">{current.decision}</p>
+            <p className="text-[11px] text-gray-500">
+              {current.createdBy?.name ?? 'Sin autor'} · {current.createdAt.slice(0, 10)}
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-gray-400">Sin juicio</p>
+        )}
+      </div>
+      {canWrite && (
+        <button
+          type="button"
+          onClick={start}
+          aria-label={current ? `Cambiar el juicio ${of}` : `Escribir el juicio ${of}`}
+          className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-700 hover:underline"
+        >
+          <Pencil className="h-3 w-3" aria-hidden />
+          {current ? 'Cambiar' : 'Escribir'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Juicios de la reunión de profesores, en dos partes que no se mezclan:
  *
- * Sin estudiante, la decisión es del grupo entero —su orientación, no todo el curso—. El pliego
- * pide registrar "cuando corresponda", sin tipificar, así que el texto es libre a propósito.
- * Registrarlas es de adscripción y dirección (`gradebook.review`); el resto las lee.
+ * - el **general del grupo** (su orientación, no todo el curso): queda en la reunión y no se
+ *   imprime;
+ * - el **de cada alumno**, que se escribe alumno por alumno durante la reunión: va a su boletín
+ *   como «Informe reunión» y el docente lo ve en su cierre como «Juicio Reu.».
+ *
+ * Los escriben adscripción y dirección (`gradebook.review`); el resto los lee.
  */
 export default function MeetingDecisions({
   courseOfferingId,
@@ -58,10 +156,7 @@ export default function MeetingDecisions({
   const auth = useOptionalAuth()
   const canWrite = hasPermission(auth?.me, 'gradebook.review', 'all')
   const [rows, setRows] = useState<Decision[]>([])
-  const [studentId, setStudentId] = useState('')
-  const [text, setText] = useState('')
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -70,7 +165,7 @@ export default function MeetingDecisions({
       const res = await api<{ data: Decision[] }>(meetingRecordsPath(courseOfferingId, courseOrientationId, periodId))
       setRows(res.data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudieron cargar las decisiones')
+      setError(err instanceof Error ? err.message : 'No se pudieron cargar los juicios')
     } finally {
       setLoading(false)
     }
@@ -80,12 +175,8 @@ export default function MeetingDecisions({
     void load()
   }, [load])
 
-  async function add() {
-    if (text.trim().length < 3) {
-      setError('Escribí la decisión.')
-      return
-    }
-    setSaving(true)
+  /** `studentId` null es el juicio general del grupo. */
+  async function save(studentId: string | null, text: string): Promise<boolean> {
     setError(null)
     try {
       await api('/admin/gradebook/meeting-records', {
@@ -94,33 +185,32 @@ export default function MeetingDecisions({
           courseOfferingId,
           courseOrientationId: courseOrientationId ?? undefined,
           periodId,
-          studentId: studentId || undefined,
+          studentId: studentId ?? undefined,
           decision: text.trim(),
         }),
       })
-      setText('')
-      setStudentId('')
       await load()
+      return true
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar la decisión')
-    } finally {
-      setSaving(false)
+      setError(err instanceof Error ? err.message : 'No se pudo guardar el juicio')
+      return false
     }
   }
 
-  const current = currentDecisionIds(rows)
+  const current = currentByKey(rows)
+  const withJudgement = students.filter((s) => current.has(s.studentId)).length
 
   return (
     <section
       id="decisiones-reunion"
-      className="scroll-mt-4 space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4"
+      className="scroll-mt-4 space-y-4 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4"
     >
       <div>
-        <h3 className="text-sm font-semibold text-gray-900">Juicio / decisiones de la reunión</h3>
+        <h3 className="text-sm font-semibold text-gray-900">Juicios de la reunión</h3>
         <p className="text-xs text-gray-600">
-          La decisión vigente de cada alumno —o la del grupo si el alumno no tiene una propia— se imprime en su
-          boletín como <strong>Informe reunión</strong>, y el docente la ve en su cierre como{' '}
-          <strong>Juicio Reu.</strong> Una decisión nueva reemplaza a la anterior sin borrarla.
+          El <strong>juicio de cada alumno</strong> va a su boletín como «Informe reunión» y el docente lo ve en su
+          cierre. El <strong>juicio general del grupo</strong> queda en la reunión: no se imprime. Cambiar un juicio
+          no borra el anterior.
         </p>
       </div>
 
@@ -130,73 +220,53 @@ export default function MeetingDecisions({
         </p>
       )}
 
-      {loading && (
+      {loading ? (
         <p className="flex items-center gap-2 text-sm text-gray-500">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          Cargando decisiones…
+          Cargando juicios…
         </p>
-      )}
-      {!loading && rows.length === 0 && (
-        <p className="text-sm text-gray-500">Todavía no se registró ninguna decisión en este período.</p>
-      )}
-      {!loading && rows.length > 0 && (
-        <ul className="space-y-2">
-          {rows.map((row) => {
-            const isCurrent = current.has(row.id)
-            return (
-              <li
-                key={row.id}
-                className={`rounded-lg border px-3 py-2 ${isCurrent ? 'border-gray-100 bg-gray-50' : 'border-dashed border-gray-200 bg-white opacity-75'}`}
-              >
-                <p className="text-xs font-medium text-gray-600">
-                  {row.student ? `${row.student.lastName}, ${row.student.firstName}` : 'Todo el grupo'}
-                  <span className="ml-2 font-normal text-gray-500">{isCurrent ? '· Vigente' : '· Reemplazada'}</span>
-                </p>
-                <p className="whitespace-pre-line text-sm text-gray-900">{row.decision}</p>
-                <p className="text-[11px] text-gray-500">
-                  {row.createdBy?.name ?? 'Sin autor'} · {row.createdAt.slice(0, 10)}
-                </p>
-              </li>
-            )
-          })}
-        </ul>
+      ) : (
+        <>
+          <div className="space-y-1.5 rounded-lg border border-gray-100 bg-white p-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Juicio general del grupo</h4>
+            <JudgementEditor
+              of="del grupo"
+              current={current.get(null)}
+              canWrite={canWrite}
+              onSave={(text) => save(null, text)}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Juicio de cada alumno{' '}
+              <span className="font-normal normal-case tracking-normal text-gray-500">
+                · {withJudgement} de {students.length} con juicio
+              </span>
+            </h4>
+            <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100 bg-white">
+              {students.map((student) => {
+                const name = `${student.lastName}, ${student.firstName}`
+                return (
+                  <li key={student.studentId} className="grid gap-1 px-3 py-2 sm:grid-cols-[200px_1fr] sm:gap-3">
+                    <span className="text-sm font-medium text-gray-700">{name}</span>
+                    <JudgementEditor
+                      of={`de ${name}`}
+                      current={current.get(student.studentId)}
+                      canWrite={canWrite}
+                      onSave={(text) => save(student.studentId, text)}
+                    />
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        </>
       )}
 
-      {canWrite ? (
-        <div className="grid gap-2 border-t border-gray-100 pt-3 sm:grid-cols-[220px_1fr_auto]">
-          <StudentCombobox
-            className="text-sm"
-            label="Sobre"
-            students={students}
-            value={studentId || null}
-            allLabel="Todo el grupo"
-            onChange={(id) => setStudentId(id ?? '')}
-          />
-          <label className="text-sm">
-            <span className="mb-1 block text-xs text-gray-600">Decisión</span>
-            <textarea
-              className="input-field min-h-[64px] w-full"
-              value={text}
-              maxLength={2000}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Ej.: Reconocemos logros…; se cita a la familia; continúa con apoyo…"
-            />
-          </label>
-          <div className="flex items-end">
-            <button
-              type="button"
-              onClick={() => void add()}
-              disabled={saving}
-              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-            >
-              <Plus className="h-4 w-4" aria-hidden />
-              Guardar juicio
-            </button>
-          </div>
-        </div>
-      ) : (
+      {!canWrite && (
         <p className="border-t border-gray-100 pt-3 text-xs text-gray-500">
-          Las decisiones las registran adscripción y dirección.
+          Los juicios los registran adscripción y dirección.
         </p>
       )}
     </section>

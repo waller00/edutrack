@@ -855,6 +855,69 @@ describe('conducta institucional', () => {
   })
 })
 
+describe('rendimiento de la reunión', () => {
+  const SY_ID = '11111111-1111-4111-8111-111111111111'
+  const P_ID = '22222222-2222-4222-8222-222222222222'
+  const S_ID = '33333333-3333-4333-8333-333333333333'
+  const put = (valueHundredths: number | null, role = 'ADMIN') =>
+    request(app())
+      .put('/admin/gradebook/meeting-performance')
+      .set('Authorization', `Bearer ${tok(role)}`)
+      .send({ schoolYearId: SY_ID, periodId: P_ID, studentId: S_ID, valueHundredths })
+
+  beforeEach(() => {
+    prismaMock.studentConductRecord.upsert.mockResolvedValue({ id: 'c-1' })
+    prismaMock.academicPeriod.findFirst.mockResolvedValue({ id: P_ID, level: 'EMS' })
+    prismaMock.gradingScale.findFirst.mockResolvedValue({ levels: LEVELS, minValueHundredths: 100, maxValueHundredths: 1200 })
+  })
+
+  it('guarda el rendimiento que elige la reunión sin tocar la conducta', async () => {
+    const res = await put(1100)
+
+    expect(res.status).toBe(200)
+    const call = prismaMock.studentConductRecord.upsert.mock.calls[0][0]
+    expect(call.where.studentId_periodId).toEqual({ studentId: S_ID, periodId: P_ID })
+    expect(call.update).toEqual({ performanceValueHundredths: 1100, updatedByUserId: 'a-1' })
+    expect(call.create).toMatchObject({ schoolYearId: SY_ID, periodId: P_ID, performanceValueHundredths: 1100 })
+  })
+
+  it('usa la escala del nivel del período', async () => {
+    await put(800)
+    expect(prismaMock.gradingScale.findFirst.mock.calls[0][0].where).toEqual({ code: 'NUMERICA_1_12' })
+  })
+
+  it.each([1300, 0, 750])('rechaza %i: fuera de la escala o con decimales', async (value) => {
+    const res = await put(value)
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('PERFORMANCE_OUT_OF_SCALE')
+    expect(prismaMock.studentConductRecord.upsert).not.toHaveBeenCalled()
+  })
+
+  it('borrarlo (null) siempre vale', async () => {
+    const res = await put(null)
+    expect(res.status).toBe(200)
+    expect(prismaMock.studentConductRecord.upsert.mock.calls[0][0].update.performanceValueHundredths).toBeNull()
+  })
+
+  it('el período tiene que ser del ciclo indicado', async () => {
+    prismaMock.academicPeriod.findFirst.mockResolvedValue(null)
+    const res = await put(800)
+    expect(res.status).toBe(404)
+    expect(prismaMock.studentConductRecord.upsert).not.toHaveBeenCalled()
+  })
+
+  it('lo elige quien conduce la reunión, no el docente', async () => {
+    const res = await put(800, 'TEACHER')
+    expect(res.status).toBe(403)
+  })
+
+  it('500 en JSON si falla la base', async () => {
+    prismaMock.studentConductRecord.upsert.mockRejectedValue(new Error('db down'))
+    const res = await put(800)
+    expect(res.status).toBe(500)
+  })
+})
+
 describe('la matriz sirve para la reunión', () => {
   const matrixUrl = `/admin/gradebook/group-matrix?courseOfferingId=${OFFERING_ID}&periodId=${PERIOD_ID}`
 
@@ -864,18 +927,22 @@ describe('la matriz sirve para la reunión', () => {
       { studentId: STUDENT_ID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
     ])
     prismaMock.studentConductRecord.findMany.mockResolvedValue([
-      { studentId: STUDENT_ID, valueHundredths: 300 },
+      { studentId: STUDENT_ID, valueHundredths: 300, performanceValueHundredths: 700 },
     ])
     prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([
       { studentId: STUDENT_ID, status: 'ABSENT', absenceWeightHundredths: null, session: { occurrenceYmd: '2026-05-04' } },
       { studentId: STUDENT_ID, status: 'ABSENT', absenceWeightHundredths: 50, session: { occurrenceYmd: '2026-05-05' } },
     ])
+    prismaMock.gradingScale.findFirst.mockResolvedValue({ levels: LEVELS, minValueHundredths: 100, maxValueHundredths: 1200 })
 
     const res = await request(app()).get(matrixUrl).set('Authorization', `Bearer ${tok()}`)
 
     expect(res.status).toBe(200)
     const row = res.body.students[0]
     expect(row.conductValueHundredths).toBe(300)
+    // El rendimiento lo eligió la reunión; el promedio queda aparte, como referencia.
+    expect(row.performanceValueHundredths).toBe(700)
+    expect(res.body.performanceScale).toEqual({ minValueHundredths: 100, maxValueHundredths: 1200 })
     // 1 + 0,5 = 1,5 faltas
     expect(row.absenceHundredths).toBe(150)
   })
@@ -988,7 +1055,7 @@ describe('boletín', () => {
     expect(prismaMock.teacherMeetingRecord.findMany.mock.calls[0][0].where).toEqual({
       courseOfferingId: OFFERING_ID,
       periodId: P_ID,
-      OR: [{ studentId: { in: [ST_ID] } }, { studentId: null, courseOrientationId: null }],
+      studentId: { in: [ST_ID] },
     })
     // Acumuladas en el año, cortadas en el fin del semestre: reimprimirlo da lo mismo.
     expect(prismaMock.studentAttendanceEntry.findMany.mock.calls[0][0].where.session).toEqual({

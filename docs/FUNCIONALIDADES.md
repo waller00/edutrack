@@ -560,16 +560,20 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
   código): un cambio en Configuración llega a la reunión y al boletín. Adscripción y Dirección
   (`gradebook.review`) cargan la institucional en la columna Conducta de la matriz de reunión; el
   servidor sólo acepta valores de la escala y un período del ciclo indicado.
-- **Reunión (`/libreta/reunion`):** la matriz del grupo con rendimiento, conducta e inasistencias en
-  la misma fila, el promedio con **un decimal** —hace falta para escolaridad y abanderados— y el
-  registro de decisiones sobre `TeacherMeetingRecord`. Grupo y período quedan en la URL
+- **Reunión (`/libreta/reunion`):** la matriz del grupo con las notas de cada materia, el promedio
+  con **un decimal** —hace falta para escolaridad y abanderados—, el **rendimiento** y la conducta
+  de la reunión, e inasistencias en la misma fila, y los juicios sobre `TeacherMeetingRecord`. El
+  **rendimiento** lo elige la reunión con la escala del nivel (1–10 EBI, 1–12 EMS; columna
+  "Rendimiento", `PUT /admin/gradebook/meeting-performance`, `gradebook.review`): el promedio es un
+  indicador para ayudar a decidirlo y nunca lo llena solo. Grupo y período quedan en la URL
   (`?grupo=&periodo=`): la ficha del alumno vuelve a la misma reunión y el enlace se puede
   compartir.
-- **Decisiones de reunión:** son del grupo **con su orientación**; antes las de 5.º Científico
-  aparecían en 5.º Humanístico, también en el "Juicio Reu." del docente, que ahora toma la decisión
-  del alumno o la del grupo de *su* orientación. Las registran adscripción y dirección
-  (`gradebook.review`); el resto las lee. Una decisión nueva sucede a la anterior sin borrarla, y
-  la pantalla marca cuál está vigente (la que ve el docente).
+- **Juicios de la reunión:** dos, que no se mezclan. El **general del grupo** (de su orientación)
+  queda en la reunión y no se imprime. El **de cada alumno** se escribe alumno por alumno en la
+  lista de la reunión, va a su boletín como «Informe reunión» y el docente lo ve en su cierre como
+  "Juicio Reu."; el del grupo nunca hace de respaldo de un alumno sin juicio. Los registran
+  adscripción y dirección (`gradebook.review`); el resto los lee. Uno nuevo sucede al anterior sin
+  borrarlo y la pantalla muestra el vigente.
 - **Boletín (`GET /admin/gradebook/report-card/:studentId?periodId=`):** PDF por estudiante y
   período con la forma de la planilla impresa del liceo (A4 apaisado, una hoja): por cada
   asignatura **C** (conducta), **R** (rendimiento) y el informe de actuación; abajo el **informe de
@@ -578,9 +582,9 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
   exportaciones son por libreta, o sea de una materia.
   - **Sólo lo cerrado:** C, R e informe salen del cierre del docente. Una libreta abierta o
     reabierta en ese período imprime la materia como *Pendiente* (`reportCardSubject`).
-  - **Informe de reunión:** la decisión vigente del alumno en la matriz de reunión o, sin una
-    propia, la del grupo (la misma que ve el docente como "Juicio Reu."). Sin ninguna, la fila sale
-    en blanco.
+  - **Informe de reunión:** lo que la reunión decidió sobre el alumno. En su **C** la conducta
+    institucional y en su **R** el rendimiento general que eligió la reunión; al lado, su juicio
+    vigente. El juicio general del grupo no va. Lo que falte sale en blanco, para completar a mano.
   - **Inasistencias acumuladas del año**, hasta el último día de los tramos que informa la reunión
     (una entrega de EBI, los suyos; un semestre de EMS, él mismo): el límite reglamentario es por
     grado (30 fictas), y cortar en el fin del período hace que reimprimir un boletín dé lo mismo. El
@@ -589,7 +593,7 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
     2 I y 1 J (2,5) son 2, 2 I y 2 J son 3. Si hay llegadas tarde, el rótulo del total las menciona.
   - **Encabezado:** logo y nombre de la institución, que se cargan en Configuración → Institución
     (`/admin/institution`, `settings.manage`; PNG o JPEG de hasta 1 MB). Sin ninguno, "BOLETÍN".
-  - No lleva promedio ni la conducta institucional: viven en la matriz y en la planilla de reunión.
+  - No lleva promedio: es un indicador de la matriz y la planilla de reunión, no una nota.
   El grupo sale de la matrícula del **ciclo del período** (la activa, o la última de ese año si el
   estudiante ya se fue), no de la de hoy, y un período de otro nivel responde `LEVEL_MISMATCH`.
   **Boletines del grupo** (`GET /admin/gradebook/report-cards`): un solo PDF, una hoja por

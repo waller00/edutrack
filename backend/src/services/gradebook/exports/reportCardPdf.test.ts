@@ -11,13 +11,13 @@ const subject = (over: Partial<ReportCardSubject> = {}): ReportCardSubject => ({
   ...over,
 })
 
-const card = (subjects: ReportCardSubject[], meetingJudgement: string | null = 'Valoramos su cambio de actitud.') =>
+const card = (subjects: ReportCardSubject[], judgement: string | null = 'Valoramos su cambio de actitud.') =>
   buildReportCard({
     student: { firstName: 'Orazio', lastName: 'Liesegang Rodríguez' },
     group: { courseName: '7.º', orientationName: null, schoolYearLabel: '2026' },
     period: { name: '3.ª Entrega (3.ª Reunión)', columnLabel: 'Ago-Set', judgementLabel: 'Informe de actuación' },
     subjects,
-    meetingJudgement,
+    meeting: { conductValueHundredths: 700, performanceValueHundredths: judgement ? 800 : null, judgement },
     attendance: { absenceHundredths: 300, justified: 1, unjustified: 2, lates: 1, untilYmd: '2026-09-30' },
   })
 

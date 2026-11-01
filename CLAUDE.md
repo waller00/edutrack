@@ -374,8 +374,11 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 
 > **El boletín imprime sólo lo cerrado** (`services/gradebook/report-card.ts`, PDF en
 > `exports/reportCardPdf.ts` con la forma de la planilla del liceo). C, R e informe salen del cierre
-> del docente: una libreta abierta o reabierta en ese período sale *Pendiente*. El informe de
-> reunión es la decisión vigente de `TeacherMeetingRecord` (la del alumno o, si no, la del grupo).
+> del docente: una libreta abierta o reabierta en ese período sale *Pendiente*. La fila "Informe
+> reunión" lleva lo que decidió la reunión sobre el alumno: conducta y **rendimiento general** en sus
+> C y R (`StudentConductRecord`; el rendimiento lo elige la reunión, el promedio sólo ayuda) y su
+> juicio vigente (`TeacherMeetingRecord` con `studentId`). **El juicio general del grupo nunca va al
+> boletín** ni al "Juicio Reu." del docente: es de la reunión, no se usa de respaldo del alumno.
 > Las faltas son las **acumuladas del año** hasta el fin del período (el límite reglamentario es por
 > grado; cortar ahí hace que reimprimir dé lo mismo), y el total son las fictas **redondeadas para
 > abajo** (`wholeAbsences`): no sumar ni redondear a mano. Nombre y logo de la institución salen de

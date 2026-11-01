@@ -2252,7 +2252,7 @@ describe('cierre por alumno', () => {
     expect(res.body.periods[0]).toHaveProperty('closedAt')
   })
 
-  it('GET /students/:id/closure: el juicio de grupo es el de la orientación del alumno', async () => {
+  it('GET /students/:id/closure: el juicio de reunión es sólo el del alumno, nunca el del grupo', async () => {
     prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
     rosterMock.mockResolvedValue([
       { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
@@ -2260,16 +2260,15 @@ describe('cierre por alumno', () => {
     prismaMock.academicPeriod.findMany.mockResolvedValue([])
     prismaMock.gradeBookPeriod.findMany.mockResolvedValue([])
     prismaMock.assessment.findMany.mockResolvedValue([])
-    prismaMock.studentEnrollment.findFirst.mockResolvedValue({ courseOrientationId: 'co-cientifico' })
 
     await request(app())
       .get(`/gradebook/${GB_ID}/students/${SID}/closure`)
       .set('Authorization', `Bearer ${tok()}`)
 
-    // Una libreta de tronco común la cursan varias orientaciones: "todo el grupo" es el del alumno.
+    // El juicio general del grupo es de la reunión: no se le muestra al docente como del alumno.
     expect(prismaMock.teacherMeetingRecord.findMany.mock.calls[0][0].where).toEqual({
       courseOfferingId: 'off-1',
-      OR: [{ studentId: SID }, { studentId: null, courseOrientationId: 'co-cientifico' }],
+      studentId: SID,
     })
   })
 

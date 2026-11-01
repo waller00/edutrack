@@ -1161,6 +1161,10 @@ model StudentEnrollment {
 /// Convive con la conducta por asignatura de `PeriodGrade`: el liceo usa las dos. La del docente
 /// mira cómo se comporta en su clase; ésta mira al estudiante en el liceo, y es la que adscripción
 /// lleva a la reunión. Por eso vive acá y no en la libreta, que es por materia.
+///
+/// La fila es "lo que la reunión le pone al alumno en el período": además de la conducta guarda el
+/// rendimiento general (`performanceValueHundredths`). Los dos van al boletín, en la fila del
+/// informe de reunión.
 model StudentConductRecord {
   id           String     @id @default(uuid())
   studentId    String
@@ -1172,6 +1176,9 @@ model StudentConductRecord {
 
   valueHundredths Int?
   notes           String? @db.Text
+  /// Rendimiento general que decide la reunión, con la escala del nivel (1–10 EBI, 1–12 EMS). Lo
+  /// elige la reunión: el promedio de las materias es sólo una referencia y nunca lo llena solo.
+  performanceValueHundredths Int?
 
   updatedByUserId String?
   updatedBy       User?    @relation("ConductUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)

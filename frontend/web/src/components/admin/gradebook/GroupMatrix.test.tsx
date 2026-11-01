@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import GroupMatrix, { conductText, isReportCardPeriod, reportCardsPath } from './GroupMatrix'
 import { api } from '@/lib/api/client'
@@ -132,6 +132,34 @@ describe('<GroupMatrix />', () => {
       }),
     )
     expect(screen.getByLabelText('Conducta de Díaz, Ana')).toHaveValue('400')
+  })
+
+  it('la reunión elige el rendimiento con la escala del nivel; el promedio no lo llena', async () => {
+    authState.me = grant('gradebook.read', 'gradebook.review')
+    respond(matrix({ performanceScale: { minValueHundredths: 100, maxValueHundredths: 1200 } }))
+    await openMatrix()
+
+    const select = screen.getByLabelText('Rendimiento de Díaz, Ana')
+    // Promedio 8, pero el rendimiento sigue vacío hasta que lo elija la reunión.
+    expect(select).toHaveValue('')
+    // Bachillerato: la escala llega hasta 12.
+    expect(within(select).getByRole('option', { name: '12' })).toBeInTheDocument()
+
+    fireEvent.change(select, { target: { value: '700' } })
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/meeting-performance', {
+        method: 'PUT',
+        body: JSON.stringify({ schoolYearId: 'sy-1', periodId: 'p-1', studentId: 'st-1', valueHundredths: 700 }),
+      }),
+    )
+    expect(select).toHaveValue('700')
+  })
+
+  it('sin permiso de control, el rendimiento se lee', async () => {
+    respond(matrix({ students: [{ ...matrix().students[0], performanceValueHundredths: 900 }] }))
+    await openMatrix()
+    expect(screen.queryByLabelText('Rendimiento de Díaz, Ana')).toBeNull()
+    expect(screen.getByText('9')).toBeInTheDocument()
   })
 
   it('con permiso de exportar ofrece el boletín por alumno y el del grupo', async () => {

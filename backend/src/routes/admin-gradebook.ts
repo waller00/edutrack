@@ -23,7 +23,7 @@ import {
   resolveGradeBookRecipients,
 } from '../services/gradebook/notifications.js'
 import { SECTION_LABELS } from '../services/gradebook/endorsement.js'
-import { isReportCardPeriod, officialPeriodValue } from '../services/gradebook/period-closure.js'
+import { isOutOfScale, isReportCardPeriod, officialPeriodValue } from '../services/gradebook/period-closure.js'
 import { userPermissionScope } from '../middlewares/auth.js'
 import {
   assertCanTransition,
@@ -214,16 +214,14 @@ r.get('/group-matrix', async (req: any, res) => {
     // viven en la libreta —son del estudiante, no de la materia— así que se traen acá.
     const studentIds = students.map((s) => s.studentId)
     const [conductRows, absenceByStudent, conduct] = await Promise.all([
-      (prisma as any).studentConductRecord.findMany({
+      prisma.studentConductRecord.findMany({
         where: { periodId: parsed.data.periodId, studentId: { in: studentIds } },
-        select: { studentId: true, valueHundredths: true },
+        select: { studentId: true, valueHundredths: true, performanceValueHundredths: true },
       }),
       loadAbsenceTotals(studentIds, offering.schoolYear.id, offering.course?.level),
       conductScale(),
     ])
-    const conductByStudent = new Map<string, number | null>(
-      conductRows.map((row: any) => [row.studentId, row.valueHundredths ?? null]),
-    )
+    const meetingByStudent = new Map(conductRows.map((row) => [row.studentId, row]))
 
     const rows = students.map((student) => {
       const cells: MatrixCell[] = books.map((book) => {
@@ -252,7 +250,9 @@ r.get('/group-matrix', async (req: any, res) => {
         ...row,
         atRisk: isAtRisk(row, { alertSubjectsThreshold: riskThreshold }),
         /** Conducta institucional del período: la pone adscripción, no el docente. */
-        conductValueHundredths: conductByStudent.get(student.studentId) ?? null,
+        conductValueHundredths: meetingByStudent.get(student.studentId)?.valueHundredths ?? null,
+        /** Rendimiento general que eligió la reunión. El promedio es sólo su referencia. */
+        performanceValueHundredths: meetingByStudent.get(student.studentId)?.performanceValueHundredths ?? null,
         /** Faltas del ciclo en todo el liceo, en centésimos (150 = una falta y media). */
         absenceHundredths: absenceByStudent.get(student.studentId)?.absenceHundredths ?? 0,
       }
@@ -283,6 +283,10 @@ r.get('/group-matrix', async (req: any, res) => {
       alertSubjectsThreshold: Number.isFinite(riskThreshold) ? riskThreshold : null,
       /** Tramos de la escala de conducta: rotulan la columna y son las opciones al cargarla. */
       conductLevels: conductOptions(conduct?.levels ?? []),
+      /** Rango del rendimiento de la reunión: la escala del nivel (1–10 EBI, 1–12 EMS). */
+      performanceScale: scale
+        ? { minValueHundredths: scale.minValueHundredths, maxValueHundredths: scale.maxValueHundredths }
+        : null,
     })
   } catch (error) {
     console.error('[admin-gradebook] group-matrix:', error)
@@ -870,6 +874,55 @@ r.put('/conduct', requirePermission('gradebook.review', 'all'), async (req: any,
     return res.json({ ok: true, saved: d.entries.length })
   } catch (error) {
     console.error('[admin-gradebook] conduct PUT:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+// ─── Rendimiento de la reunión ──────────────────────────────────────────────
+
+const performanceSchema = z.object({
+  schoolYearId: z.string().uuid(),
+  periodId: z.string().uuid(),
+  studentId: z.string().uuid(),
+  valueHundredths: z.number().int().nullable(),
+})
+
+/**
+ * El rendimiento general que la reunión le pone a cada alumno, con la escala de su nivel. Lo elige
+ * la reunión: el promedio de las materias es un indicador para ayudar, no la nota. Toca sólo esta
+ * columna de la fila, así no pisa la conducta que adscripción cargó en la misma fila.
+ */
+r.put('/meeting-performance', requirePermission('gradebook.review', 'all'), async (req: any, res) => {
+  const parsed = performanceSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+  try {
+    const d = parsed.data
+    const period = await prisma.academicPeriod.findFirst({
+      where: { id: d.periodId, schoolYearId: d.schoolYearId },
+      select: { id: true, level: true },
+    })
+    if (!period) return res.status(404).json({ message: 'El período no es de ese ciclo', code: 'PERIOD_NOT_FOUND' })
+    const scale = await periodScaleFor(period.level)
+    // Notas enteras de la escala del nivel, como la R de cada materia.
+    if (d.valueHundredths != null && (d.valueHundredths % 100 !== 0 || isOutOfScale(d.valueHundredths, scale))) {
+      return res.status(400).json({ message: 'El rendimiento tiene que ser una nota entera de la escala del nivel.', code: 'PERFORMANCE_OUT_OF_SCALE' })
+    }
+
+    const updatedByUserId = req.user?.id ?? req.user?.sub ?? null
+    await prisma.studentConductRecord.upsert({
+      where: { studentId_periodId: { studentId: d.studentId, periodId: d.periodId } },
+      update: { performanceValueHundredths: d.valueHundredths, updatedByUserId },
+      create: {
+        studentId: d.studentId,
+        schoolYearId: d.schoolYearId,
+        periodId: d.periodId,
+        performanceValueHundredths: d.valueHundredths,
+        updatedByUserId,
+      },
+    })
+    return res.json({ ok: true })
+  } catch (error) {
+    console.error('[admin-gradebook] meeting performance PUT:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

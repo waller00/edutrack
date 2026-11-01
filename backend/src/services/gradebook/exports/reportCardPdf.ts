@@ -6,9 +6,9 @@ import type { ReportCard, ReportCardSubject } from '../report-card.js'
  * Boletín del período, en PDF: la planilla que el liceo imprime y le entrega a la familia.
  *
  * Copia su forma —A4 apaisado, una hoja por alumno—: por asignatura C, R y el informe de actuación;
- * abajo el informe de la reunión, las inasistencias (J, I y el total) y los lugares de la fecha y
- * las firmas, que se completan a mano. Sellos y firmas no se imprimen. Arriba a la izquierda, el logo
- * y el nombre de la institución que se cargan en Configuración.
+ * abajo el informe de la reunión (con su C y su R), las inasistencias (J, I y el total) y los
+ * lugares de la fecha y las firmas, que se completan a mano. Sellos y firmas no se imprimen. Arriba
+ * a la izquierda, el logo y el nombre de la institución que se cargan en Configuración.
  *
  * Se dibuja como tabla con posiciones fijas, sin márgenes de pdfkit: así ningún texto dispara un
  * salto de página por su cuenta y cada boletín decide dónde se corta.
@@ -28,8 +28,6 @@ const X_C = LEFT + SUBJECT_W
 const X_R = X_C + GRADE_W
 const X_INFORME = X_R + GRADE_W
 const INFORME_W = LEFT + WIDTH - X_INFORME
-/** C, R e informe juntos: el ancho del informe de la reunión. */
-const MEETING_W = 2 * GRADE_W + INFORME_W
 
 const HEADER_H = 50
 const GROUP_LABEL_W = 56
@@ -214,14 +212,21 @@ function subjectRow(doc: Doc, subject: ReportCardSubject, y: number, height: num
 }
 
 function meetingRowHeight(doc: Doc, card: ReportCard, size: number): number {
-  if (!card.meetingJudgement) return MIN_MEETING_H
-  return Math.max(MIN_MEETING_H, textHeight(doc, card.meetingJudgement, MEETING_W, label(size + 1.5)) + 4 * PAD_Y)
+  const { judgement } = card.meeting
+  if (!judgement) return MIN_MEETING_H
+  return Math.max(MIN_MEETING_H, textHeight(doc, judgement, INFORME_W, label(size + 1.5)) + 4 * PAD_Y)
 }
 
-/** Sin juicio cargado la fila queda en blanco: se puede completar a mano. */
+/**
+ * Lo que la reunión decidió sobre el alumno: conducta (C) y rendimiento general (R) en sus columnas,
+ * y su juicio al lado. Lo que no se cargó queda en blanco: se puede completar a mano.
+ */
 function meetingRow(doc: Doc, card: ReportCard, y: number, height: number, size: number) {
+  const { conductValueHundredths, performanceValueHundredths, judgement } = card.meeting
   box(doc, LEFT, y, SUBJECT_W, height, 'INFORME REUNIÓN', label(9), HEAD_FILL)
-  box(doc, X_C, y, MEETING_W, height, card.meetingJudgement ?? '', label(size + 1.5))
+  box(doc, X_C, y, GRADE_W, height, gradeText(conductValueHundredths), label(size + 2))
+  box(doc, X_R, y, GRADE_W, height, gradeText(performanceValueHundredths), label(size + 2))
+  box(doc, X_INFORME, y, INFORME_W, height, judgement ?? '', label(size + 1.5))
 }
 
 /** Las tardes suman media falta: si las hay, el rótulo lo dice para que el total cierre. */

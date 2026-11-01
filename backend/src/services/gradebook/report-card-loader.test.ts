@@ -9,6 +9,7 @@ const { prismaMock, absencesMock } = vi.hoisted(() => ({
     gradeBookPeriod: { findMany: vi.fn() },
     academicPeriod: { findMany: vi.fn() },
     teacherMeetingRecord: { findMany: vi.fn() },
+    studentConductRecord: { findMany: vi.fn() },
   },
   absencesMock: vi.fn(),
 }))
@@ -65,8 +66,10 @@ describe('loadReportCards', () => {
       { gradeBookId: 'gb-hist', status: 'OPEN', grades: [{ studentId: 'st-1', meetingValueHundredths: 700 }] },
     ])
     prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([
-      { studentId: null, decision: 'Del grupo.', createdAt: new Date('2026-10-01') },
       { studentId: 'st-1', decision: 'Valoramos su cambio de actitud.', createdAt: new Date('2026-10-02') },
+    ])
+    prismaMock.studentConductRecord.findMany.mockResolvedValue([
+      { studentId: 'st-1', valueHundredths: 700, performanceValueHundredths: 800 },
     ])
     absencesMock.mockResolvedValue(
       new Map([['st-1', { absenceHundredths: 250, justified: 1, lates: 0, counts: { justified: 1, unjustified: 2, lates: 0 } }]]),
@@ -82,7 +85,12 @@ describe('loadReportCards', () => {
     expect(card.subjects.map((s) => s.subjectName)).toEqual(['Matemática', 'Historia'])
     expect(card.subjects[0]).toMatchObject({ closed: true, conductValueHundredths: 600, valueHundredths: 800, conceptualJudgement: 'Muy bien.' })
     expect(card.subjects[1]).toMatchObject({ closed: false, valueHundredths: null })
-    expect(card.meetingJudgement).toBe('Valoramos su cambio de actitud.')
+    // La fila de la reunión: conducta y rendimiento que eligió la reunión, y el juicio del alumno.
+    expect(card.meeting).toEqual({
+      conductValueHundredths: 700,
+      performanceValueHundredths: 800,
+      judgement: 'Valoramos su cambio de actitud.',
+    })
     expect(card.attendance).toEqual({ absenceHundredths: 250, justified: 1, unjustified: 2, lates: 0, untilYmd: '2026-09-30' })
     expect(card.absenceTotal).toBe(2)
   })
@@ -93,19 +101,19 @@ describe('loadReportCards', () => {
     expect(absencesMock).toHaveBeenCalledWith(['st-1'], 'sy-1', 'EBI', '2026-09-30')
   })
 
-  it('el juicio de reunión es del grupo del alumno: oferta, período y orientación', async () => {
+  it('pide sólo los juicios de los alumnos: el general del grupo no va al boletín', async () => {
     await loadReportCards({ group: { ...GROUP, courseOrientationId: 'co-1' }, period: ENTREGA, students: [STUDENT] })
     expect(prismaMock.teacherMeetingRecord.findMany.mock.calls[0][0].where).toEqual({
       courseOfferingId: 'off-1',
       periodId: 'p-e3',
-      OR: [{ studentId: { in: ['st-1'] } }, { studentId: null, courseOrientationId: 'co-1' }],
+      studentId: { in: ['st-1'] },
     })
   })
 
   it('un estudiante sin notas ni faltas igual tiene boletín', async () => {
     const [card] = await loadReportCards({ group: GROUP, period: ENTREGA, students: [{ ...STUDENT, id: 'st-2' }] })
     expect(card.subjects.every((s) => s.valueHundredths == null)).toBe(true)
-    expect(card.meetingJudgement).toBe('Del grupo.')
+    expect(card.meeting).toEqual({ conductValueHundredths: null, performanceValueHundredths: null, judgement: null })
     expect(card.attendance).toEqual({ absenceHundredths: 0, justified: 0, unjustified: 0, lates: 0, untilYmd: '2026-09-30' })
     expect(card.absenceTotal).toBe(0)
   })

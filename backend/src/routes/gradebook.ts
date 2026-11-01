@@ -2154,17 +2154,6 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
     }
 
     const level = (ctx.row as any).courseOffering?.course?.level ?? null
-    // La orientación del alumno, no la de la libreta: una libreta de tronco común la cursan alumnos
-    // de varias orientaciones, y la decisión "de todo el grupo" es la de SU grupo.
-    const enrollment = await prisma.studentEnrollment.findFirst({
-      where: {
-        studentId: student.studentId,
-        schoolYearId: ctx.row.schoolYearId,
-        courseOfferingId: ctx.row.courseOfferingId,
-        enrollmentStatus: 'ACTIVE',
-      },
-      select: { courseOrientationId: true },
-    })
     const [periods, states, photo, assessments, meetings] = await Promise.all([
       prisma.academicPeriod.findMany({
         where: { schoolYearId: ctx.row.schoolYearId, isActive: true, ...(level ? { level } : {}) },
@@ -2188,16 +2177,11 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
           gradingScale: { include: { levels: { orderBy: { sortOrder: 'asc' } } } },
         },
       }),
-      // Juicio de reunión: lo carga adscripción/dirección en la matriz de reunión
-      // (`TeacherMeetingRecord`). El docente lo lee acá; no lo edita desde la libreta.
+      // Juicio de reunión del alumno: lo carga adscripción/dirección en la reunión
+      // (`TeacherMeetingRecord`). El docente lo lee acá; no lo edita desde la libreta. El juicio
+      // general del grupo no es del alumno: no se muestra como suyo, igual que en el boletín.
       prisma.teacherMeetingRecord.findMany({
-        where: {
-          courseOfferingId: ctx.row.courseOfferingId,
-          OR: [
-            { studentId: student.studentId },
-            { studentId: null, courseOrientationId: enrollment?.courseOrientationId ?? null },
-          ],
-        },
+        where: { courseOfferingId: ctx.row.courseOfferingId, studentId: student.studentId },
         select: {
           periodId: true,
           studentId: true,
@@ -2224,9 +2208,7 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
       { decision: string; createdAt: string; createdByName: string | null }
     >()
     for (const period of periods) {
-      const forStudent = meetings.find((m) => m.periodId === period.id && m.studentId === student.studentId)
-      const forGroup = meetings.find((m) => m.periodId === period.id && m.studentId == null)
-      const pick = forStudent ?? forGroup
+      const pick = meetings.find((m) => m.periodId === period.id)
       if (!pick) continue
       const by = pick.createdBy
       const createdByName = by
