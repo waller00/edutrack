@@ -21,7 +21,7 @@ beforeEach(() => {
 })
 
 describe('<JustifyEntryModal />', () => {
-  it('justifica con falta entera por defecto', async () => {
+  it('justifica la falta: el peso no se elige, lo fija el reglamento', async () => {
     setup()
     fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: 'Certificado médico' } })
     fireEvent.click(screen.getByRole('button', { name: /Registrar justificación/ }))
@@ -29,29 +29,11 @@ describe('<JustifyEntryModal />', () => {
     await waitFor(() => expect(mockedApi).toHaveBeenCalled())
     const [path, init] = mockedApi.mock.calls[0]
     expect(path).toBe('/admin/student-attendance/entries/e-1/justify')
-    expect(JSON.parse(String(init?.body))).toMatchObject({
-      reason: 'Certificado médico',
-      absenceWeightHundredths: 100,
-    })
-  })
-
-  it('adscripción puede bajarla a media falta', () => {
-    // No hay regla automática: lo decide quien justifica, caso por caso.
-    setup()
-    expect(screen.getByLabelText('Falta entera')).toBeChecked()
-
-    fireEvent.click(screen.getByLabelText('Media falta'))
-    expect(screen.getByLabelText('Media falta')).toBeChecked()
-  })
-
-  it('manda 50 cuando se elige media falta', async () => {
-    setup()
-    fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: 'Se retiró a las 10' } })
-    fireEvent.click(screen.getByLabelText('Media falta'))
-    fireEvent.click(screen.getByRole('button', { name: /Registrar justificación/ }))
-
-    await waitFor(() => expect(mockedApi).toHaveBeenCalled())
-    expect(JSON.parse(String(mockedApi.mock.calls[0][1]?.body)).absenceWeightHundredths).toBe(50)
+    const body = JSON.parse(String(init?.body))
+    expect(body).toMatchObject({ reason: 'Certificado médico' })
+    // Una justificada vale media falta en los dos niveles: no hay "falta entera" que elegir.
+    expect(body).not.toHaveProperty('absenceWeightHundredths')
+    expect(screen.queryByLabelText('Falta entera')).not.toBeInTheDocument()
   })
 
   it('Escape cierra sin guardar', () => {

@@ -349,14 +349,17 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 
 > **Las faltas se cuentan en centésimos y son globales.** `100` es una falta entera, `50` media.
 > La llegada tarde vale `50` en todos los niveles (es "la" media falta: el docente no elige otra).
-> Adscripción todavía puede graduar una ausencia al justificar. Y el conteo es del ciclo en todo el
-> liceo, no de la asignatura: filtrar por `subjectId` ahí es un bug, no una optimización.
+> El conteo es del ciclo en todo el liceo, no de la asignatura: filtrar por `subjectId` ahí es un
+> bug, no una optimización.
 
-> **En ciclo básico (`AcademicLevel.EBI`) la falta es del día.** El día vale la peor de sus
-> marcas: `ABSENT` 100, `ABSENT_JUSTIFIED` 50, `LATE` 50. Dos tardes son 50, y tarde + ausencia
-> es 100, no 150. Ahí `absenceWeightHundredths` se ignora. Todo total pasa por
+> **En ciclo básico y en bachillerato la falta es del día** (`countsByDay`: EBI y EMS). Es el
+> reglamento de los dos niveles (REEMS arts. 47 y 53, como EBI): la falta se registra "en dicha
+> jornada" y las fictas son las injustificadas más el 50 % de las justificadas. El día vale la peor
+> de sus marcas: `ABSENT` 100, `ABSENT_JUSTIFIED` 50, `LATE` 50. Dos tardes son 50, y tarde +
+> ausencia es 100, no 150. Ahí `absenceWeightHundredths` se ignora (por eso justificar ya no pide
+> "falta entera / media falta"); sólo un curso sin nivel suma por marca. Todo total pasa por
 > `absenceHundredthsFor` / `loadAbsenceTotals` (`services/student-attendance/`) con el nivel del
-> grupo; sumar `effectiveWeight` a mano rompe ciclo básico.
+> grupo; sumar `effectiveWeight` a mano rompe la regla del día.
 
 > **Los justificativos** (`StudentAbsenceJustificationRange`, en pantalla "Justificativos") valen
 > para cualquier nivel y sólo los cargan administración, dirección y adscripción
@@ -368,6 +371,16 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > reunión que pide C y juicio. EBI: 1.ª–4.ª Entrega; EMS: los semestres (son `TRAMO` con reunión,
 > así que filtrar por `kind === 'ENTREGA'` deja afuera a todo EMS). Control y visado y Reportes
 > la usan; `assessmentPeriodsFor` da los tramos cuyas evaluaciones informa.
+
+> **El boletín imprime sólo lo cerrado** (`services/gradebook/report-card.ts`, PDF en
+> `exports/reportCardPdf.ts` con la forma de la planilla del liceo). C, R e informe salen del cierre
+> del docente: una libreta abierta o reabierta en ese período sale *Pendiente*. El informe de
+> reunión es la decisión vigente de `TeacherMeetingRecord` (la del alumno o, si no, la del grupo).
+> Las faltas son las **acumuladas del año** hasta el fin del período (el límite reglamentario es por
+> grado; cortar ahí hace que reimprimir dé lo mismo), y el total son las fictas **redondeadas para
+> abajo** (`wholeAbsences`): no sumar ni redondear a mano. Nombre y logo de la institución salen de
+> `InstitutionBranding` (Configuración → Institución), no del código: el logo va en su tabla para
+> no arrastrarlo en cada lectura de `SystemSettings`, y sólo PNG/JPEG porque pdfkit no dibuja otros.
 
 > **Control y visado de libretas es una sola pantalla** (`/libreta/control`, `ControlVisadoPanel`):
 > una reunión en tres pasos (Carga, Cierre, Visado) que comparten la reunión y el grupo, cada uno con

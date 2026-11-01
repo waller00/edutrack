@@ -1,88 +1,165 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildReportCard,
-  formatAverage,
-  pendingSubjectCount,
-  reportCardAverage,
-  type ReportCardSubject,
+  currentMeetingJudgement,
+  reportCardColumnLabel,
+  reportCardSubject,
+  reportCardWindow,
 } from './report-card.js'
-
-function subject(over: Partial<ReportCardSubject> = {}): ReportCardSubject {
-  return {
-    subjectName: 'Matemática',
-    teacherName: 'Ana Benítez',
-    valueHundredths: 800,
-    descriptor: null,
-    conceptualJudgement: null,
-    conductValueHundredths: null,
-    ...over,
-  }
-}
-
-describe('reportCardAverage', () => {
-  it('promedia las asignaturas calificadas', () => {
-    expect(reportCardAverage([subject({ valueHundredths: 600 }), subject({ valueHundredths: 800 })])).toBe(700)
-  })
-
-  it('una asignatura sin nota NO arrastra el promedio hacia abajo', () => {
-    // "Todavía no tiene nota" no es "sacó cero": promediar el hueco sería mentir sobre el alumno.
-    const conHueco = [subject({ valueHundredths: 800 }), subject({ valueHundredths: null })]
-    expect(reportCardAverage(conHueco)).toBe(800)
-  })
-
-  it('sin ninguna nota devuelve null, no cero', () => {
-    expect(reportCardAverage([subject({ valueHundredths: null })])).toBeNull()
-    expect(reportCardAverage([])).toBeNull()
-  })
-
-  it('redondea en centésimos', () => {
-    expect(reportCardAverage([subject({ valueHundredths: 601 }), subject({ valueHundredths: 700 })])).toBe(651)
-  })
-})
-
-describe('formatAverage', () => {
-  it('siempre lleva al menos un decimal: hace falta para escolaridad y abanderados', () => {
-    expect(formatAverage(700)).toBe('7,0')
-    expect(formatAverage(783)).toBe('7,8')
-    // Pedir cero decimales no debe poder achatar el desempate.
-    expect(formatAverage(700, 0)).toBe('7,0')
-  })
-
-  it('acepta más decimales si la escala los tiene', () => {
-    expect(formatAverage(783, 2)).toBe('7,83')
-  })
-
-  it('sin promedio muestra un guion, no un cero', () => {
-    expect(formatAverage(null)).toBe('—')
-  })
-})
-
-describe('pendingSubjectCount', () => {
-  it('cuenta las asignaturas sin nota, que son las que explican un promedio parcial', () => {
-    expect(pendingSubjectCount([subject(), subject({ valueHundredths: null })])).toBe(1)
-    expect(pendingSubjectCount([subject()])).toBe(0)
-  })
-})
 
 describe('buildReportCard', () => {
   const base = {
-    student: { firstName: 'Ana', lastName: 'Díaz', documentId: '51234561', birthDate: null },
-    group: { courseName: 'Primero', orientationName: null, schoolYearLabel: '2026' },
-    period: { name: 'Mayo' },
-    conductValueHundredths: 300,
-    attendance: { absenceHundredths: 150, justifiedCount: 1 },
+    student: { firstName: 'Orazio', lastName: 'Liesegang Rodríguez' },
+    group: { courseName: '7.º', orientationName: null, schoolYearLabel: '2026' },
+    period: { name: '3.ª Entrega', columnLabel: 'Ago-Set', judgementLabel: 'Informe de actuación' },
+    subjects: [],
+    meetingJudgement: null,
   }
 
-  it('arma el boletín con promedio y pendientes calculados', () => {
-    const card = buildReportCard({
-      ...base,
-      subjects: [subject({ valueHundredths: 800 }), subject({ subjectName: 'Historia', valueHundredths: null })],
-    })
+  it('el total de faltas redondea para abajo: 2 injustificadas y 1 justificada son 2', () => {
+    const card = buildReportCard({ ...base, attendance: { absenceHundredths: 250, justified: 1, unjustified: 2, lates: 0, untilYmd: null } })
+    expect(card.absenceTotal).toBe(2)
+  })
 
-    expect(card.averageHundredths).toBe(800)
-    expect(card.pendingCount).toBe(1)
-    // Lo que vino se conserva tal cual: el boletín no recalcula conducta ni faltas.
-    expect(card.conductValueHundredths).toBe(300)
-    expect(card.attendance).toEqual({ absenceHundredths: 150, justifiedCount: 1 })
+  it('con 2 justificadas las medias juntan una entera: 3', () => {
+    const card = buildReportCard({ ...base, attendance: { absenceHundredths: 300, justified: 2, unjustified: 2, lates: 0, untilYmd: null } })
+    expect(card.absenceTotal).toBe(3)
+  })
+
+  it('una sola media falta todavía no es una falta', () => {
+    const card = buildReportCard({ ...base, attendance: { absenceHundredths: 50, justified: 1, unjustified: 0, lates: 0, untilYmd: null } })
+    expect(card.absenceTotal).toBe(0)
+  })
+})
+
+describe('reportCardSubject', () => {
+  const grade = {
+    studentId: 'st-1',
+    valueHundredths: 900,
+    meetingValueHundredths: 700,
+    conductValueHundredths: 600,
+    conceptualJudgement: '  Trabaja de forma aceptable.  ',
+  }
+
+  it('de una libreta cerrada toma C, R y el informe', () => {
+    expect(reportCardSubject('Matemática', { status: 'CLOSED', grades: [grade] }, 'st-1')).toEqual({
+      subjectName: 'Matemática',
+      closed: true,
+      conductValueHundredths: 600,
+      valueHundredths: 700,
+      conceptualJudgement: 'Trabaja de forma aceptable.',
+    })
+  })
+
+  it('va R, nunca la C vieja del docente', () => {
+    const subject = reportCardSubject('Historia', { status: 'CLOSED', grades: [{ ...grade, meetingValueHundredths: null }] }, 'st-1')
+    expect(subject.valueHundredths).toBeNull()
+  })
+
+  it.each(['OPEN', 'REOPENED'])('sin cierre (%s) no imprime nada aunque haya notas cargadas', (status) => {
+    expect(reportCardSubject('Matemática', { status, grades: [grade] }, 'st-1')).toEqual({
+      subjectName: 'Matemática',
+      closed: false,
+      conductValueHundredths: null,
+      valueHundredths: null,
+      conceptualJudgement: null,
+    })
+  })
+
+  it('una libreta sin estado del período queda pendiente', () => {
+    expect(reportCardSubject('Matemática', undefined, 'st-1').closed).toBe(false)
+  })
+
+  it('cerrada, pero sin fila del alumno: cerrada y vacía', () => {
+    expect(reportCardSubject('Matemática', { status: 'CLOSED', grades: [grade] }, 'st-2')).toMatchObject({
+      closed: true,
+      valueHundredths: null,
+      conceptualJudgement: null,
+    })
+  })
+})
+
+describe('currentMeetingJudgement', () => {
+  const at = (iso: string) => new Date(iso)
+
+  it('toma la decisión más reciente sobre el alumno', () => {
+    const records = [
+      { studentId: 'st-1', decision: 'Vieja.', createdAt: at('2026-09-01') },
+      { studentId: 'st-1', decision: ' Valoramos su cambio de actitud. ', createdAt: at('2026-10-01') },
+      { studentId: null, decision: 'Del grupo.', createdAt: at('2026-10-05') },
+    ]
+    expect(currentMeetingJudgement(records, 'st-1')).toBe('Valoramos su cambio de actitud.')
+  })
+
+  it('sin una propia, vale la del grupo', () => {
+    const records = [
+      { studentId: 'st-2', decision: 'De otro.', createdAt: at('2026-10-01') },
+      { studentId: null, decision: 'Del grupo.', createdAt: at('2026-10-05') },
+    ]
+    expect(currentMeetingJudgement(records, 'st-1')).toBe('Del grupo.')
+  })
+
+  it('sin ninguna, null: la fila queda en blanco', () => {
+    expect(currentMeetingJudgement([], 'st-1')).toBeNull()
+  })
+})
+
+describe('reportCardWindow', () => {
+  const day = (ymd: string) => new Date(`${ymd}T12:00:00Z`)
+  const tramo = (id: string, sortOrder: number, from: string | null, to: string | null) => ({
+    id,
+    kind: 'TRAMO',
+    sortOrder,
+    startsOn: from ? day(from) : null,
+    endsOn: to ? day(to) : null,
+  })
+  const entrega = (id: string, sortOrder: number) => ({
+    id,
+    kind: 'ENTREGA',
+    sortOrder,
+    startsOn: day('2026-09-15'),
+    endsOn: day('2026-10-15'),
+  })
+
+  it('una entrega informa los días de los tramos que cubre', () => {
+    const periods = [
+      tramo('mayo-junio', 40, '2026-05-01', '2026-06-30'),
+      tramo('julio', 50, '2026-07-01', '2026-07-31'),
+      entrega('e2', 60),
+      tramo('ago-set', 70, '2026-08-01', '2026-09-30'),
+      entrega('e3', 80),
+    ]
+    expect(reportCardWindow(periods[4], periods)).toEqual({ fromYmd: '2026-08-01', toYmd: '2026-09-30' })
+    expect(reportCardWindow(periods[2], periods)).toEqual({ fromYmd: '2026-05-01', toYmd: '2026-07-31' })
+  })
+
+  it('un semestre (tramo con reunión) se informa a sí mismo', () => {
+    const semestre = tramo('s1', 10, '2026-03-01', '2026-07-15')
+    expect(reportCardWindow(semestre, [semestre])).toEqual({ fromYmd: '2026-03-01', toYmd: '2026-07-15' })
+  })
+
+  it('si a un tramo le faltan fechas usa las del propio período', () => {
+    const periods = [tramo('ago-set', 70, null, null), entrega('e3', 80)]
+    expect(reportCardWindow(periods[1], periods)).toEqual({ fromYmd: '2026-09-15', toYmd: '2026-10-15' })
+  })
+
+  it('sin ninguna fecha, null: todo el ciclo', () => {
+    const sinFechas = tramo('s1', 10, null, null)
+    expect(reportCardWindow(sinFechas, [sinFechas])).toBeNull()
+  })
+})
+
+describe('reportCardColumnLabel', () => {
+  it('los meses que informa, como la planilla', () => {
+    expect(reportCardColumnLabel({ fromYmd: '2026-08-01', toYmd: '2026-09-30' }, 'x')).toBe('Ago-Set')
+    expect(reportCardColumnLabel({ fromYmd: '2026-03-01', toYmd: '2026-07-15' }, 'x')).toBe('Mar-Jul')
+  })
+
+  it('un solo mes no se repite', () => {
+    expect(reportCardColumnLabel({ fromYmd: '2026-07-01', toYmd: '2026-07-31' }, 'x')).toBe('Jul')
+  })
+
+  it('sin fechas, el nombre del período', () => {
+    expect(reportCardColumnLabel(null, '1.ª Entrega')).toBe('1.ª Entrega')
   })
 })

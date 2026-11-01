@@ -6,15 +6,16 @@ import AdminOperationalSettingsPanel, {
 } from '@/components/admin/AdminOperationalSettingsPanel'
 import AdminBiometricDevicesPanel from '@/components/admin/AdminBiometricDevicesPanel'
 import AdminMoodlePanel from '@/components/admin/AdminMoodlePanel'
+import AdminInstitutionPanel from '@/components/admin/AdminInstitutionPanel'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { api } from '@/lib/api/client'
-import { BookOpen, Cpu, Loader2, Settings, Timer } from 'lucide-react'
+import { BookOpen, Building2, Cpu, Loader2, Settings, Timer } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import ModuleHeader from '@/components/common/ModuleHeader'
 
 type SettingsResponse = OperationalSettingsData
 
-type SettingsSection = OperationalSettingsSection | 'readers' | 'moodle'
+type SettingsSection = OperationalSettingsSection | 'institution' | 'readers' | 'moodle'
 
 const SETTINGS_SECTIONS: {
   id: SettingsSection
@@ -25,6 +26,11 @@ const SETTINGS_SECTIONS: {
     id: 'system',
     label: 'Sistema',
     Icon: Settings,
+  },
+  {
+    id: 'institution',
+    label: 'Institución',
+    Icon: Building2,
   },
   {
     id: 'attendance',
@@ -109,6 +115,7 @@ export default function AdminSystemSettingsPage() {
     if (
       s === 'attendance' ||
       s === 'system' ||
+      s === 'institution' ||
       s === 'readers' ||
       s === 'moodle'
     ) {
@@ -171,7 +178,7 @@ export default function AdminSystemSettingsPage() {
         <div
           role="group"
           aria-label="Secciones de configuración"
-          className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:grid-cols-4"
+          className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:grid-cols-5"
         >
           {SETTINGS_SECTIONS.map(({ id, label, Icon }) => (
             <button
@@ -193,7 +200,7 @@ export default function AdminSystemSettingsPage() {
         </div>
         <div
           id="settings-operational"
-          hidden={section === 'readers' || section === 'moodle'}
+          hidden={section === 'readers' || section === 'moodle' || section === 'institution'}
         >
           {loading ? (
             <p
@@ -234,6 +241,9 @@ export default function AdminSystemSettingsPage() {
               />
             )
           )}
+        </div>
+        <div id="settings-institution" hidden={section !== 'institution'}>
+          {visited.includes('institution') && <AdminInstitutionPanel />}
         </div>
         <div id="settings-moodle" hidden={section !== 'moodle'}>
           {visited.includes('moodle') && <AdminMoodlePanel />}

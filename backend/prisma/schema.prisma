@@ -348,6 +348,20 @@ model SystemSettings {
   updatedAt                           DateTime @updatedAt
 }
 
+/// Nombre y logo de la institución: encabezan el boletín. Una sola fila (`id = "default"`).
+///
+/// Va aparte de `SystemSettings` a propósito: esa fila se lee entera en muchos lugares (monitor de
+/// asistencia, zona horaria…) y cada lectura arrastraría la imagen. Se edita en Configuración.
+model InstitutionBranding {
+  id           String   @id @default("default")
+  name         String?
+  /// PNG o JPEG (lo que pdfkit sabe dibujar), validado por firma binaria; hasta 1 MB.
+  logoBytes    Bytes?
+  logoMimeType String?
+  logoByteSize Int?
+  updatedAt    DateTime @updatedAt
+}
+
 /// Cola persistente (patrón outbox) para sincronizar entidades con Moodle con reintentos.
 /// Garantiza que un fallo transitorio no desincronice de forma permanente y silenciosa.
 model MoodleSyncTask {

@@ -454,7 +454,7 @@ export const APP_MODULES: readonly AppModule[] = [
     id: 'settings',
     label: 'Configuración del sistema',
     href: '/admin/settings',
-    description: 'Los ajustes de la institución: horarios, tolerancias, avisos e integraciones.',
+    description: 'Los ajustes de la institución: nombre y logo del boletín, horarios, tolerancias, avisos e integraciones.',
     group: 'config',
     icon: Settings,
     permission: 'settings.manage',

@@ -2,7 +2,7 @@ import { prisma } from '../../db/prisma.js'
 import { getStudentRollCallSettings } from '../../config/system-settings.js'
 import { loadRosterForScope } from '../student-attendance/roster.js'
 import { loadAbsenceTotals } from '../student-attendance/absence-totals.js'
-import { isBasicCycle } from '../student-attendance/absence-weight.js'
+import { countsByDay } from '../student-attendance/absence-weight.js'
 import { consolidateDay, type AttendanceCell } from '../student-attendance/consolidation.js'
 import {
   describeValue,
@@ -246,12 +246,12 @@ export async function loadAbsenceThresholds(schoolYearId: string): Promise<Absen
 export type AbsenceStreakRow = StudentRef & AbsenceStreak
 
 /**
- * ¿El día es una falta entera sin justificar? En ciclo básico, faltar a una sola clase ya lo es.
- * En bachillerato se usa la consolidación diaria con su umbral, contando sólo ausencias sin
- * justificar.
+ * ¿El día es una falta entera sin justificar? Con la regla del día (EBI y EMS), faltar a una sola
+ * clase ya lo es. En un curso sin nivel se usa la consolidación diaria con su umbral, contando sólo
+ * ausencias sin justificar.
  */
-function isFullUnjustifiedDay(statuses: readonly string[], basicCycle: boolean, thresholdPercent: number): boolean {
-  if (basicCycle) return statuses.includes('ABSENT')
+function isFullUnjustifiedDay(statuses: readonly string[], byDay: boolean, thresholdPercent: number): boolean {
+  if (byDay) return statuses.includes('ABSENT')
   const cells = statuses.map((s) => ({
     ymd: '',
     status: (s === 'ABSENT' ? 'ABSENT' : 'PRESENT') as AttendanceCell['status'],
@@ -322,7 +322,7 @@ export async function loadAbsenceStreaks(schoolYearId: string): Promise<AbsenceS
     const fullDays = new Set(
       absentDays.filter((ymd) => {
         const statuses = statusesByStudentDay.get(`${e.studentId}|${ymd}`) ?? []
-        return statuses.length > 0 && isFullUnjustifiedDay(statuses, isBasicCycle(e.level), settings.dailyAbsenceThresholdPercent)
+        return statuses.length > 0 && isFullUnjustifiedDay(statuses, countsByDay(e.level), settings.dailyAbsenceThresholdPercent)
       }),
     )
     for (const streak of findAbsenceStreaks(classDays, fullDays)) {

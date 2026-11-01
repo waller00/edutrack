@@ -1,15 +1,21 @@
+import type { AcademicLevel } from '@prisma/client'
 import { prisma } from '../../db/prisma.js'
 import { loadAbsenceTotals } from '../student-attendance/absence-totals.js'
-import { describeCell, gradeBooksForGroup } from './institutional.js'
-import { officialPeriodValue } from './period-closure.js'
-import { conductLabel, conductScale, periodScaleFor } from './period-scale.js'
-import { buildReportCard, type ReportCard, type ReportCardSubject } from './report-card.js'
+import { gradeBooksForGroup } from './institutional.js'
+import {
+  buildReportCard,
+  currentMeetingJudgement,
+  reportCardColumnLabel,
+  reportCardSubject,
+  reportCardWindow,
+  type ReportCard,
+} from './report-card.js'
 
 /**
  * Boletines de un grupo en un período: el de un estudiante o los de todos.
  *
- * Los dos caminos arman el boletín igual —mismas asignaturas, misma nota oficial (R), misma
- * conducta y faltas—; cambia sólo a quiénes se incluye. El grupo es explícito y los estudiantes
+ * Los dos caminos arman el boletín igual —mismas asignaturas, mismo cierre, mismo juicio de reunión
+ * y mismas faltas—; cambia sólo a quiénes se incluye. El grupo es explícito y los estudiantes
  * también: el boletín de un año pasado, o de alguien que ya no está matriculado, no puede salir
  * del roster de hoy.
  */
@@ -25,8 +31,17 @@ export type ReportCardStudent = {
   id: string
   firstName: string
   lastName: string
-  documentId: string | null
-  birthDate: Date | null
+}
+
+export type ReportCardPeriod = {
+  id: string
+  name: string
+  level: AcademicLevel
+  kind: string
+  sortOrder: number
+  startsOn: Date | null
+  endsOn: Date | null
+  judgementLabel: string | null
 }
 
 type GroupHeader = { courseName: string; level: string | null; orientationName: string | null; schoolYearLabel: string }
@@ -59,75 +74,69 @@ async function loadGroupHeader(group: ReportCardGroup): Promise<GroupHeader> {
 async function loadGroupBooks(group: ReportCardGroup) {
   const books = await prisma.gradeBook.findMany({
     where: { courseOfferingId: group.courseOfferingId },
-    include: { subject: { select: { name: true, sortOrder: true } }, teacher: { select: { name: true } } },
+    include: { subject: { select: { name: true, sortOrder: true } } },
   })
   return gradeBooksForGroup(books, group).sort(
     (a, b) => (a.subject?.sortOrder ?? 0) - (b.subject?.sortOrder ?? 0) || (a.subject?.name ?? '').localeCompare(b.subject?.name ?? '', 'es'),
   )
 }
 
+/** Los períodos del nivel, para saber qué tramos (y qué días) informa la reunión. */
+async function loadWindow(schoolYearId: string, period: ReportCardPeriod) {
+  const periods = await prisma.academicPeriod.findMany({
+    where: { schoolYearId, level: period.level, isActive: true },
+    select: { id: true, kind: true, sortOrder: true, startsOn: true, endsOn: true },
+  })
+  return reportCardWindow(period, periods)
+}
+
 export async function loadReportCards(params: {
   group: ReportCardGroup
-  period: { id: string; name: string }
+  period: ReportCardPeriod
   students: readonly ReportCardStudent[]
-}): Promise<{ cards: ReportCard[]; decimals: number }> {
+}): Promise<ReportCard[]> {
   const { group, period, students } = params
-  const [header, books] = await Promise.all([loadGroupHeader(group), loadGroupBooks(group)])
+  const [header, books, window] = await Promise.all([
+    loadGroupHeader(group),
+    loadGroupBooks(group),
+    loadWindow(group.schoolYearId, period),
+  ])
   const ids = students.map((s) => s.id)
 
-  const [states, scale, conduct, conductRecords, absences] = await Promise.all([
+  const [states, meetings, absences] = await Promise.all([
     prisma.gradeBookPeriod.findMany({
       where: { periodId: period.id, gradeBookId: { in: books.map((b) => b.id) } },
-      include: { grades: { where: { studentId: { in: ids } } } },
+      select: { gradeBookId: true, status: true, grades: { where: { studentId: { in: ids } } } },
     }),
-    periodScaleFor(header.level),
-    conductScale(),
-    prisma.studentConductRecord.findMany({
-      where: { periodId: period.id, studentId: { in: ids } },
-      select: { studentId: true, valueHundredths: true },
+    // Las del alumno y las del grupo (su orientación): sin una propia, vale la del grupo.
+    prisma.teacherMeetingRecord.findMany({
+      where: {
+        courseOfferingId: group.courseOfferingId,
+        periodId: period.id,
+        OR: [{ studentId: { in: ids } }, { studentId: null, courseOrientationId: group.courseOrientationId }],
+      },
+      select: { studentId: true, decision: true, createdAt: true },
     }),
-    loadAbsenceTotals(ids, group.schoolYearId, header.level),
+    // Acumuladas en el año: el límite del reglamento es por grado (30 fictas), no por período.
+    loadAbsenceTotals(ids, group.schoolYearId, header.level, window?.toYmd ?? null),
   ])
 
-  const levels = scale?.levels ?? []
-  const conductLevels = conduct?.levels ?? []
   const stateByBook = new Map(states.map((state) => [state.gradeBookId, state]))
-  const conductByStudent = new Map(conductRecords.map((row) => [row.studentId, row.valueHundredths]))
+  const columnLabel = reportCardColumnLabel(window, period.name)
 
-  const subjectsFor = (studentId: string): ReportCardSubject[] =>
-    books.map((book) => {
-      const grade = stateByBook.get(book.id)?.grades.find((g) => g.studentId === studentId)
-      // Al boletín va siempre R: sin reunión, la materia figura pendiente.
-      const value = officialPeriodValue(grade)
-      return {
-        subjectName: book.subject?.name ?? '—',
-        teacherName: book.teacher?.name ?? null,
-        valueHundredths: value,
-        descriptor: describeCell(value, levels as never)?.label ?? null,
-        conceptualJudgement: grade?.conceptualJudgement ?? null,
-        conductValueHundredths: grade?.conductValueHundredths ?? null,
-        conductLabel: conductLabel(grade?.conductValueHundredths, conductLevels),
-      }
-    })
-
-  const cards = students.map((student) => {
-    const institutionalConduct = conductByStudent.get(student.id) ?? null
+  return students.map((student) => {
     const attendance = absences.get(student.id)
     return buildReportCard({
-      student: {
-        firstName: student.firstName,
-        lastName: student.lastName,
-        documentId: student.documentId,
-        birthDate: student.birthDate,
-      },
+      student: { firstName: student.firstName, lastName: student.lastName },
       group: { courseName: header.courseName, orientationName: header.orientationName, schoolYearLabel: header.schoolYearLabel },
-      period: { name: period.name },
-      subjects: subjectsFor(student.id),
-      conductValueHundredths: institutionalConduct,
-      conductLabel: conductLabel(institutionalConduct, conductLevels),
-      attendance: { absenceHundredths: attendance?.absenceHundredths ?? 0, justifiedCount: attendance?.justified ?? 0 },
+      period: { name: period.name, columnLabel, judgementLabel: period.judgementLabel },
+      subjects: books.map((book) => reportCardSubject(book.subject?.name ?? '—', stateByBook.get(book.id), student.id)),
+      meetingJudgement: currentMeetingJudgement(meetings, student.id),
+      attendance: {
+        absenceHundredths: attendance?.absenceHundredths ?? 0,
+        ...(attendance?.counts ?? { justified: 0, unjustified: 0, lates: 0 }),
+        untilYmd: window?.toYmd ?? null,
+      },
     })
   })
-
-  return { cards, decimals: scale?.decimals ?? 1 }
 }

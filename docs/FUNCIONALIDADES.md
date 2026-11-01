@@ -343,21 +343,21 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
   clase, el día y cuándo se pasó. Las correcciones posteriores no vuelven a avisar.
 - **Listas sin pasar:** una clase terminada sin lista queda **pendiente**; no se generan faltas
   automáticas. Administración las ve en un panel por curso y fecha.
-- **Faltas:** se guardan por clase. La consolidación diaria (presente / media falta / falta) se
-  **deriva** al leer, según `studentDailyAbsenceThresholdPercent`, y las clases sin lista tomada
-  no entran en ningún denominador.
+- **Faltas:** se guardan por clase y el día se **deriva** al leer; las clases sin lista tomada no
+  entran en ningún denominador. El umbral `studentDailyAbsenceThresholdPercent` sólo consolida el
+  día de un curso sin nivel: EBI y EMS usan la regla del día (abajo).
 - **La llegada tarde es la media falta, en todos los niveles.** El docente ya no elige "Media
-  falta" en la libreta: marca falta o llegada tarde. En bachillerato cada tarde suma 0,5 (EMS sigue
-  contando por clase); una ausencia que adscripción graduó a media al justificarla se respeta y el
-  docente no la pisa al volver a guardar el día.
-- **Ciclo básico (EBI, 7.º a 9.º) cuenta la falta por día**, sin umbral:
+  falta" en la libreta: marca falta o llegada tarde.
+- **Ciclo básico (EBI, 7.º a 9.º) y bachillerato (EMS) cuentan la falta por día**, sin umbral. En
+  EMS es el REEMS (Plan 2023): la inasistencia se registra "en dicha jornada" (art. 47) y las
+  fictas son las injustificadas más el 50 % de las justificadas, sin fracciones (art. 53):
   - faltar a **una sola** clase del día (sin justificar) ya es la falta del día;
   - una **llegada tarde** vale media falta y **no se justifica**;
   - una **ausencia justificada** vale media falta.
 
   El día vale la marca más pesada, no la suma: dos tardes son media falta, y tarde + ausencia es
-  una falta (no una y media). En ciclo básico el peso manual (`absenceWeightHundredths`) se ignora
-  y el docente no ve la opción "Media falta".
+  una falta (no una y media). El peso manual (`absenceWeightHundredths`) se ignora: el docente no
+  ve la opción "Media falta" y al justificar no se elige cuánto vale.
 - **Justificativos** (certificado médico, viaje, duelo…): un período con motivo
   (`StudentAbsenceJustificationRange`) en "Asistencia de estudiantes" → "Justificativos".
   - Valen para estudiantes de **cualquier nivel**.
@@ -366,8 +366,7 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
   - Puede ser **previo**: las ausencias que se marquen en esos días entran ya justificadas, a nombre
     de quien lo cargó.
   - O **posterior**: al cargarlo justifica las ausencias ya marcadas del período.
-  - Cuánto cuenta la falta justificada lo decide el nivel: en ciclo básico vale media; en
-    bachillerato sigue contando como falta, justificada.
+  - La falta justificada vale media en los dos niveles.
   - La pantalla lista los últimos cargados del ciclo; el nombre abre al estudiante.
   - Si el docente marca presente o tarde, gana su marca.
   - Revocar un rango deja de aplicarlo de ahí en adelante, pero no deshace lo ya justificado.
@@ -544,12 +543,14 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
   institucional y la planilla de reunión, con un decimal, para escolaridad y abanderados. Ahí
   tampoco se persiste: guardarlo lo convertiría de a poco en la calificación oficial.
 - **Inasistencias globales y media falta.** El liceo cuenta las faltas del estudiante **en el
-  liceo**, no por materia: `GET /gradebook/:id` las devuelve del ciclo entero. Cada marca lleva un
-  peso en centésimos (`100` = falta entera, `50` = media) que fija **adscripción caso por caso** al
-  justificar — no hay regla automática. Justificar es de adscripción (`student-attendance.justify`),
-  no del docente, que sólo marca presente/tarde/ausente. **En ciclo básico** la regla sí es
-  automática y por día (§11 bis): libreta, planilla de reunión y boletín suman los días, y el
-  detalle del alumno muestra cuánto aportó cada uno. Ahí también justifica dirección.
+  liceo**, no por materia: `GET /gradebook/:id` las devuelve del ciclo entero. **En ciclo básico y
+  en bachillerato** la regla es automática y **por día** (§11 bis; REEMS arts. 47 y 53 para EMS):
+  el día vale su peor marca —ausencia 1, justificada ½, tarde ½—, y libreta, planilla de reunión y
+  boletín suman los días; el detalle del alumno muestra cuánto aportó cada uno. Justificar es de
+  adscripción y dirección (`student-attendance.justify`), no del docente, que sólo marca
+  presente/tarde/ausente; como el peso lo fija el reglamento, al justificar no se elige "falta
+  entera / media falta". Sólo un curso sin nivel suma por marca (y usa el umbral diario de
+  Configuración).
 - **Conducta, dos veces.** Cada docente pone la de su asignatura (la **C** de la carta,
   `PeriodGrade.conductValueHundredths`) en cada tramo y entrega —en la carta, por alumno o en la
   tabla del grupo—; el servidor sólo acepta valores de la escala
@@ -570,8 +571,25 @@ entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
   (`gradebook.review`); el resto las lee. Una decisión nueva sucede a la anterior sin borrarla, y
   la pantalla marca cuál está vigente (la que ve el docente).
 - **Boletín (`GET /admin/gradebook/report-card/:studentId?periodId=`):** PDF por estudiante y
-  período con nota y juicio de **todas** sus asignaturas, conducta, promedio e inasistencias. Es la
-  única salida transversal: el resto de las exportaciones son por libreta, o sea de una materia.
+  período con la forma de la planilla impresa del liceo (A4 apaisado, una hoja): por cada
+  asignatura **C** (conducta), **R** (rendimiento) y el informe de actuación; abajo el **informe de
+  reunión**, las **inasistencias** y los recuadros de fecha y firmas (padre/madre/encargado y
+  funcionario), que se completan a mano. Es la única salida transversal: el resto de las
+  exportaciones son por libreta, o sea de una materia.
+  - **Sólo lo cerrado:** C, R e informe salen del cierre del docente. Una libreta abierta o
+    reabierta en ese período imprime la materia como *Pendiente* (`reportCardSubject`).
+  - **Informe de reunión:** la decisión vigente del alumno en la matriz de reunión o, sin una
+    propia, la del grupo (la misma que ve el docente como "Juicio Reu."). Sin ninguna, la fila sale
+    en blanco.
+  - **Inasistencias acumuladas del año**, hasta el último día de los tramos que informa la reunión
+    (una entrega de EBI, los suyos; un semestre de EMS, él mismo): el límite reglamentario es por
+    grado (30 fictas), y cortar en el fin del período hace que reimprimir un boletín dé lo mismo. El
+    PDF lo aclara ("acumuladas al 30/09"). **J** (justificadas) e **I** (injustificadas) son días
+    (`absenceCounts`); el **total** son las fictas **redondeadas para abajo** (`wholeAbsences`):
+    2 I y 1 J (2,5) son 2, 2 I y 2 J son 3. Si hay llegadas tarde, el rótulo del total las menciona.
+  - **Encabezado:** logo y nombre de la institución, que se cargan en Configuración → Institución
+    (`/admin/institution`, `settings.manage`; PNG o JPEG de hasta 1 MB). Sin ninguno, "BOLETÍN".
+  - No lleva promedio ni la conducta institucional: viven en la matriz y en la planilla de reunión.
   El grupo sale de la matrícula del **ciclo del período** (la activa, o la última de ese año si el
   estudiante ya se fue), no de la de hoy, y un período de otro nivel responde `LEVEL_MISMATCH`.
   **Boletines del grupo** (`GET /admin/gradebook/report-cards`): un solo PDF, una hoja por
@@ -884,9 +902,9 @@ Permiso `student-reports.read` (administración, dirección y adscripción). Tod
   nivel, sobre la R.
 - **Bajas de boletín:** materias en las que la R es menor que la del boletín anterior del mismo nivel.
 - **Faltas seguidas:** 3 o más días de clase seguidos del grupo con falta entera sin justificar
-  (EBI: alguna ausencia sin justificar ese día; EMS: la consolidación diaria da falta). Fines de
+  (alguna ausencia sin justificar ese día, en EBI y EMS). Fines de
   semana y feriados no son días de clase, así que no cortan la racha.
-- **18 / 25 faltas:** con el mismo conteo que la libreta (por día en ciclo básico).
+- **18 / 25 faltas:** con el mismo conteo que la libreta (por día).
 - **Alertas:** cada una se guarda en `StudentAlert` (unique tipo + alumno + clave). Las de faltas
   (seguidas y 18/25) se avisan **una sola vez** por notificación `STUDENT_ALERT` y push a DIRECCION y
   ADSCRIPTO, con enlace a su pestaña de Asistencia de estudiantes; con más de 5 nuevas, un resumen.

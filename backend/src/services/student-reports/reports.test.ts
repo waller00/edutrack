@@ -142,9 +142,20 @@ describe('loadAbsenceStreaks', () => {
     expect(rows).toEqual([expect.objectContaining({ studentId: 'a', from: '2026-10-08', to: '2026-10-12', days: 3, open: true })])
   })
 
-  it('bachillerato: con una sola clase faltada de cuatro el día no es falta entera', async () => {
+  const oneOfFour = (d: string) => [mark('a', d), mark('a', d, 'PRESENT'), mark('a', d, 'PRESENT'), mark('a', d, 'PRESENT')]
+
+  it('bachillerato también: faltar a una clase del día ya es la falta del día', async () => {
+    // REEMS art. 47: la falta se registra "en dicha jornada".
     prismaMock.studentEnrollment.findMany.mockResolvedValue([enrollment('a', 'EMS')])
-    const oneOfFour = (d: string) => [mark('a', d), mark('a', d, 'PRESENT'), mark('a', d, 'PRESENT'), mark('a', d, 'PRESENT')]
+    prismaMock.studentAttendanceEntry.findMany
+      .mockResolvedValueOnce(days.map((d) => mark('a', d)))
+      .mockResolvedValueOnce(days.flatMap(oneOfFour))
+
+    expect(await loadAbsenceStreaks('sy-1')).toEqual([expect.objectContaining({ studentId: 'a', days: 3 })])
+  })
+
+  it('un curso sin nivel usa el umbral: una clase faltada de cuatro no es falta entera', async () => {
+    prismaMock.studentEnrollment.findMany.mockResolvedValue([enrollment('a', null as never)])
     prismaMock.studentAttendanceEntry.findMany
       .mockResolvedValueOnce(days.map((d) => mark('a', d)))
       .mockResolvedValueOnce(days.flatMap(oneOfFour))

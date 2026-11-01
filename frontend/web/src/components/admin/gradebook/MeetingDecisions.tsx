@@ -118,8 +118,9 @@ export default function MeetingDecisions({
       <div>
         <h3 className="text-sm font-semibold text-gray-900">Juicio / decisiones de la reunión</h3>
         <p className="text-xs text-gray-600">
-          El docente ve en su cierre, como <strong>Juicio Reu.</strong>, la decisión vigente de cada alumno —o la
-          del grupo si el alumno no tiene una propia—. Una decisión nueva reemplaza a la anterior sin borrarla.
+          La decisión vigente de cada alumno —o la del grupo si el alumno no tiene una propia— se imprime en su
+          boletín como <strong>Informe reunión</strong>, y el docente la ve en su cierre como{' '}
+          <strong>Juicio Reu.</strong> Una decisión nueva reemplaza a la anterior sin borrarla.
         </p>
       </div>
 

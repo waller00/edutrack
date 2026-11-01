@@ -8,8 +8,11 @@ import {
   isValidAbsenceWeight,
   totalAbsenceHundredths,
   absenceHundredthsFor,
-  basicCycleDays,
-  basicCycleMarkWeight,
+  dayRuleDays,
+  dayRuleMarkWeight,
+  countsByDay,
+  absenceCounts,
+  wholeAbsences,
 } from './absence-weight.js'
 
 describe('isAbsence', () => {
@@ -91,7 +94,7 @@ describe('isValidAbsenceWeight', () => {
   })
 })
 
-describe('ciclo básico: la falta es del día', () => {
+describe('ciclo básico y bachillerato: la falta es del día', () => {
   const mark = (ymd: string, status: string, absenceWeightHundredths: number | null = null) => ({
     ymd,
     status,
@@ -99,10 +102,10 @@ describe('ciclo básico: la falta es del día', () => {
   })
 
   it('pesos por marca: ausente 1, justificada y tarde ½, presente 0', () => {
-    expect(basicCycleMarkWeight('ABSENT')).toBe(100)
-    expect(basicCycleMarkWeight('ABSENT_JUSTIFIED')).toBe(50)
-    expect(basicCycleMarkWeight('LATE')).toBe(50)
-    expect(basicCycleMarkWeight('PRESENT')).toBe(0)
+    expect(dayRuleMarkWeight('ABSENT')).toBe(100)
+    expect(dayRuleMarkWeight('ABSENT_JUSTIFIED')).toBe(50)
+    expect(dayRuleMarkWeight('LATE')).toBe(50)
+    expect(dayRuleMarkWeight('PRESENT')).toBe(0)
   })
 
   it('faltar a una sola materia ya es la falta del día', () => {
@@ -139,7 +142,7 @@ describe('ciclo básico: la falta es del día', () => {
       mark('2026-10-05', 'ABSENT_JUSTIFIED'),
     ]
     expect(absenceHundredthsFor(marks, 'EBI')).toBe(200)
-    expect(basicCycleDays(marks)).toEqual([
+    expect(dayRuleDays(marks)).toEqual([
       { ymd: '2026-10-01', hundredths: 100 },
       { ymd: '2026-10-02', hundredths: 50 },
       { ymd: '2026-10-03', hundredths: 0 },
@@ -151,9 +154,58 @@ describe('ciclo básico: la falta es del día', () => {
     expect(absenceHundredthsFor([mark('2026-10-01', 'ABSENT', HALF_ABSENCE)], 'EBI')).toBe(100)
   })
 
-  it('bachillerato y cursos sin nivel siguen sumando por marca', () => {
+  it('bachillerato cuenta igual: la falta es de la jornada y la justificada vale media (REEMS)', () => {
+    const marks = [mark('2026-10-01', 'ABSENT'), mark('2026-10-01', 'ABSENT'), mark('2026-10-01', 'LATE'), mark('2026-10-02', 'ABSENT_JUSTIFIED')]
+    expect(absenceHundredthsFor(marks, 'EMS')).toBe(150)
+    expect(countsByDay('EMS')).toBe(true)
+  })
+
+  it('sólo un curso sin nivel sigue sumando por marca', () => {
     const marks = [mark('2026-10-01', 'ABSENT'), mark('2026-10-01', 'ABSENT'), mark('2026-10-01', 'LATE')]
-    expect(absenceHundredthsFor(marks, 'EMS')).toBe(250)
     expect(absenceHundredthsFor(marks, null)).toBe(250)
+    expect(countsByDay(null)).toBe(false)
+  })
+})
+
+describe('absenceCounts: J, I y tardes del boletín', () => {
+  const mark = (ymd: string, status: string) => ({ ymd, status, absenceWeightHundredths: null })
+
+  it('en ciclo básico cuenta días, cada uno en la columna de su peor marca', () => {
+    const marks = [
+      mark('2026-10-01', 'ABSENT'),
+      mark('2026-10-01', 'ABSENT'),
+      mark('2026-10-01', 'LATE'),
+      mark('2026-10-02', 'ABSENT_JUSTIFIED'),
+      mark('2026-10-02', 'LATE'),
+      mark('2026-10-03', 'LATE'),
+      mark('2026-10-03', 'LATE'),
+      mark('2026-10-04', 'PRESENT'),
+    ]
+    expect(absenceCounts(marks, 'EBI')).toEqual({ unjustified: 1, justified: 1, lates: 1 })
+    // Y cierran con el total: 1 + ½ + ½.
+    expect(absenceHundredthsFor(marks, 'EBI')).toBe(200)
+  })
+
+  it('en bachillerato también cuenta días', () => {
+    const marks = [mark('2026-10-01', 'ABSENT'), mark('2026-10-01', 'ABSENT'), mark('2026-10-01', 'LATE'), mark('2026-10-02', 'ABSENT_JUSTIFIED')]
+    expect(absenceCounts(marks, 'EMS')).toEqual({ unjustified: 1, justified: 1, lates: 0 })
+  })
+
+  it('un curso sin nivel cuenta marcas', () => {
+    const marks = [mark('2026-10-01', 'ABSENT'), mark('2026-10-01', 'ABSENT'), mark('2026-10-01', 'LATE'), mark('2026-10-02', 'ABSENT_JUSTIFIED')]
+    expect(absenceCounts(marks, null)).toEqual({ unjustified: 2, justified: 1, lates: 1 })
+  })
+
+  it('sin marcas, todo en cero', () => {
+    expect(absenceCounts([], 'EBI')).toEqual({ unjustified: 0, justified: 0, lates: 0 })
+  })
+})
+
+describe('wholeAbsences', () => {
+  it('redondea para abajo: la media falta no suma hasta juntar otra', () => {
+    expect(wholeAbsences(250)).toBe(2)
+    expect(wholeAbsences(300)).toBe(3)
+    expect(wholeAbsences(50)).toBe(0)
+    expect(wholeAbsences(0)).toBe(0)
   })
 })

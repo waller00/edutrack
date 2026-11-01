@@ -11,6 +11,7 @@ import { conductOptions, conductScale, isConductValue, periodScaleFor } from '..
 import { loadPeriodCompleteness, type CompletenessGroup } from '../services/gradebook/completeness-loader.js'
 import { completionDigestNotification, completionRequestNotification } from '../services/gradebook/notifications.js'
 import { generateReportCardPdf, generateReportCardsPdf } from '../services/gradebook/exports/reportCardPdf.js'
+import { loadInstitutionBranding } from '../services/institution-branding.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { loadRosterForScope } from '../services/student-attendance/roster.js'
 import { AuditAction, type Prisma } from '@prisma/client'
@@ -677,7 +678,17 @@ async function enrollmentForYear(studentId: string, schoolYearId: string) {
 async function reportCardPeriod(periodId: string) {
   return prisma.academicPeriod.findUnique({
     where: { id: periodId },
-    select: { id: true, name: true, schoolYearId: true, level: true },
+    select: {
+      id: true,
+      name: true,
+      schoolYearId: true,
+      level: true,
+      kind: true,
+      sortOrder: true,
+      startsOn: true,
+      endsOn: true,
+      judgementLabel: true,
+    },
   })
 }
 
@@ -691,9 +702,9 @@ function sendPdf(res: any, pdf: Buffer, filename: string) {
  * Boletín del estudiante para un período: todas sus asignaturas en un solo documento.
  *
  * Es la única salida transversal del sistema — el resto de las exportaciones son por libreta, o
- * sea de una materia sola. Reúne lo que el liceo pidió que llegue a la familia: nota y juicio de
- * cada asignatura, conducta, promedio e inasistencias, con el encabezado del estudiante. El grupo
- * sale de la matrícula del ciclo del período, no de la de hoy.
+ * sea de una materia sola. Sigue la planilla del liceo: C, R e informe de cada asignatura (sólo lo
+ * cerrado), el juicio de la reunión y las inasistencias del período. El grupo sale de la matrícula
+ * del ciclo del período, no de la de hoy.
  */
 r.get('/report-card/:studentId', requirePermission('gradebook.export'), async (req: any, res) => {
   const periodId = typeof req.query.periodId === 'string' ? req.query.periodId : null
@@ -702,7 +713,7 @@ r.get('/report-card/:studentId', requirePermission('gradebook.export'), async (r
   try {
     const student = await prisma.student.findUnique({
       where: { id: req.params.studentId },
-      select: { id: true, firstName: true, lastName: true, documentId: true, birthDate: true },
+      select: { id: true, firstName: true, lastName: true },
     })
     if (!student) return res.status(404).json({ message: 'Estudiante no encontrado' })
 
@@ -717,17 +728,20 @@ r.get('/report-card/:studentId', requirePermission('gradebook.export'), async (r
       return res.status(409).json({ message: 'El período no es del nivel del estudiante', code: 'LEVEL_MISMATCH' })
     }
 
-    const { cards, decimals } = await loadReportCards({
-      group: {
-        schoolYearId: period.schoolYearId,
-        courseOfferingId: enrollment.courseOfferingId,
-        courseOrientationId: enrollment.courseOrientationId,
-        orientationId: enrollment.orientationId,
-      },
-      period,
-      students: [student],
-    })
-    const pdf = await generateReportCardPdf(cards[0], decimals)
+    const [cards, institution] = await Promise.all([
+      loadReportCards({
+        group: {
+          schoolYearId: period.schoolYearId,
+          courseOfferingId: enrollment.courseOfferingId,
+          courseOrientationId: enrollment.courseOrientationId,
+          orientationId: enrollment.orientationId,
+        },
+        period,
+        students: [student],
+      }),
+      loadInstitutionBranding(),
+    ])
+    const pdf = await generateReportCardPdf(cards[0], institution)
     return sendPdf(res, pdf, `boletin-${student.lastName}-${student.firstName}.pdf`)
   } catch (error) {
     console.error('[admin-gradebook] report-card:', error)
@@ -767,21 +781,9 @@ r.get('/report-cards', requirePermission('gradebook.export'), async (req: any, r
     const roster = await loadRosterForScope(group)
     if (roster.length === 0) return res.status(404).json({ message: 'El grupo no tiene estudiantes matriculados', code: 'EMPTY_GROUP' })
 
-    const birthDates = await prisma.student.findMany({
-      where: { id: { in: roster.map((s) => s.studentId) } },
-      select: { id: true, birthDate: true },
-    })
-    const birthById = new Map(birthDates.map((row) => [row.id, row.birthDate]))
-    const students = roster.map((s) => ({
-      id: s.studentId,
-      firstName: s.firstName,
-      lastName: s.lastName,
-      documentId: s.documentId,
-      birthDate: birthById.get(s.studentId) ?? null,
-    }))
-
-    const { cards, decimals } = await loadReportCards({ group, period, students })
-    const pdf = await generateReportCardsPdf(cards, decimals)
+    const students = roster.map((s) => ({ id: s.studentId, firstName: s.firstName, lastName: s.lastName }))
+    const [cards, institution] = await Promise.all([loadReportCards({ group, period, students }), loadInstitutionBranding()])
+    const pdf = await generateReportCardsPdf(cards, institution)
     return sendPdf(res, pdf, `boletines-${offering.course?.name ?? 'grupo'}-${period.name}.pdf`)
   } catch (error) {
     console.error('[admin-gradebook] report-cards:', error)

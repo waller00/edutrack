@@ -23,6 +23,7 @@ const { prismaMock, rosterMock, scopeMock } = vi.hoisted(() => ({
     inAppNotification: { createMany: vi.fn() },
     $executeRaw: vi.fn().mockResolvedValue(1),
     teacherMeetingRecord: { findMany: vi.fn(), create: vi.fn() },
+    institutionBranding: { findUnique: vi.fn() },
     studentConductRecord: { findMany: vi.fn(), upsert: vi.fn() },
     studentAttendanceEntry: { findMany: vi.fn() },
     $transaction: vi.fn(),
@@ -325,7 +326,8 @@ describe('GET /students/:studentId', () => {
 
     const year = res.body.enrollments[0]
     expect(year.schoolYearId).toBe('sy-1')
-    expect(year.absences).toEqual({ absenceHundredths: 200, justified: 1 })
+    // Bachillerato: la ausencia vale 1 y la justificada ½ (REEMS art. 53).
+    expect(year.absences).toEqual({ absenceHundredths: 150, justified: 1 })
     // En orden de la planilla y sólo los del año.
     expect(year.conduct.map((c: any) => c.periodName)).toEqual(['1.er semestre', '2.º semestre'])
     expect(year.conduct[0].label).toBe('3')
@@ -897,7 +899,17 @@ describe('la matriz sirve para la reunión', () => {
 describe('boletín', () => {
   const P_ID = '22222222-2222-4222-8222-222222222222'
   const ST_ID = '33333333-3333-4333-8333-333333333333'
-  const PERIOD = { id: P_ID, name: 'Mayo', schoolYearId: 'sy-1', level: 'EMS' }
+  const PERIOD = {
+    id: P_ID,
+    name: 'Primer semestre',
+    schoolYearId: 'sy-1',
+    level: 'EMS',
+    kind: 'TRAMO',
+    sortOrder: 10,
+    startsOn: new Date('2026-03-01T12:00:00Z'),
+    endsOn: new Date('2026-07-15T12:00:00Z'),
+    judgementLabel: null,
+  }
 
   function enrollment(over: any = {}) {
     return {
@@ -933,6 +945,26 @@ describe('boletín', () => {
       { studentId: ST_ID, status: 'ABSENT', absenceWeightHundredths: 50, session: { occurrenceYmd: '2026-05-04' } },
       { studentId: ST_ID, status: 'ABSENT_JUSTIFIED', absenceWeightHundredths: null, session: { occurrenceYmd: '2026-05-05' } },
     ])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([PERIOD])
+    prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([])
+    prismaMock.institutionBranding.findUnique.mockResolvedValue(null)
+  })
+
+  it('lleva el nombre y el logo de la institución que se cargaron en Configuración', async () => {
+    // Un PNG de 1×1: lo mínimo que pdfkit sabe dibujar.
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    )
+    prismaMock.institutionBranding.findUnique.mockResolvedValue({ name: 'Instituto de Educación Integral', logoBytes: png })
+
+    const res = await request(app())
+      .get(`/admin/gradebook/report-card/${ST_ID}?periodId=${P_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    // El logo quedó incrustado como imagen del PDF.
+    expect(res.body.toString('latin1')).toContain('/Subtype /Image')
   })
 
   it('junta TODAS las materias del grupo en un solo documento', async () => {
@@ -948,6 +980,21 @@ describe('boletín', () => {
     expect(res.headers['content-disposition']).toContain('filename="boletin-Diaz-Ana.pdf"')
     // Se consultaron las libretas del grupo, no una sola.
     expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where).toEqual({ courseOfferingId: OFFERING_ID })
+  })
+
+  it('lee el juicio de la reunión y las faltas del año hasta el fin del período', async () => {
+    await request(app()).get(`/admin/gradebook/report-card/${ST_ID}?periodId=${P_ID}`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(prismaMock.teacherMeetingRecord.findMany.mock.calls[0][0].where).toEqual({
+      courseOfferingId: OFFERING_ID,
+      periodId: P_ID,
+      OR: [{ studentId: { in: [ST_ID] } }, { studentId: null, courseOrientationId: null }],
+    })
+    // Acumuladas en el año, cortadas en el fin del semestre: reimprimirlo da lo mismo.
+    expect(prismaMock.studentAttendanceEntry.findMany.mock.calls[0][0].where.session).toEqual({
+      schoolYearId: 'sy-1',
+      occurrenceYmd: { lte: '2026-07-15' },
+    })
   })
 
   it('usa la matrícula del ciclo del período, aunque ya no esté activa', async () => {
@@ -1029,7 +1076,7 @@ describe('boletín', () => {
         orientationId: null,
       })
       // Las notas de los dos estudiantes en una sola consulta.
-      expect(prismaMock.gradeBookPeriod.findMany.mock.calls[0][0].include.grades.where).toEqual({
+      expect(prismaMock.gradeBookPeriod.findMany.mock.calls[0][0].select.grades.where).toEqual({
         studentId: { in: [ST_ID, 'st-2'] },
       })
     })

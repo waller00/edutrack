@@ -289,7 +289,7 @@ export default function AdminOperationalSettingsPanel({
                 'Umbral de falta diaria (%)',
                 1,
                 100,
-                'Porcentaje de clases ausentes que cuenta como falta entera. Por debajo, una ausencia cuenta como media falta.',
+                'Sólo para cursos sin nivel: en ciclo básico y bachillerato faltar a una clase ya es la falta del día. Porcentaje de clases ausentes que cuenta como falta entera; por debajo, media falta.',
               )}
             </div>
             <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-slate-50 p-3">

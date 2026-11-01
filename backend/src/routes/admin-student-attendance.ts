@@ -7,7 +7,7 @@ import { isYmdDateString } from '../config/app-timezone.js'
 import { todayUruguayYmd } from '../services/events/event-versioning.js'
 import { occurrenceYmdOf } from '../services/events/occurrence-instant.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
-import { FULL_ABSENCE, HALF_ABSENCE, isBasicCycle } from '../services/student-attendance/absence-weight.js'
+import { FULL_ABSENCE, HALF_ABSENCE, countsByDay } from '../services/student-attendance/absence-weight.js'
 import { AuditAction } from '@prisma/client'
 import { recordAuditEventNow } from '../services/audit-log.js'
 import {
@@ -505,7 +505,7 @@ r.get('/students/:studentId', async (req: any, res) => {
 
     return res.json({
       student,
-      basicCycle: isBasicCycle(level),
+      byDay: countsByDay(level),
       bySubject: totalsBySubject(cells),
       daily: consolidateRange(cells, opts),
       overall: overallTotals(cells, opts),

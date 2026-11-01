@@ -1,5 +1,5 @@
 import type { StudentAttendanceStatus } from '@prisma/client'
-import { FULL_ABSENCE, HALF_ABSENCE, basicCycleDayHundredths, isBasicCycle } from './absence-weight.js'
+import { FULL_ABSENCE, HALF_ABSENCE, countsByDay, dayRuleHundredths } from './absence-weight.js'
 
 /**
  * Una marca de un estudiante en una clase, ya aplanada para el cálculo.
@@ -22,8 +22,9 @@ export const DAILY_CONSOLIDATION_LABEL: Record<DailyConsolidation, string> = {
 }
 
 /**
- * `level` es el nivel del grupo. En ciclo básico (EBI) el umbral no aplica: el día vale su peor
- * marca — una ausencia es la falta del día, y una tarde o una justificada son media.
+ * `level` es el nivel del grupo. En EBI y EMS el umbral no aplica: el día vale su peor marca — una
+ * ausencia es la falta del día, y una tarde o una justificada son media. El umbral queda para un
+ * curso sin nivel.
  */
 export type ConsolidationOptions = { thresholdPercent: number; level?: string | null }
 
@@ -43,15 +44,15 @@ export function consolidateDay(
   opts: ConsolidationOptions,
 ): DailyConsolidation {
   if (cells.length === 0) return 'NO_CLASSES'
-  if (isBasicCycle(opts.level)) return basicCycleConsolidation(cells)
+  if (countsByDay(opts.level)) return dayRuleConsolidation(cells)
   const absent = cells.filter((c) => isAbsent(c.status)).length
   if (absent === 0) return 'PRESENT'
   const ratio = (absent / cells.length) * 100
   return ratio >= opts.thresholdPercent ? 'ABSENCE' : 'HALF_ABSENCE'
 }
 
-function basicCycleConsolidation(cells: readonly AttendanceCell[]): DailyConsolidation {
-  const hundredths = basicCycleDayHundredths(cells)
+function dayRuleConsolidation(cells: readonly AttendanceCell[]): DailyConsolidation {
+  const hundredths = dayRuleHundredths(cells)
   if (hundredths >= FULL_ABSENCE) return 'ABSENCE'
   return hundredths >= HALF_ABSENCE ? 'HALF_ABSENCE' : 'PRESENT'
 }

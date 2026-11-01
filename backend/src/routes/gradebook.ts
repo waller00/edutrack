@@ -14,11 +14,11 @@ import {
 } from '../services/gradebook/access.js'
 import { photoETag } from '../services/student-photo.js'
 import {
-  basicCycleDays,
-  basicCycleMarkWeight,
+  countsByDay,
+  dayRuleDays,
+  dayRuleMarkWeight,
   effectiveWeight,
   formatAbsenceUnits,
-  isBasicCycle,
 } from '../services/student-attendance/absence-weight.js'
 import { loadAbsenceTotals } from '../services/student-attendance/absence-totals.js'
 import {
@@ -132,13 +132,13 @@ function levelOfRow(row: any): string | null {
 }
 
 /**
- * Etiqueta de una marca en el detalle de inasistencias. En ciclo básico la justificada siempre
- * vale media y se muestra como justificada; en el resto, un peso de 50 es "media falta".
+ * Etiqueta de una marca en el detalle de inasistencias. Con la regla del día la justificada siempre
+ * vale media y se muestra como justificada; en un curso sin nivel, un peso de 50 es "media falta".
  */
-function absenceMarkLabel(status: string, weight: number, basicCycle: boolean): string {
+function absenceMarkLabel(status: string, weight: number, byDay: boolean): string {
   if (status === 'LATE') return 'TARDE'
   if (status === 'PRESENT') return 'PRESENTE'
-  if (status === 'ABSENT_JUSTIFIED' && (basicCycle || weight !== 50)) return 'FALTA JUSTIFICADA'
+  if (status === 'ABSENT_JUSTIFIED' && (byDay || weight !== 50)) return 'FALTA JUSTIFICADA'
   return weight === 50 ? 'MEDIA FALTA' : 'FALTA'
 }
 
@@ -147,10 +147,10 @@ function absenceMarkLabel(status: string, weight: number, basicCycle: boolean): 
  * una ausencia es de adscripción al justificar. Una ausencia viaja siempre como `undefined`, que en
  * `saveRollCall` significa "no pisar" — así una ausencia que adscripción graduó a media no vuelve a
  * valer una entera por un reguardado. Antes la API aceptaba un peso del docente aunque la pantalla
- * no lo ofreciera. En ciclo básico el peso lo fija la regla del día y no se guarda ninguno.
+ * no lo ofreciera. En EBI y EMS el peso lo fija la regla del día y no se guarda ninguno.
  */
 function dayMarkWeight(entry: { status?: string }, level: string | null): null | undefined {
-  if (entry.status !== 'ABSENT' || isBasicCycle(level)) return null
+  if (entry.status !== 'ABSENT' || countsByDay(level)) return null
   return undefined
 }
 
@@ -942,21 +942,21 @@ r.get('/:id/students/:studentId/absences', requirePermission('gradebook.read'), 
       orderBy: { session: { occurrenceYmd: 'desc' } },
     })
 
-    // En ciclo básico lo que suma es el día (su peor marca), no cada clase: el peso de la marca
-    // sólo informa cuánto aportaría si fuera la única del día.
-    const basicCycle = isBasicCycle(levelOfRow(ctx.row))
-    const days = basicCycle
-      ? basicCycleDays(entries.map((e) => ({ ...e, ymd: e.session.occurrenceYmd })))
+    // En EBI y EMS lo que suma es el día (su peor marca), no cada clase: el peso de la marca sólo
+    // informa cuánto aportaría si fuera la única del día.
+    const byDay = countsByDay(levelOfRow(ctx.row))
+    const days = byDay
+      ? dayRuleDays(entries.map((e) => ({ ...e, ymd: e.session.occurrenceYmd })))
       : []
     let absenceHundredths = days.reduce((acc, day) => acc + day.hundredths, 0)
     let lates = 0
     let justified = 0
     const mapped = entries.map((entry) => {
-      const weight = basicCycle ? basicCycleMarkWeight(entry.status) : effectiveWeight(entry)
-      if (!basicCycle) absenceHundredths += weight
+      const weight = byDay ? dayRuleMarkWeight(entry.status) : effectiveWeight(entry)
+      if (!byDay) absenceHundredths += weight
       if (entry.status === 'LATE') lates += 1
       if (entry.status === 'ABSENT_JUSTIFIED') justified += 1
-      const label = absenceMarkLabel(entry.status, weight, basicCycle)
+      const label = absenceMarkLabel(entry.status, weight, byDay)
       return {
         entryId: entry.id,
         status: entry.status,
@@ -1012,8 +1012,8 @@ r.get('/:id/students/:studentId/absences', requirePermission('gradebook.read'), 
         lates,
         justifiedCount: justified,
       },
-      basicCycle,
-      /** Sólo ciclo básico: cuánto sumó cada día con marcas. */
+      byDay,
+      /** Sólo con la regla del día: cuánto sumó cada día con marcas. */
       days: days.map((day) => ({ ...day, absences: formatAbsenceUnits(day.hundredths) })),
       bySubject: [...bySubjectMap.values()].map((s) => ({
         subjectId: s.subjectId,

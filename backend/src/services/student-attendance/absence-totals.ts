@@ -1,14 +1,21 @@
 import { prisma } from '../../db/prisma.js'
-import { absenceHundredthsFor, type DatedWeighableEntry } from './absence-weight.js'
+import { absenceCounts, absenceHundredthsFor, type AbsenceCounts, type DatedWeighableEntry } from './absence-weight.js'
 
 export type AbsenceTotals = {
   /** Total en centésimos: 150 = una falta y media. */
   absenceHundredths: number
   justified: number
   lates: number
+  /** J, I y tardes del boletín: días con la regla del día, marcas en un curso sin nivel (`absenceCounts`). */
+  counts: AbsenceCounts
 }
 
-export const EMPTY_ABSENCE_TOTALS: AbsenceTotals = { absenceHundredths: 0, justified: 0, lates: 0 }
+export const EMPTY_ABSENCE_TOTALS: AbsenceTotals = {
+  absenceHundredths: 0,
+  justified: 0,
+  lates: 0,
+  counts: { justified: 0, unjustified: 0, lates: 0 },
+}
 
 type Mark = { studentId: string; status: string; absenceWeightHundredths: number | null; ymd: string }
 
@@ -29,6 +36,7 @@ export function summarizeAbsences(
       absenceHundredths: absenceHundredthsFor(entries, level),
       justified: entries.filter((e) => e.status === 'ABSENT_JUSTIFIED').length,
       lates: entries.filter((e) => e.status === 'LATE').length,
+      counts: absenceCounts(entries, level),
     })
   }
   return totals
@@ -36,16 +44,25 @@ export function summarizeAbsences(
 
 /**
  * Inasistencias del ciclo, **globales**: el liceo cuenta las faltas del estudiante en el liceo,
- * no las de cada materia. `level` es el del grupo: en ciclo básico (EBI) se cuenta por día.
+ * no las de cada materia. `level` es el del grupo: en EBI y EMS se cuenta por día (`countsByDay`).
+ * `untilYmd` (YYYY-MM-DD, inclusive) corta el acumulado en un día: el boletín informa las del año
+ * hasta el fin de su período, así reimprimirlo da lo mismo. Sin él, todo el ciclo.
  */
 export async function loadAbsenceTotals(
   studentIds: readonly string[],
   schoolYearId: string,
   level: string | null | undefined,
+  untilYmd?: string | null,
 ): Promise<Map<string, AbsenceTotals>> {
   if (studentIds.length === 0) return new Map()
   const rows = await prisma.studentAttendanceEntry.findMany({
-    where: { studentId: { in: [...studentIds] }, session: { schoolYearId } },
+    where: {
+      studentId: { in: [...studentIds] },
+      session: {
+        schoolYearId,
+        ...(untilYmd ? { occurrenceYmd: { lte: untilYmd } } : {}),
+      },
+    },
     select: {
       studentId: true,
       status: true,

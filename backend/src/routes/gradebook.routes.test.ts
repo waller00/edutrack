@@ -123,6 +123,9 @@ const ROW = {
   teacher: { id: 'teacher-1', name: 'Ana G', username: 'ana.g' },
 }
 
+/** Un curso sin nivel: el único que todavía suma faltas por marca y no por día. */
+const NO_LEVEL_ROW = { ...ROW, courseOffering: { ...ROW.courseOffering, course: { ...ROW.courseOffering.course, level: null } } }
+
 beforeEach(() => {
   vi.clearAllMocks()
   scopeMock.mockResolvedValue('own')
@@ -284,8 +287,8 @@ describe('GET /gradebook/:id', () => {
     expect(res.body.students[0].badges).toEqual(['ADEC', 'GEN'])
   })
 
-  it('el detalle de faltas por materia suma lo mismo que el acumulado (las tardes también)', async () => {
-    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+  it('sin nivel, el detalle de faltas por materia suma lo mismo que el acumulado (las tardes también)', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(NO_LEVEL_ROW)
     rosterMock.mockResolvedValue([
       { studentId: 's1', studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
     ])
@@ -315,7 +318,8 @@ describe('GET /gradebook/:id', () => {
     expect(bySubject).toEqual({ mat: 100, his: 100 })
   })
 
-  it('cuenta las faltas en unidades, con la media falta', async () => {
+  it('en bachillerato también la falta es del día: el día vale su peor marca', async () => {
+    // REEMS art. 47: la falta se registra "en dicha jornada"; art. 53: la justificada vale media.
     prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
     rosterMock.mockResolvedValue([
       { studentId: 's1', studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
@@ -333,11 +337,11 @@ describe('GET /gradebook/:id', () => {
     const res = await request(app()).get(`/gradebook/${GB_ID}`).set('Authorization', `Bearer ${tok()}`)
 
     expect(res.status).toBe(200)
-    // 1 + 0,5 + 1 (la justificada cuenta) + 0,5 (la tarde es media falta) = 3
+    // Cuatro marcas el mismo día, la peor es una ausencia: una falta, no tres.
     expect(res.body.students[0]).toMatchObject({
       studentId: 's1',
-      absences: '3',
-      absenceHundredths: 300,
+      absences: '1',
+      absenceHundredths: 100,
       justifiedCount: 1,
       lates: 1,
     })
@@ -2006,8 +2010,8 @@ describe('inasistencias diarias de la libreta', () => {
     expect(res.body.students[0]).toMatchObject({ studentId: SID, dayMark: null })
   })
 
-  function classOn14() {
-    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+  function classOn14(row: typeof ROW | typeof NO_LEVEL_ROW = NO_LEVEL_ROW) {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(row)
     rosterMock.mockResolvedValue([
       { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
     ])
@@ -2038,6 +2042,17 @@ describe('inasistencias diarias de la libreta', () => {
     // Graduarla es de adscripción al justificar: la libreta no la pisa.
     expect(entry.absenceWeightHundredths).toBeUndefined()
     expect(saveRollCallMock.mock.calls[0][0]).toMatchObject({ outsideWindow: false })
+  })
+
+  it('PUT /absences/day en bachillerato no guarda peso: lo fija la regla del día', async () => {
+    classOn14(ROW)
+
+    await request(app())
+      .put(`/gradebook/${GB_ID}/absences/day`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ date: '2026-09-14', entries: [{ studentId: SID, status: 'ABSENT', absenceWeightHundredths: 50 }] })
+
+    expect(saveRollCallMock.mock.calls[0][0].entries[0].absenceWeightHundredths).toBeNull()
   })
 
   it('PUT /absences/day respeta la ventana de 48 h del pase de lista', async () => {
@@ -2124,9 +2139,9 @@ describe('inasistencias diarias de la libreta', () => {
     })
   })
 
-  it('PUT /absences/day sin peso no pisa el que haya fijado adscripción', async () => {
+  it('PUT /absences/day sin peso no pisa el que haya fijado adscripción (curso sin nivel)', async () => {
     // El docente ya no elige "media falta": una ausencia sin peso viaja como undefined.
-    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    prismaMock.gradeBook.findUnique.mockResolvedValue(NO_LEVEL_ROW)
     rosterMock.mockResolvedValue([
       { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
     ])

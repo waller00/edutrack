@@ -15,6 +15,9 @@ vi.mock('@/components/admin/AdminBiometricDevicesPanel', () => ({
 vi.mock('@/components/admin/AdminMoodlePanel', () => ({
   default: () => <div data-testid="moodle-panel" />,
 }))
+vi.mock('@/components/admin/AdminInstitutionPanel', () => ({
+  default: () => <div data-testid="institution-panel" />,
+}))
 
 const mockedApi = vi.mocked(api)
 const settings = {
@@ -46,7 +49,7 @@ describe('AdminSystemSettingsPage', () => {
     mockedApi.mockResolvedValue({ ...settings })
   })
 
-  it('usa cuatro botones y carga las integraciones cuando se abren', async () => {
+  it('usa cinco botones y carga las integraciones cuando se abren', async () => {
     render(<AdminSystemSettingsPage />)
     await screen.findByRole('heading', { name: 'Zona horaria institucional' })
     expect(screen.getAllByRole('button', { name: 'Moodle' })).toHaveLength(1)
@@ -63,7 +66,7 @@ describe('AdminSystemSettingsPage', () => {
     expect(window.location.search).toBe('')
   })
 
-  it.each(['attendance', 'moodle', 'readers'])(
+  it.each(['attendance', 'institution', 'moodle', 'readers'])(
     'respeta el enlace directo a %s',
     async (section) => {
       window.history.replaceState(

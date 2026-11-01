@@ -47,6 +47,7 @@ import { deleteSessionsForUser } from '../auth/session-store.js'
 import { usernameSchema } from '../auth/account-validation.js'
 import { firstZodIssueMessage } from '../auth/password-policy.js'
 import adminStudentsRoutes from './admin-students.js'
+import adminInstitutionRoutes from './admin-institution.js'
 import adminStudentAccommodationsRoutes from './admin-student-accommodations.js'
 import adminTuitionRoutes from './admin-tuition.js'
 import adminStudentAttendanceRoutes from './admin-student-attendance.js'
@@ -1337,6 +1338,8 @@ r.get('/audit-logs', requirePermission('audit.read', 'all'), async (req, res) =>
 r.use('/students/:id/accommodations', requirePermission('students.accommodations', 'all'), adminStudentAccommodationsRoutes)
 r.use('/students', requirePermission('students.manage', 'all'), adminStudentsRoutes)
 r.use('/tuition', requirePermission('students.manage', 'all'), adminTuitionRoutes)
+// Nombre y logo del boletín: son configuración del sistema.
+r.use('/institution', requirePermission('settings.manage', 'all'), adminInstitutionRoutes)
 // El router se monta con lectura y cada ruta pide lo suyo: adscripción justifica sin poder
 // reabrir planillas cerradas, que sigue siendo de administración.
 r.use('/student-attendance', requirePermission('student-attendance.read', 'all'), adminStudentAttendanceRoutes)
