@@ -482,7 +482,6 @@ const rolePermissions = [
     role: 'TEACHER',
     permissions: [
       ...ownModules,
-      schoolRead,
       { id: 'gradebook.read', scope: 'own' },
     ],
   },
@@ -544,10 +543,10 @@ it.each(rolePermissions)(
     expect(
       await screen.findByRole('region', { name: 'Accesos rápidos' }),
     ).toBeVisible()
-    expect(screen.getByRole('link', { name: /Cursos/ })).toHaveAttribute(
-      'href',
-      '/admin/courses',
-    )
+    const withCourses = permissions.some((item) => item.id === 'courses.read')
+    expect(
+      screen.queryByRole('link', { name: /Cursos/ })?.getAttribute('href') ?? null,
+    ).toBe(withCourses ? '/admin/courses' : null)
     const withOwn = permissions.some((item) => item.id === 'attendance.read')
     expect(
       Boolean(screen.queryByRole('link', { name: /Mis asistencias/ })),

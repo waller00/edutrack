@@ -62,13 +62,22 @@ describe('courses / subjects', () => {
     prismaMock.subject.findMany.mockResolvedValueOnce([
       { id: subjectId, name: 'Matemática', code: 'MAT', description: null, sortOrder: 0, isActive: true, courseId },
     ])
-    const tok = signAccessToken({ sub: 't', email: 't@t.com', role: 'TEACHER' })
+    const tok = signAccessToken({ sub: 'd', email: 'd@d.com', role: 'DIRECCION' })
     const res = await request(app())
       .get(`/courses/${courseId}/subjects?schoolYearId=${'sy-default'}`)
       .set('Authorization', `Bearer ${tok}`)
     expect(res.status).toBe(200)
     expect(Array.isArray(res.body)).toBe(true)
     expect(res.body[0].name).toBe('Matemática')
+  })
+
+  it('el docente no lee el catálogo de cursos', async () => {
+    const tok = signAccessToken({ sub: 't', email: 't@t.com', role: 'TEACHER' })
+    for (const path of ['/courses', `/courses/${courseId}/subjects`, `/courses/${courseId}/orientations`]) {
+      const res = await request(app()).get(path).set('Authorization', `Bearer ${tok}`)
+      expect(res.status, path).toBe(403)
+    }
+    expect(prismaMock.subject.findMany).not.toHaveBeenCalled()
   })
 
   it('POST /courses/:id/subjects ADMIN crea', async () => {

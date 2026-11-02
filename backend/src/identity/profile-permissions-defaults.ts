@@ -123,7 +123,6 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
     perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
-    perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
     perm('student-attendance.take', 'Asistencia de estudiantes', 'take', 'Pasar lista de mis clases', true, 'own'),
     perm('student-attendance.read', 'Asistencia de estudiantes', 'read', 'Ver el pase de lista de mis clases', true, 'own'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver mis libretas', true, 'own'),
@@ -236,6 +235,9 @@ const STAFF_ACADEMIC_PERMISSION_IDS = [
   'gradebook.export',
 ] as const
 
+/** El catálogo de cursos: el docente ve sus grupos y asignaturas en sus libretas. */
+const TEACHER_CATALOG_PERMISSION_IDS = ['courses.read'] as const
+
 /**
  * Permisos que dejaron de ser de un perfil: no se siembran y no se pueden prender desde Roles /
  * Perfiles. Si una base vieja todavía los tiene prendidos, la pantalla los muestra (la autorización
@@ -243,7 +245,7 @@ const STAFF_ACADEMIC_PERMISSION_IDS = [
  */
 export const REMOVED_PROFILE_PERMISSION_IDS: Record<BuiltinProfileRole, Set<string>> = {
   ADMIN: new Set(),
-  TEACHER: new Set(['attendance.create', 'events.create', 'events.update', 'licenses.create']),
+  TEACHER: new Set(['attendance.create', 'events.create', 'events.update', 'licenses.create', ...TEACHER_CATALOG_PERMISSION_IDS]),
   STAFF: new Set(['attendance.create', 'licenses.create', ...STAFF_ACADEMIC_PERMISSION_IDS]),
   ADSCRIPTO: new Set(),
   DIRECCION: new Set(['gradebook.plan']),
@@ -265,6 +267,8 @@ export const REVOKED_PROFILE_PERMISSION_IDS: Partial<Record<BuiltinProfileRole, 
   ADSCRIPTO: revoke(SUPERVISION_GRADEBOOK_WRITE_IDS, 'Adscripción ve las libretas y las observa; no las edita.'),
   // Personal no es docente: sin agenda de clases, cursos, pase de lista ni libretas (20/10/2026).
   STAFF: revoke(STAFF_ACADEMIC_PERMISSION_IDS, 'Personal sólo ve sus asistencias y sus licencias.'),
+  // El docente no ve "Cursos": ninguna pantalla suya lo usa; sus libretas filtran por sus grupos (02/11/2026).
+  TEACHER: revoke(TEACHER_CATALOG_PERMISSION_IDS, 'El docente ve sus grupos y asignaturas en sus libretas.'),
 }
 
 /**

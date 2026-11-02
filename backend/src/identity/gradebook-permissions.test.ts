@@ -275,11 +275,14 @@ describe('lectura y análisis', () => {
     expect(withConfig).toEqual(['ADMIN'])
   })
 
-  it('todo rol con acceso a libretas puede leer el catálogo de cursos para filtrar', () => {
-    for (const role of ALL_ROLES) {
-      if (scopeOf(role, 'gradebook.read') === null) continue
-      expect(scopeOf(role, 'courses.read'), `${role} necesita courses.read`).not.toBeNull()
-    }
+  it('el docente no ve el catálogo de cursos: sus libretas filtran por sus propios grupos', () => {
+    expect(scopeOf('TEACHER', 'courses.read')).toBeNull()
+    // En bases que ya lo tenían se apaga, y Roles / Perfiles no lo deja volver a prender.
+    expect(REVOKED_PROFILE_PERMISSION_IDS.TEACHER?.['courses.read']).toBeDefined()
+    expect(REMOVED_PROFILE_PERMISSION_IDS.TEACHER.has('courses.read')).toBe(true)
+    expect(policyLockFor('TEACHER', 'courses.read')).toMatchObject({ enabled: false, scope: null })
+    // El selector de ciclo de sus libretas no dependía de este permiso (`requireSchoolYearAccess`).
+    expect(scopeOf('TEACHER', 'gradebook.read')).toBe('own')
   })
 })
 

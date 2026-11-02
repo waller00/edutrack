@@ -84,11 +84,12 @@ describe('catálogo de módulos', () => {
 })
 
 describe('qué ve cada uno', () => {
-  it('el docente tiene todo lo suyo en "Mi trabajo" y no ve la gestión del personal', () => {
-    // Como la matriz de fábrica: además de lo suyo, lee el catálogo de cursos.
-    const groups = visibleNavGroups({ permissions: [...teacher.permissions, { id: 'courses.read', scope: 'all' }] })
-    expect(groups.map((group) => group.title)).toEqual(['Inicio', 'Mi trabajo', 'Académico', 'Configuración'])
-    expect(groups[1].modules.map((entry) => entry.label)).toEqual([
+  it('el docente tiene todo lo suyo en "Mi trabajo" y no ve la gestión del personal ni los cursos', () => {
+    // Como Personal, sólo abre lo suyo: Inicio, la Guía y su perfil siguen en el botón de la cuenta.
+    const groups = visibleNavGroups(teacher)
+    expect(groups.map((group) => group.title)).toEqual(['Mi trabajo'])
+    expect(canSeeModule(teacher, moduleById('courses'))).toBe(false)
+    expect(groups[0].modules.map((entry) => entry.label)).toEqual([
       'Mi agenda',
       'Pase de lista',
       'Mis libretas',

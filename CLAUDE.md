@@ -307,8 +307,12 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > editan lo suyo (visar / justificar). Inspección se retiró (`RETIRED_ORG_ROLE_CODES`): no se lista
 > y el arranque la borra en cuanto queda sin usuarios. Los "Mis …" del menú (agenda, asistencias,
 > licencias) no fijan alcance: quien ve todo conserva lo propio. **La cuenta de Administración no
-> tiene "Mi trabajo"** (es la del sistema) y **Personal ve en el menú sólo "Mi trabajo"**: quien no
-> puede abrir nada más que lo suyo no recibe Inicio ni Configuración (`visibleNavGroups`).
+> tiene "Mi trabajo"** (es la del sistema) y **Personal y el docente ven en el menú sólo "Mi
+> trabajo"**: quien no puede abrir nada más que lo suyo no recibe Inicio ni Configuración
+> (`visibleNavGroups`); los tiene en el logo y en el botón de su cuenta. **El docente no ve
+> «Cursos»** (`courses.read`, revocado al TEACHER): ninguna pantalla suya lo usa, y sus libretas
+> filtran por sus propios grupos. No devolvérselo "para filtrar": con un permiso `all` vuelve a
+> recibir Inicio, Académico y Configuración en el menú.
 
 > **Roles / Perfiles muestra lo que la base autoriza.** Lo que fija la política (lo que se apaga, lo
 > que se fuerza y lo que dejó de ser del perfil) llega en `locks` con su motivo y la pantalla no lo
