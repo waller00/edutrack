@@ -28,6 +28,8 @@ export type IncomingGrade = {
   scaleLevelId?: string | null
   isAbsent?: boolean
   comment?: string | null
+  /** Sólo la importación desde Moodle: el valor que trajo, para saber después si se corrigió acá. */
+  importedValueHundredths?: number
 }
 
 export type RosterEntry = {
@@ -147,6 +149,22 @@ function levelIdFor(incoming: IncomingGrade, scale: SaveGradesParams['scale']): 
   return resolveLevel(value, scale.levels)?.id ?? null
 }
 
+/** `importedValueHundredths` sólo se escribe si viene: el resto de las escrituras no lo toca. */
+function importedValueData(entry: IncomingGrade): { importedValueHundredths?: number } {
+  return entry.importedValueHundredths === undefined ? {} : { importedValueHundredths: entry.importedValueHundredths }
+}
+
+/**
+ * La nota no cambió, pero quizás sí el valor que trajo Moodle (una fila importada antes de que se
+ * guardara). Se pone al día sin revisión: no hay cambio de nota que registrar.
+ */
+function needsImportedValueSync(
+  current: { importedValueHundredths: number | null },
+  entry: IncomingGrade,
+): boolean {
+  return entry.importedValueHundredths !== undefined && current.importedValueHundredths !== entry.importedValueHundredths
+}
+
 function validateEntries(params: SaveGradesParams): void {
   assertStudentsInRoster(params.entries, params.roster)
   for (const entry of params.entries) {
@@ -179,7 +197,14 @@ export async function saveGrades(
   await db.$transaction(async (tx) => {
     const existing = await tx.assessmentGrade.findMany({
       where: { assessmentId: params.assessmentId, studentId: { in: params.entries.map((e) => e.studentId) } },
-      select: { id: true, studentId: true, valueHundredths: true, scaleLevelId: true, isAbsent: true },
+      select: {
+        id: true,
+        studentId: true,
+        valueHundredths: true,
+        scaleLevelId: true,
+        isAbsent: true,
+        importedValueHundredths: true,
+      },
     })
     const byStudent = new Map(existing.map((row) => [row.studentId, row]))
 
@@ -193,6 +218,7 @@ export async function saveGrades(
         comment: entry.comment ?? null,
         gradedByUserId: params.actorUserId,
         gradedAt: new Date(),
+        ...importedValueData(entry),
       }
 
       if (!current) {
@@ -213,6 +239,9 @@ export async function saveGrades(
       }
 
       if (!hasChanges(current, data)) {
+        if (needsImportedValueSync(current, entry)) {
+          await tx.assessmentGrade.update({ where: { id: current.id }, data: importedValueData(entry) })
+        }
         result.unchanged++
         continue
       }

@@ -101,6 +101,74 @@ describe('MoodleImportPanel', () => {
     await waitFor(() => expect(onImported).toHaveBeenCalled())
   })
 
+  it('pide la previsualización en la escala del nivel y la vuelve a pedir al cambiarla', async () => {
+    render(
+      <MoodleImportPanel
+        gradeBookId="gb-1"
+        periods={PERIODS}
+        scales={[...SCALES, { id: 'sc-2', name: 'Numérica 1 a 10' }]}
+        defaultScaleId="sc-1"
+        onImported={vi.fn()}
+      />,
+    )
+    await screen.findByText('Parcial 1')
+    expect(mockedApi).toHaveBeenCalledWith('/gradebook/gb-1/moodle/preview?gradingScaleId=sc-1')
+
+    fireEvent.change(screen.getByLabelText('Escala destino'), { target: { value: 'sc-2' } })
+
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledWith('/gradebook/gb-1/moodle/preview?gradingScaleId=sc-2'))
+  })
+
+  it('muestra alumno por alumno qué trae Moodle, cómo queda y qué le pasa, en texto', async () => {
+    mockedApi.mockResolvedValue({
+      ...PREVIEW,
+      items: [
+        {
+          ...PREVIEW.items[0],
+          existingAssessmentId: 'a-1',
+          summary: { new: 1, update: 0, unchanged: 0, editedInEduTrack: 1 },
+          rows: [
+            { studentId: 's2', studentName: 'Acosta, Bruno', moodleRaw: 80, valueHundredths: 980, currentValueHundredths: null, status: 'NEW' },
+            { studentId: 's1', studentName: 'Suárez, Ana', moodleRaw: 100, valueHundredths: 1200, currentValueHundredths: 900, status: 'EDITED_IN_EDUTRACK' },
+          ],
+        },
+      ],
+    } as any)
+    renderPanel()
+
+    expect(await screen.findByText('1 nueva(s) · 1 corregida(s) en EduTrack (no se toca)')).toBeInTheDocument()
+    expect(screen.queryByText('Acosta, Bruno')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver notas' }))
+
+    const ana = screen.getByText('Suárez, Ana').closest('tr')!
+    expect(ana).toHaveTextContent('100 / 100')
+    expect(ana).toHaveTextContent('12')
+    expect(ana).toHaveTextContent('9')
+    expect(ana).toHaveTextContent('Corregida en EduTrack: no se toca')
+    const bruno = screen.getByText('Acosta, Bruno').closest('tr')!
+    expect(bruno).toHaveTextContent('9,8')
+    expect(bruno).toHaveTextContent('Nueva')
+  })
+
+  it('al terminar dice cuántas notas corregidas en EduTrack no se tocaron', async () => {
+    renderPanel()
+    await screen.findByText('Parcial 1')
+
+    fireEvent.click(screen.getByLabelText('Importar Parcial 1'))
+    fireEvent.change(screen.getByLabelText('Período destino'), { target: { value: 'p-1' } })
+    fireEvent.change(screen.getByLabelText('Escala destino'), { target: { value: 'sc-1' } })
+
+    mockedApi.mockResolvedValueOnce({
+      data: [{ name: 'Parcial 1', created: 0, updated: 2, skippedUnmatched: 0, skippedEditedInEduTrack: 1 }],
+    } as any)
+    fireEvent.click(screen.getByRole('button', { name: /Importar/ }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Importado: 0 nueva(s), 2 actualizada(s). 1 corregida(s) en EduTrack no se tocaron.',
+    )
+  })
+
   it('sin Moodle configurado se oculta en vez de romper la libreta', async () => {
     mockedApi.mockRejectedValue(new Error('La integración con Moodle no está configurada.'))
     renderPanel()

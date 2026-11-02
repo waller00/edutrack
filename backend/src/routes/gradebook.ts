@@ -72,6 +72,7 @@ import { writePeriodGrades } from '../services/gradebook/period-grade-history.js
 import {
   buildImportPlan,
   buildImportPreview,
+  loadImportedAssessments,
   loadMoodleReport,
   mapMoodleUsersToStudents,
 } from '../services/gradebook/moodle-import.js'
@@ -2771,15 +2772,38 @@ const importSchema = z.object({
   gradingScaleId: z.string().uuid(),
 })
 
-/** Ids de los estudiantes de la cohorte de la libreta. */
-async function rosterIdsOf(row: any): Promise<Set<string>> {
-  const students = await loadRosterForScope({
+const previewQuerySchema = z.object({ gradingScaleId: z.string().uuid().optional() })
+
+/** Estudiantes de la cohorte de la libreta. */
+function rosterOf(row: any) {
+  return loadRosterForScope({
     schoolYearId: row.schoolYearId,
     courseOfferingId: row.courseOfferingId,
     orientationId: row.orientationId,
     courseOrientationId: row.courseOrientationId,
   })
-  return new Set(students.map((s) => s.studentId))
+}
+
+/**
+ * La escala destino con su rango, o el error para responder. `== null` y no `!`: una escala que
+ * empieza en 0 tiene rango, y `!0` la rechazaba.
+ */
+async function loadScaleWithRange(gradingScaleId: string) {
+  const scale = await prisma.gradingScale.findUnique({
+    where: { id: gradingScaleId },
+    include: { levels: { orderBy: { sortOrder: 'asc' } } },
+  })
+  if (scale?.minValueHundredths == null || scale.maxValueHundredths == null) {
+    return {
+      error: {
+        message: 'La escala elegida no declara un rango numérico; no se puede convertir desde Moodle.',
+        code: 'SCALE_WITHOUT_RANGE',
+      },
+    } as const
+  }
+  return {
+    scale: { ...scale, minValueHundredths: scale.minValueHundredths, maxValueHundredths: scale.maxValueHundredths },
+  } as const
 }
 
 function gradeBookRefOf(row: any) {
@@ -2793,8 +2817,24 @@ function gradeBookRefOf(row: any) {
   }
 }
 
-/** Qué traería la importación, sin escribir nada. */
+/** El rango de la escala para la previsualización alumno por alumno; sin escala, sólo conteos. */
+async function previewTargetOf(gradingScaleId: string | undefined) {
+  if (!gradingScaleId) return { target: null } as const
+  const loaded = await loadScaleWithRange(gradingScaleId)
+  if (loaded.error) return { error: loaded.error } as const
+  return {
+    target: { minHundredths: loaded.scale.minValueHundredths, maxHundredths: loaded.scale.maxValueHundredths },
+  } as const
+}
+
+/**
+ * Qué traería la importación, sin escribir nada. Con `?gradingScaleId=` trae cada nota convertida y
+ * qué le pasaría, calculado con el mismo plan que la importación.
+ */
 r.get('/:id/moodle/preview', requirePermission('gradebook.grade'), async (req: any, res) => {
+  const query = previewQuerySchema.safeParse(req.query)
+  if (!query.success) return res.status(400).json({ message: 'Datos inválidos', errors: query.error.errors })
+
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
@@ -2802,8 +2842,10 @@ r.get('/:id/moodle/preview', requirePermission('gradebook.grade'), async (req: a
       return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
     }
 
-    const roster = await rosterIdsOf(ctx.row)
-    const preview = await buildImportPreview(gradeBookRefOf(ctx.row), roster)
+    const resolved = await previewTargetOf(query.data.gradingScaleId)
+    if ('error' in resolved) return res.status(400).json(resolved.error)
+
+    const preview = await buildImportPreview(gradeBookRefOf(ctx.row), await rosterOf(ctx.row), resolved.target)
     return res.json(preview)
   } catch (error) {
     if (error instanceof GradingError) {
@@ -2885,32 +2927,18 @@ r.post('/:id/moodle/import', requirePermission('gradebook.grade'), async (req: a
       return res.status(409).json({ message: GRADE_BLOCK_MESSAGES[code], code })
     }
 
-    const scale = await prisma.gradingScale.findUnique({
-      where: { id: parsed.data.gradingScaleId },
-      include: { levels: { orderBy: { sortOrder: 'asc' } } },
-    })
-    // `== null` y no `!`: una escala que empieza en 0 tiene rango, y `!0` la rechazaba.
-    if (scale?.minValueHundredths == null || scale.maxValueHundredths == null) {
-      return res.status(400).json({
-        message: 'La escala elegida no declara un rango numérico; no se puede convertir desde Moodle.',
-        code: 'SCALE_WITHOUT_RANGE',
-      })
-    }
+    const loaded = await loadScaleWithRange(parsed.data.gradingScaleId)
+    if ('error' in loaded) return res.status(400).json(loaded.error)
+    const { scale } = loaded
 
     const gradeBook = gradeBookRefOf(ctx.row)
-    const [{ report }, students] = await Promise.all([
-      loadMoodleReport(gradeBook),
-      loadRosterForScope({
-        schoolYearId: ctx.row.schoolYearId,
-        courseOfferingId: ctx.row.courseOfferingId,
-        orientationId: ctx.row.orientationId,
-        courseOrientationId: ctx.row.courseOrientationId,
-      }),
-    ])
+    const [{ report }, students] = await Promise.all([loadMoodleReport(gradeBook), rosterOf(ctx.row)])
     const rosterIds = new Set(students.map((s) => s.studentId))
     const studentByMoodleUser = await mapMoodleUsersToStudents(report.grades)
     const wanted = new Set(parsed.data.moodleGradeItemIds ?? [])
     const userId = req.user?.id ?? req.user?.sub
+    // Lo que ya se importó antes: la nota que alguien corrigió en la libreta no se pisa.
+    const imported = await loadImportedAssessments(ctx.row.id, [...wanted])
 
     const results = []
     for (const item of report.items.filter((i) => wanted.has(i.id))) {
@@ -2920,6 +2948,7 @@ r.post('/:id/moodle/import', requirePermission('gradebook.grade'), async (req: a
         studentByMoodleUser,
         rosterStudentIds: rosterIds,
         target: { minHundredths: scale.minValueHundredths, maxHundredths: scale.maxValueHundredths },
+        current: imported.get(item.id),
       })
       const assessment = await upsertImportedAssessment({
         gradeBookId: ctx.row.id,
@@ -2954,6 +2983,7 @@ r.post('/:id/moodle/import', requirePermission('gradebook.grade'), async (req: a
         assessmentId: assessment.id,
         skippedUnmatched: plan.skippedUnmatched,
         skippedNoRange: plan.skippedNoRange,
+        skippedEditedInEduTrack: plan.skippedEditedInEduTrack,
         ...saved,
       })
     }

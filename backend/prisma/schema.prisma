@@ -1960,6 +1960,9 @@ model AssessmentGrade {
   /// El estudiante no rindió. Se distingue de "sin calificar" (fila ausente o valor nulo).
   isAbsent        Boolean            @default(false)
   comment         String?            @db.Text
+  /// Último valor que trajo la importación desde Moodle. Si `valueHundredths` ya no coincide, la
+  /// nota se corrigió en EduTrack y reimportar no la pisa (`services/gradebook/moodle-import.ts`).
+  importedValueHundredths Int?
 
   gradedByUserId String?
   gradedBy       User?    @relation("AssessmentGradeGradedBy", fields: [gradedByUserId], references: [id], onDelete: SetNull)

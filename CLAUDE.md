@@ -350,6 +350,13 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > Las notas que crea la carta del alumno son `Assessment.scope = INDIVIDUAL`: el control de libretas
 > no las cruza contra el grupo (sólo las `GROUP`), y desde la carta no se edita una evaluación del grupo.
 
+> **Reimportar desde Moodle no pisa lo corregido en EduTrack.** Cada nota importada guarda el valor
+> que trajo (`AssessmentGrade.importedValueHundredths`). Si ya no coincide, la marcaron ausente o la
+> borraron (queda su revisión sin `assessmentGradeId`), `buildImportPlan`
+> (`services/gradebook/moodle-import.ts`) no la toca, y al actualizar una nota conserva el comentario.
+> La previsualización (`/moodle/preview?gradingScaleId=`) usa el mismo plan: lo que el docente ve
+> alumno por alumno es lo que se escribe.
+
 > **La libreta del docente no promedia.** Es una decisión del liceo, no una omisión: la
 > calificación general del período la decide el docente. El promedio vive en la matriz
 > institucional (`transversalAverage`) y en la planilla de reunión, que es donde se usa para

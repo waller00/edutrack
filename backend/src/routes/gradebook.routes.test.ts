@@ -1091,6 +1091,8 @@ function readyForImport(periodStatus: string | null = null) {
   prismaMock.gradeBookPeriod.findUnique.mockResolvedValue(periodStatus ? { status: periodStatus } : null)
   prismaMock.gradingScale.findUnique.mockResolvedValue(SCALE_ROW)
   prismaMock.assessment.findUnique.mockResolvedValue(null)
+  prismaMock.assessment.findMany.mockResolvedValue([])
+  prismaMock.gradeRevision.findMany.mockResolvedValue([])
   prismaMock.assessment.create.mockResolvedValue({ id: ASSESSMENT_ID })
   rosterMock.mockResolvedValue([
     { studentId: STUDENT_A, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
@@ -1120,6 +1122,35 @@ describe('GET /:id/moodle/preview', () => {
     expect(res.status).toBe(200)
     expect(res.body.moodleCourseId).toBe(7)
     expect(prismaMock.assessment.create).not.toHaveBeenCalled()
+    // Sin escala, sólo conteos.
+    expect(previewMock.mock.calls[0][2]).toBeNull()
+  })
+
+  it('con la escala destino pide el detalle alumno por alumno en esa escala', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    prismaMock.gradingScale.findUnique.mockResolvedValue(SCALE_ROW)
+    const roster = [{ studentId: STUDENT_A, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null }]
+    rosterMock.mockResolvedValue(roster)
+    previewMock.mockResolvedValue({ moodleCourseId: 7, items: [], studentsWithoutMoodleAccount: 0 })
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/moodle/preview?gradingScaleId=${SCALE_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(previewMock.mock.calls[0][1]).toEqual(roster)
+    expect(previewMock.mock.calls[0][2]).toEqual({ minHundredths: 100, maxHundredths: 1200 })
+  })
+
+  it('rechaza una escala destino que no es un id', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/moodle/preview?gradingScaleId=no-es-un-id`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(400)
+    expect(previewMock).not.toHaveBeenCalled()
   })
 
   it('sin Moodle configurado responde 409, no rompe la libreta', async () => {
@@ -1165,7 +1196,76 @@ describe('POST /:id/moodle/import', () => {
     })
     // 100/100 en Moodle sobre una escala 1-12 son 12, no 100.
     expect(saveGradesMock.mock.calls[0][0].entries).toEqual([
-      { studentId: STUDENT_A, valueHundredths: 1200 },
+      { studentId: STUDENT_A, valueHundredths: 1200, importedValueHundredths: 1200 },
+    ])
+  })
+
+  it('reimportar no pisa la nota que el docente corrigió en la libreta', async () => {
+    readyForImport()
+    prismaMock.assessment.findUnique.mockResolvedValue({ id: ASSESSMENT_ID, deletedAt: null })
+    // Moodle trajo un 8; el docente lo cambió por un 9 en EduTrack.
+    prismaMock.assessment.findMany.mockResolvedValue([
+      {
+        moodleGradeItemId: 10,
+        createdAt: new Date('2026-10-01T12:00:00Z'),
+        grades: [
+          {
+            studentId: STUDENT_A,
+            valueHundredths: 900,
+            isAbsent: false,
+            comment: 'Mejoró en la defensa oral',
+            importedValueHundredths: 800,
+            createdAt: new Date('2026-10-01T12:00:00Z'),
+            revisions: [{ id: 'rev-1' }],
+          },
+        ],
+      },
+    ])
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/moodle/import`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send(importBody)
+
+    expect(res.status).toBe(200)
+    expect(saveGradesMock).not.toHaveBeenCalled()
+    expect(res.body.data[0].skippedEditedInEduTrack).toBe(1)
+  })
+
+  it('al actualizar una nota de Moodle conserva el comentario del docente', async () => {
+    readyForImport()
+    prismaMock.assessment.findUnique.mockResolvedValue({ id: ASSESSMENT_ID, deletedAt: null })
+    prismaMock.assessment.findMany.mockResolvedValue([
+      {
+        moodleGradeItemId: 10,
+        createdAt: new Date('2026-10-01T12:00:00Z'),
+        grades: [
+          {
+            studentId: STUDENT_A,
+            valueHundredths: 800,
+            isAbsent: false,
+            comment: 'Entregó tarde',
+            importedValueHundredths: 800,
+            createdAt: new Date('2026-10-01T12:00:00Z'),
+            revisions: [],
+          },
+        ],
+      },
+    ])
+
+    await request(app())
+      .post(`/gradebook/${GB_ID}/moodle/import`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send(importBody)
+
+    expect(saveGradesMock.mock.calls[0][0].entries).toEqual([
+      {
+        studentId: STUDENT_A,
+        valueHundredths: 1200,
+        importedValueHundredths: 1200,
+        comment: 'Entregó tarde',
+        isAbsent: false,
+      },
     ])
   })
 
@@ -1229,7 +1329,9 @@ describe('POST /:id/moodle/import', () => {
 
     expect(res.status).toBe(200)
     // 100/100 sobre 0-12 sigue siendo 12.
-    expect(saveGradesMock.mock.calls[0][0].entries).toEqual([{ studentId: STUDENT_A, valueHundredths: 1200 }])
+    expect(saveGradesMock.mock.calls[0][0].entries).toEqual([
+      { studentId: STUDENT_A, valueHundredths: 1200, importedValueHundredths: 1200 },
+    ])
   })
 
   it('sólo importa los ítems pedidos', async () => {

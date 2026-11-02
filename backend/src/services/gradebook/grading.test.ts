@@ -173,6 +173,35 @@ describe('saveGrades', () => {
     expect(txMock.assessmentGrade.update).not.toHaveBeenCalled()
   })
 
+  it('guarda el valor que trajo Moodle sólo cuando viene: el docente no lo escribe', async () => {
+    await saveGrades(
+      { ...base, origin: 'MOODLE_IMPORT', entries: [{ studentId: 's1', valueHundredths: 700, importedValueHundredths: 700 }] },
+      prismaMock as any,
+    )
+    expect(txMock.assessmentGrade.create.mock.calls[0][0].data.importedValueHundredths).toBe(700)
+
+    vi.clearAllMocks()
+    prismaMock.$transaction.mockImplementation(async (fn: any) => fn(txMock))
+    txMock.assessmentGrade.findMany.mockResolvedValue([])
+    await saveGrades({ ...base, entries: [{ studentId: 's1', valueHundredths: 700 }] }, prismaMock as any)
+    expect(txMock.assessmentGrade.create.mock.calls[0][0].data).not.toHaveProperty('importedValueHundredths')
+  })
+
+  it('con la misma nota, sólo pone al día el valor importado y no deja revisión', async () => {
+    txMock.assessmentGrade.findMany.mockResolvedValue([
+      { id: 'g1', studentId: 's1', valueHundredths: 700, scaleLevelId: 'l-alto', isAbsent: false, importedValueHundredths: null },
+    ])
+
+    const res = await saveGrades(
+      { ...base, origin: 'MOODLE_IMPORT', entries: [{ studentId: 's1', valueHundredths: 700, importedValueHundredths: 700 }] },
+      prismaMock as any,
+    )
+
+    expect(res).toMatchObject({ unchanged: 1, updated: 0, revisions: 0 })
+    expect(txMock.assessmentGrade.update).toHaveBeenCalledWith({ where: { id: 'g1' }, data: { importedValueHundredths: 700 } })
+    expect(txMock.gradeRevision.create).not.toHaveBeenCalled()
+  })
+
   it('borrar una nota también deja revisión', async () => {
     txMock.assessmentGrade.findMany.mockResolvedValue([
       { id: 'g1', studentId: 's1', valueHundredths: 700, scaleLevelId: 'l-alto', isAbsent: false },
