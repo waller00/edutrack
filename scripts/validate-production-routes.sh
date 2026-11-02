@@ -172,6 +172,33 @@ if [ "$PRODUCTION" -eq 1 ]; then
   esac
 
   [ "$COOKIE_SECURE" = "true" ] || fail "COOKIE_SECURE debe ser true cuando FRONTEND/API usan HTTPS"
+
+  # Secretos: el repo trae valores de ejemplo (`…-change-me`, `admin`, `postgres`) y en producción
+  # el del cliente `edutrack-web` llegó a ser el del repo. El deploy se frena acá, antes de tocar
+  # ningún contenedor: la versión anterior sigue andando. No se imprime ningún valor.
+  check_secret() {
+    local key="$1" min="$2" value
+    value="$(env_get "$key")"
+    [ -n "$value" ] || fail "falta $key en $ENV_FILE (secreto obligatorio en produccion)"
+    if printf '%s' "$value" | grep -qi 'change-me\|changeme\|REEMPLAZAR\|REPLACE'; then
+      fail "$key es el valor de ejemplo del repo: generá uno nuevo (openssl rand -base64 32)"
+    fi
+    [ "${#value}" -ge "$min" ] || fail "$key es demasiado corto (minimo $min caracteres)"
+  }
+  check_secret KEYCLOAK_CLIENT_SECRET 24
+  check_secret JWT_SECRET 32
+  check_secret KEYCLOAK_ADMIN_PASSWORD 12
+  [ "$(env_get KEYCLOAK_ADMIN_PASSWORD)" != "admin" ] || fail "KEYCLOAK_ADMIN_PASSWORD no puede ser admin"
+
+  # Las bases no se publican (close-ports), pero una contraseña de fábrica no debería quedar.
+  for pair in "POSTGRES_PASSWORD:postgres" "KEYCLOAK_DB_PASSWORD:keycloak"; do
+    key="${pair%%:*}"
+    default="${pair#*:}"
+    value="$(env_get "$key")"
+    if [ -z "$value" ] || [ "$value" = "$default" ]; then
+      warn "$key es el de fabrica ($default): conviene poner uno propio en el .env (y en el rol de la base)"
+    fi
+  done
 fi
 
 case "$(path_of "$ISSUER_URL")" in

@@ -131,6 +131,8 @@ app.use(
   helmet({
     // Por defecto Helmet puede usar CORP same-origin y romper respuestas consumidas desde otro subdominio.
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    // Un año, igual que el front (nginx): con el de fábrica de Helmet (180 días) no coincidían.
+    strictTransportSecurity: { maxAge: 31536000, includeSubDomains: true },
   }),
 );
 // Sin query string ni colores ANSI: los logs van a Loki.

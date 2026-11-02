@@ -128,7 +128,8 @@ services:
       KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-http://localhost:8089/realms/edutrack}
       KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-edutrack-web}
-      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-edutrack-web-secret-change-me}
+      # Sin valor por defecto: el de ejemplo del repo llegó a quedar vivo en producción.
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?falta KEYCLOAK_CLIENT_SECRET en el .env}
       KEYCLOAK_REDIRECT_URI: ${KEYCLOAK_REDIRECT_URI:-http://localhost:4000/auth/callback}
       KEYCLOAK_ADMIN_BASE_URL: ${KEYCLOAK_ADMIN_BASE_URL:-http://keycloak:8080}
       KEYCLOAK_ADMIN_REALM: ${KEYCLOAK_ADMIN_REALM:-edutrack}

@@ -52,17 +52,13 @@
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
-      "serviceAccountsEnabled": true,
+      "serviceAccountsEnabled": false,
       "redirectUris": [
-        "http://localhost:4000/auth/callback",
-        "http://api.edutrack-uy.local:18080/auth/callback",
-        "http://138.197.35.2.nip.io:4000/auth/callback",
-        "https://*/auth/callback",
-        "http://*/auth/callback"
+        "http://localhost:4000/auth/callback"
       ],
-      "webOrigins": ["+"],
+      "webOrigins": ["http://localhost:3000"],
       "attributes": {
-        "post.logout.redirect.uris": "http://localhost:3000/*##http://*:3000/*##https://*:3000/*##http://*/*##https://*/*"
+        "post.logout.redirect.uris": "http://localhost:3000/*"
       },
       "protocolMappers": [
         {

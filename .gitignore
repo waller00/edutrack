@@ -1,4 +1,4 @@
- node_modules/
+node_modules/
 backend/node_modules/
 frontend/web/node_modules/
 backend/dist/
@@ -35,6 +35,8 @@ performance/results/
 .terraform/
 *.tfstate
 *.tfstate.backup
+# Los backups con fecha (terraform.tfstate.1780185247.backup) también: tienen las IPs de la infra.
+*.tfstate.*
 .terraform.lock.hcl
 *.exe
 data.sql

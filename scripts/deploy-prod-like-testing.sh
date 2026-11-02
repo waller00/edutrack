@@ -45,9 +45,11 @@ ensure_var KEYCLOAK_ADMIN_BASE_URL "http://keycloak:8080"
 ensure_var KEYCLOAK_ADMIN_REALM "edutrack"
 ensure_var KEYCLOAK_ADMIN "admin"
 
+# Nunca el de ejemplo del repo: uno al azar. `keycloak-apply-realm-settings.sh` lo sube al cliente
+# `edutrack-web` en cada deploy, así Keycloak y el backend usan el mismo.
 if ! grep -q "^KEYCLOAK_CLIENT_SECRET=" .env; then
-  echo "KEYCLOAK_CLIENT_SECRET=edutrack-web-secret-change-me" >> .env
-  echo "AVISO: definí KEYCLOAK_CLIENT_SECRET en .env (copiá el de testing o rotá en prod)."
+  echo "KEYCLOAK_CLIENT_SECRET=$(openssl rand -base64 32 | tr -d '\n')" >> .env
+  echo "AVISO: generé un KEYCLOAK_CLIENT_SECRET nuevo en .env; el deploy lo aplica en Keycloak."
 fi
 if ! grep -q "^KEYCLOAK_ADMIN_PASSWORD=" .env; then
   echo "AVISO: falta KEYCLOAK_ADMIN_PASSWORD en .env — copialo del servidor de testing."

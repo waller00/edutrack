@@ -50,6 +50,12 @@ env_get() {
   [ -f .env ] || return 0
   sed -n "s/^[[:space:]]*${key}=//p" .env | tail -n1
 }
+
+# Un secreto de ejemplo (`…-change-me`, `REEMPLAZAR…`) cuenta como faltante: nunca se sube a Keycloak.
+is_placeholder() {
+  printf '%s' "$1" | grep -qi 'REEMPLAZAR\|REPLACE\|CHANGE'
+}
+
 ADMIN_USER="${KEYCLOAK_ADMIN:-$(env_get KEYCLOAK_ADMIN)}"
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASS="${KEYCLOAK_ADMIN_PASSWORD:-$(env_get KEYCLOAK_ADMIN_PASSWORD)}"
@@ -159,6 +165,7 @@ CLIENT_ID="${KEYCLOAK_CLIENT_ID:-$(env_get KEYCLOAK_CLIENT_ID)}"
 CLIENT_ID="${CLIENT_ID:-edutrack-web}"
 FRONTEND_URL="${FRONTEND_URL:-$(env_get FRONTEND_URL)}"
 KEYCLOAK_REDIRECT_URI="${KEYCLOAK_REDIRECT_URI:-$(env_get KEYCLOAK_REDIRECT_URI)}"
+CLIENT_SECRET_ENV="${KEYCLOAK_CLIENT_SECRET:-$(env_get KEYCLOAK_CLIENT_SECRET)}"
 
 if [ -n "$FRONTEND_URL" ] && [ -n "$KEYCLOAK_REDIRECT_URI" ]; then
   CLIENT_UUID="$(curl -fsS -G -H "Authorization: Bearer $TOKEN" \
@@ -172,27 +179,35 @@ if [ -n "$FRONTEND_URL" ] && [ -n "$KEYCLOAK_REDIRECT_URI" ]; then
     CLIENT_CURRENT="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$CLIENT_URL")"
     FRONTEND_ORIGIN="$(printf '%s' "$FRONTEND_URL" | sed -E 's#^(https?://[^/]+).*$#\1#')"
     POST_LOGOUT="${FRONTEND_ORIGIN}/*"
+    # Las listas se REEMPLAZAN, no se suman. El realm importado traía comodines
+    # (`https://*/auth/callback`, `http://*/*`) y sumando nunca se iban: con un comodín, cualquier
+    # sitio podía recibir el código de ingreso de un usuario. El BFF no usa la cuenta de servicio
+    # (la Admin API va con el admin de `master`), así que `client_credentials` se apaga.
     CLIENT_PATCHED="$(printf '%s' "$CLIENT_CURRENT" | jq \
       --arg redirect "$KEYCLOAK_REDIRECT_URI" \
       --arg postLogout "$POST_LOGOUT" \
       --arg frontendOrigin "$FRONTEND_ORIGIN" '
-        .redirectUris = ((.redirectUris // []) + [$redirect] | unique)
-        | .webOrigins = ((.webOrigins // []) + ["+", $frontendOrigin] | unique)
+        .redirectUris = [$redirect]
+        | .webOrigins = [$frontendOrigin]
+        | .serviceAccountsEnabled = false
+        | .directAccessGrantsEnabled = false
         | .attributes = (.attributes // {})
-        | .attributes["post.logout.redirect.uris"] = (
-            ((.attributes["post.logout.redirect.uris"] // "")
-              | split("##")
-              | map(select(length > 0))
-              + [$postLogout]
-              | unique)
-            | join("##")
-          )
+        | .attributes["post.logout.redirect.uris"] = $postLogout
       ')"
+    # El secreto del cliente sale del .env, el mismo que usa el backend: rotarlo es cambiar
+    # KEYCLOAK_CLIENT_SECRET y desplegar. El de ejemplo del repo nunca se sube.
+    if [ -n "$CLIENT_SECRET_ENV" ] && ! is_placeholder "$CLIENT_SECRET_ENV"; then
+      CLIENT_PATCHED="$(printf '%s' "$CLIENT_PATCHED" | jq --arg secret "$CLIENT_SECRET_ENV" '.secret = $secret')"
+      SECRET_NOTE="secreto = KEYCLOAK_CLIENT_SECRET del .env"
+    else
+      SECRET_NOTE="WARN secreto sin cambiar: KEYCLOAK_CLIENT_SECRET falta o es el de ejemplo"
+    fi
     curl -fsS -X PUT \
       -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
       -d "$CLIENT_PATCHED" "$CLIENT_URL"
-    echo ">> OK. Client '$CLIENT_ID': redirectUris incluye $KEYCLOAK_REDIRECT_URI"
-    echo ">> OK. Client '$CLIENT_ID': post logout incluye $POST_LOGOUT"
+    echo ">> OK. Client '$CLIENT_ID': redirectUris = $KEYCLOAK_REDIRECT_URI (sin comodines)"
+    echo ">> OK. Client '$CLIENT_ID': post logout = $POST_LOGOUT; webOrigins = $FRONTEND_ORIGIN"
+    echo ">> OK. Client '$CLIENT_ID': sin cuenta de servicio; $SECRET_NOTE"
   fi
 else
   echo ">> Client '$CLIENT_ID': faltan FRONTEND_URL o KEYCLOAK_REDIRECT_URI; no aplico redirect/logout."
@@ -210,9 +225,6 @@ fi
 # El secreto real va sólo en el .env (GOOGLE_CLIENT_SECRET): el realm del repo trae un texto de
 # ejemplo. Un valor de ejemplo cuenta como faltante y el IdP queda con el secreto que ya tiene
 # guardado Keycloak; si se subiera, "Continuar con Google" dejaría de funcionar.
-is_placeholder() {
-  printf '%s' "$1" | grep -qi 'REEMPLAZAR\|REPLACE\|CHANGE'
-}
 
 GP="$KC_URL/admin/realms/$REALM_NAME/identity-provider/instances/google"
 GCUR="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$GP" 2>/dev/null || true)"

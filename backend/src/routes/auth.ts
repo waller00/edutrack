@@ -85,6 +85,9 @@ const registerSchema = z.object({
 // Público y sin sesión: cada alta crea una cuenta en Keycloak y manda un correo. 20 por hora y por IP
 // alcanzan para que un liceo dé de alta a su plantel desde la misma red (nginx corta antes las ráfagas).
 const REGISTER_LIMIT = { bucket: "register", max: 20, windowSeconds: 60 * 60 };
+// Público: dice si un nombre de usuario está libre (nunca mira correos). El formulario pregunta al
+// escribir, con pausa; 60 cada 10 minutos por IP alcanzan para eso y no para recorrer usuarios.
+const CHECK_USERNAME_LIMIT = { bucket: "check-username", max: 60, windowSeconds: 10 * 60 };
 
 function errorCode(error: unknown) {
   return typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : "";
@@ -236,7 +239,7 @@ async function validateAndBuildProfileUpdate(data: {
   return update;
 }
 
-r.get("/check-username", async (req, res) => {
+r.get("/check-username", rateLimit(CHECK_USERNAME_LIMIT), async (req, res) => {
   const u = String(req.query.u || "").trim();
   const valid = USERNAME_REGEX.test(u);
   if (!valid) return res.json({ available: false, valid: false });
@@ -509,7 +512,7 @@ r.post("/verify", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
   const { token } = parsed.data;
   const ev = await prisma.emailVerification.findUnique({ where: { token } });
-  if (!ev || ev.usedAt || ev.expiresAt < new Date()) return res.status(400).json({ message: "Token inválido" });
+  if (!ev || ev.usedAt || ev.expiresAt < new Date()) return res.status(400).json({ message: "El enlace no es válido o ya venció. Pedí uno nuevo." });
   const [user] = await prisma.$transaction([
     prisma.user.update({ where: { id: ev.userId }, data: { emailVerifiedAt: new Date() }, select: { isApproved: true } }),
     prisma.emailVerification.update({ where: { token }, data: { usedAt: new Date() } }),

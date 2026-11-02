@@ -4,6 +4,8 @@ import { withSentryConfig } from '@sentry/nextjs'
 const nextConfig = {
   output: 'standalone', // <--- Agregá esto acá arriba
   reactStrictMode: true,
+  // Sin `X-Powered-By: Next.js`: no hace falta contarle a nadie con qué está hecho.
+  poweredByHeader: false,
   typescript: {
     ignoreBuildErrors: true,
   },

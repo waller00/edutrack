@@ -27,6 +27,15 @@ const listSubstitutionSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
 });
 
+/**
+ * Los errores de negocio (con `statusCode`) se explican con su texto; uno inesperado no muestra el
+ * suyo, que puede ser el de la base de datos.
+ */
+function substitutionError(res: any, error: any) {
+  if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message, code: error.code });
+  return res.status(500).json({ message: "Error interno del servidor" });
+}
+
 r.get("/", authGuard, requirePermission("events.read", "all"), async (req, res) => {
   try {
     const parsed = listSubstitutionSchema.safeParse(req.query);
@@ -36,10 +45,7 @@ r.get("/", authGuard, requirePermission("events.read", "all"), async (req, res) 
     const body = await listSubstitutions(parsed.data);
     return res.json(body);
   } catch (error: any) {
-    return res.status(error?.statusCode || 500).json({
-      message: error?.message || "Error interno del servidor",
-      code: error?.code,
-    });
+    return substitutionError(res, error);
   }
 });
 
@@ -63,10 +69,7 @@ r.post("/", authGuard, requirePermission("events.update", "all"), async (req, re
     return res.status(201).json({ substitution, message: "Suplencia registrada correctamente" });
   } catch (error: any) {
     console.error("Error registrando suplencia:", error);
-    return res.status(error?.statusCode || 500).json({
-      message: error?.message || "Error interno del servidor",
-      code: error?.code,
-    });
+    return substitutionError(res, error);
   }
 });
 
@@ -79,10 +82,7 @@ r.delete("/:id", authGuard, requirePermission("events.update", "all"), async (re
     });
     return res.json({ ...result, message: "Suplencia eliminada" });
   } catch (error: any) {
-    return res.status(error?.statusCode || 500).json({
-      message: error?.message || "Error interno del servidor",
-      code: error?.code,
-    });
+    return substitutionError(res, error);
   }
 });
 

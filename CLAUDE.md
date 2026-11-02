@@ -143,6 +143,14 @@ docker compose up -d --build auth  # rebuild solo el backend
 > sus errores no enumeran los perfiles válidos. `keycloak-apply-realm-settings.sh` apaga en cada
 > deploy el password grant de los clientes públicos del realm (`admin-cli`).
 
+> **El cliente `edutrack-web` lo fija el deploy, no el realm del repo.** `keycloak-apply-realm-settings.sh`
+> le pone exactamente `KEYCLOAK_REDIRECT_URI`, el origen del front y su logout (las listas se
+> reemplazan: el import traía comodines `https://*/…` que entregaban el código de ingreso a
+> cualquier sitio), le apaga la cuenta de servicio y le sube `KEYCLOAK_CLIENT_SECRET` del `.env`.
+> En producción ese secreto llegó a ser el `…-change-me` del repo: `validate-production-routes.sh`
+> frena el deploy si `KEYCLOAK_CLIENT_SECRET`, `JWT_SECRET` o `KEYCLOAK_ADMIN_PASSWORD` son de
+> ejemplo o cortos. Nunca volver a darles un valor por defecto en `docker-compose.cloud.yml`.
+
 > **Las sesiones simultáneas se permiten a propósito** (justificación en
 > `docs/CIBERSEGURIDAD_CONTINUIDAD.md`, "Sesiones simultáneas"): ingresar no echa a nadie. Mi perfil
 > lista las sesiones y cierra las de otros dispositivos (`/auth/account/sessions*`, con ingreso de

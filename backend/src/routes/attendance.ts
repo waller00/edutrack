@@ -1168,7 +1168,9 @@ r.post('/:id/justify', authGuard, requirePermission('attendance.update', 'all'),
     res.json({ attendance: mapAttendanceUser(attendance as any), message: 'Justificación registrada correctamente' });
   } catch (error: any) {
     console.error('Error justificando asistencia:', error);
-    res.status(error?.statusCode || 500).json({ message: error?.message || 'Error interno del servidor' });
+    // Sólo los errores de negocio (con `statusCode`) se explican: uno inesperado no muestra su texto crudo.
+    if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
+    res.status(500).json({ message: 'Error interno del servidor' });
   }
 });
 

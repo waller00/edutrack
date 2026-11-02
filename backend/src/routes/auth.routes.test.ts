@@ -493,6 +493,20 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     expect(limited.headers["retry-after"]).toBe("1800");
   });
 
+  it("GET /auth/check-username corta por IP: no sirve para recorrer usuarios", async () => {
+    let count = 0;
+    getRedisMock.mockReturnValue({ incr: async () => ++count, expire: async () => 1, ttl: async () => 600 });
+    const check = () => request(app()).get("/auth/check-username").query({ u: "ab" });
+    for (let i = 0; i < 60; i++) expect((await check()).status).toBe(200);
+    expect((await check()).status).toBe(429);
+  });
+
+  it("GET /auth/check-username no mira correos: con ?email= responde como un usuario vacío", async () => {
+    const res = await request(app()).get("/auth/check-username").query({ email: "admin@edutrack-uy.com" });
+    expect(res.body).toEqual({ available: false, valid: false });
+    expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+  });
+
   it("POST /auth/register acepta Dirección y Adscripto (quedan pendientes de aprobación)", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
     prismaMock.user.create.mockResolvedValue({ id: "u-dir", email: "dir@example.com", username: "dir.ector" });
