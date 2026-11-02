@@ -44,6 +44,7 @@ import {
   printStudentEvaluations,
 } from '@/lib/gradebook/student-evaluation-export'
 import type { GradeBookDetail, RosterStudent } from '@/lib/gradebook/types'
+import type { SubjectAttendance } from '@/lib/gradebook/subject-attendance'
 import { libretaCode } from '@/components/libreta/MisLibretas'
 import StudentBadges, { type StudentBadgeFocus } from '@/components/libreta/StudentBadges'
 import StudentSheet from '@/components/libreta/StudentSheet'
@@ -51,6 +52,7 @@ import StudentCombobox from '@/components/forms/StudentCombobox'
 import MoodleImportPanel from './MoodleImportPanel'
 import AssessmentsPanel from './AssessmentsPanel'
 import PeriodBlock, { type BlockLevel, type PeriodGradePatch } from './PeriodBlock'
+import { SubjectAttendanceTotal } from './SubjectAttendance'
 import GradeSelect from './GradeSelect'
 import type { ConductOption } from './ConductSelect'
 import StudentHistory from './StudentHistory'
@@ -1014,6 +1016,7 @@ function StudentCard({
   rows,
   periodGrades,
   periodStates,
+  attendance,
   levels,
   decimals,
   scale,
@@ -1037,6 +1040,8 @@ function StudentCard({
   rows: StudentGradeRow[]
   periodGrades: StoredPeriodGrade[]
   periodStates: Map<string, PeriodState>
+  /** Sus inasistencias en esta asignatura; null si no se piden (suplente) o no llegaron. */
+  attendance: SubjectAttendance | null
   levels: BlockLevel[]
   decimals: number
   scale: GradeRange | null
@@ -1145,6 +1150,7 @@ function StudentCard({
               {student.documentId && <span className="mr-3 font-mono">{student.documentId}</span>}
               {courseLabel}
             </p>
+            <SubjectAttendanceTotal subjectName={detail.subject.name} counts={attendance?.total} />
           </div>
 
           <div className="flex shrink-0 flex-col gap-1 sm:flex-row">
@@ -1220,6 +1226,7 @@ function StudentCard({
                   onSave={(patch) => onSavePeriodGrade(period.id, patch)}
                   onAddGrade={(category) => onToggleAdd({ periodId: period.id, category })}
                   ownGradesOnly={ownWorkOnly}
+                  attendance={attendance?.periods[period.id]}
                 />
               )
             })}
@@ -1286,6 +1293,7 @@ export default function EvaluationsBoard({
   const alumnoParam = searchParams.get('alumno')
   const [board, setBoard] = useState<BoardResponse | null>(null)
   const [options, setOptions] = useState<Options | null>(null)
+  const [attendance, setAttendance] = useState<Map<string, SubjectAttendance>>(() => new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [focusIndex, setFocusIndex] = useState(0)
@@ -1329,6 +1337,23 @@ export default function EvaluationsBoard({
   useEffect(() => {
     void load()
   }, [load])
+
+  // Las inasistencias en la asignatura salen del pase de lista: se piden una vez, no después de
+  // cada nota. Son del titular (al suplente no se le piden), y si fallan la carta se muestra igual.
+  const withAttendance = !detail.access.ownWorkOnly
+  useEffect(() => {
+    setAttendance(new Map())
+    if (!withAttendance) return
+    let cancelled = false
+    api<{ students?: SubjectAttendance[] }>(`/gradebook/${gradeBookId}/subject-attendance`)
+      .then((res) => {
+        if (!cancelled) setAttendance(new Map((res?.students ?? []).map((row) => [row.studentId, row])))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [gradeBookId, withAttendance])
 
   const assessmentById = useMemo(() => {
     const map = new Map<string, BoardAssessment>()
@@ -1603,6 +1628,7 @@ export default function EvaluationsBoard({
                 rows={rowsByStudent.get(student.studentId) ?? []}
                 periodGrades={(board?.periodGrades ?? []).filter((g) => g.studentId === student.studentId)}
                 periodStates={periodStates}
+                attendance={attendance.get(student.studentId) ?? null}
                 levels={levels}
                 decimals={decimals}
                 scale={levelScale}

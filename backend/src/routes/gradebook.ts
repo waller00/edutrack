@@ -21,6 +21,7 @@ import {
   formatAbsenceUnits,
 } from '../services/student-attendance/absence-weight.js'
 import { loadAbsenceTotals } from '../services/student-attendance/absence-totals.js'
+import { loadSubjectAttendance } from '../services/gradebook/subject-attendance.js'
 import {
   resolveGradeBookDayOccurrence,
   resolveMarkTarget,
@@ -1330,6 +1331,35 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
     })
   } catch (error) {
     console.error('[gradebook] grades-board:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Inasistencias de cada alumno en esta asignatura, del año y por período, para la carta del
+ * docente. No son las faltas oficiales (del liceo y por día): ver `subject-attendance.ts`.
+ * Cerrada al suplente, como todo lo que no son sus notas.
+ */
+r.get('/:id/subject-attendance', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    const students = canResolveRoster(ctx.row)
+      ? await loadRosterForScope({
+          schoolYearId: ctx.row.schoolYearId,
+          courseOfferingId: ctx.row.courseOfferingId,
+          orientationId: ctx.row.orientationId,
+          courseOrientationId: ctx.row.courseOrientationId,
+        })
+      : []
+    const attendance = await loadSubjectAttendance(
+      scopeOfRow(ctx.row),
+      levelOfRow(ctx.row),
+      students.map((s) => s.studentId),
+    )
+    return res.json({ students: attendance })
+  } catch (error) {
+    console.error('[gradebook] subject-attendance:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

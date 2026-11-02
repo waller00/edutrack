@@ -2934,7 +2934,7 @@ describe('suplente: ve y carga sólo sus notas', () => {
   })
 
   it('lo del titular le queda cerrado: planificación, períodos, cierre, mensajes, historia y exportaciones', async () => {
-    for (const path of ['planning', 'development', 'periods', 'messages', 'endorsements', 'exports/xlsx']) {
+    for (const path of ['planning', 'development', 'periods', 'messages', 'endorsements', 'exports/xlsx', 'subject-attendance']) {
       const res = await request(app()).get(`/gradebook/${GB_ID}/${path}`).set('Authorization', `Bearer ${subTok()}`)
       expect(res.status, path).toBe(403)
       expect(res.body.code, path).toBe('SUBSTITUTE_OWN_WORK_ONLY')
@@ -3028,5 +3028,47 @@ describe('GET /gradebook/mine: la suplencia es provisoria', () => {
     const res = await request(app()).get('/gradebook/mine').set('Authorization', `Bearer ${tok('TEACHER', 'suplente-1')}`)
     expect(res.status).toBe(200)
     expect(res.body.data[0].substitution.until).toEqual(expect.any(String))
+  })
+})
+
+describe('GET /gradebook/:id/subject-attendance', () => {
+  it('cuenta las marcas de cada alumno en las clases de esta libreta, del año y por período', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: 's1', studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+      { studentId: 's2', studentEnrollmentId: 'e2', firstName: 'Beto', lastName: 'C', documentId: null },
+    ])
+    prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([
+      { studentId: 's1', status: 'ABSENT', session: { occurrenceYmd: '2026-03-10' } },
+      { studentId: 's1', status: 'LATE', session: { occurrenceYmd: '2026-05-04' } },
+      { studentId: 's1', status: 'PRESENT', session: { occurrenceYmd: '2026-08-05' } },
+    ])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { id: 'sem-1', kind: 'TRAMO', sortOrder: 10, startsOn: new Date('2026-03-01T12:00:00.000Z'), endsOn: new Date('2026-07-15T12:00:00.000Z') },
+    ])
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}/subject-attendance`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.students).toEqual([
+      {
+        studentId: 's1',
+        total: { absent: 1, justified: 0, late: 1, classes: 3 },
+        periods: { 'sem-1': { absent: 1, justified: 0, late: 1, classes: 2 } },
+      },
+      { studentId: 's2', total: { absent: 0, justified: 0, late: 0, classes: 0 }, periods: {} },
+    ])
+    // Sólo las clases de la libreta: el ciclo, el grupo, la orientación y la asignatura de la lista.
+    expect(prismaMock.studentAttendanceEntry.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          studentId: { in: ['s1', 's2'] },
+          session: { schoolYearId: 'sy-1', courseOfferingId: 'off-1', subjectId: 'sub-1', orientationId: null, courseOrientationId: null },
+        },
+      }),
+    )
+    expect(prismaMock.academicPeriod.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { schoolYearId: 'sy-1', isActive: true, level: 'EMS' } }),
+    )
   })
 })

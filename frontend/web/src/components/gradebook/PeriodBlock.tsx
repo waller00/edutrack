@@ -19,8 +19,10 @@ import {
   type PeriodGradeValues,
 } from '@/lib/gradebook/period-blocks'
 import { gradeTooltipLine } from '@/lib/gradebook/student-evaluation-export'
+import type { MarkCounts } from '@/lib/gradebook/subject-attendance'
 import GradeSelect from './GradeSelect'
 import ConductSelect, { conductText, type ConductOption } from './ConductSelect'
+import { PeriodAttendance } from './SubjectAttendance'
 
 /**
  * Un bloque de la carta del alumno, con la forma de la planilla del liceo:
@@ -76,6 +78,8 @@ type BlockProps = {
    * y una entrega o el diagnóstico (que no tienen notas sueltas) no se muestran.
    */
   ownGradesOnly?: boolean
+  /** Inasistencias del alumno en la asignatura durante el período (las clases de esta libreta). */
+  attendance?: MarkCounts | null
 }
 
 /**
@@ -509,6 +513,7 @@ export default function PeriodBlock(props: BlockProps) {
           />
         </div>
       )}
+      <PeriodAttendance counts={props.attendance} />
       {error && (
         <p role="alert" className="border-t border-red-100 bg-red-50 px-2 py-1 text-red-800">
           {error}

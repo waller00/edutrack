@@ -379,6 +379,14 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > El conteo es del ciclo en todo el liceo, no de la asignatura: filtrar por `subjectId` ahí es un
 > bug, no una optimización.
 
+> **La carta del alumno muestra además sus inasistencias en la asignatura**, para el control del
+> docente (`services/gradebook/subject-attendance.ts`, `GET /gradebook/:id/subject-attendance`):
+> sin justificar, justificadas y llegadas tarde en las clases de esa libreta (el ciclo, grupo,
+> orientación y asignatura que guarda la lista), las del año arriba y las de cada período al pie (una
+> entrega, los días de los tramos que informa: `reportCardWindow`). Cada clase cuenta una vez: no es
+> la falta oficial (ni regla del día ni fictas), así que nunca alimenta totales, boletín ni alertas.
+> Al suplente no se le abre.
+
 > **En ciclo básico y en bachillerato la falta es del día** (`countsByDay`: EBI y EMS). Es el
 > reglamento de los dos niveles (REEMS arts. 47 y 53, como EBI): la falta se registra "en dicha
 > jornada" y las fictas son las injustificadas más el 50 % de las justificadas. El día vale la peor

@@ -404,6 +404,14 @@ pantalla con paneles apilados.
 
 Una sección que no es de quien mira vuelve a la portada de la libreta. Las inasistencias ya no son
 una sección: salen del pase de lista y se ven en la carta de cada alumno.
+
+**Inasistencias en la asignatura.** Para que el docente lleve su control, la carta del alumno (en
+*Calificaciones*) dice cuántas clases de esa asignatura faltó sin justificar, cuántas con
+justificación y cuántas llegó tarde: arriba las del año («Inasistencias del año en Biología: 2 sin
+justificar · 1 llegada tarde») y al pie de cada período las suyas. Una entrega cuenta los días de
+los tramos que informa. Sólo cuentan las clases de esa libreta con lista pasada, y cada clase una
+vez. No son las faltas oficiales: ésas son del liceo, se cuentan por día y son las de la portada
+de la libreta y del boletín. El suplente no las ve.
 Cada sección lleva en el menú una línea que explica para qué sirve: "Precierre" o "Visado" no se
 entienden solos. Contraído, el menú muestra la abreviatura de cada sección; en el celular las
 secciones se eligen de un selector, para no empujar el contenido una pantalla hacia abajo.

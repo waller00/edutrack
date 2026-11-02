@@ -253,3 +253,21 @@ describe('<PeriodBlock /> diagnóstico', () => {
     expect(within(block).getByRole('button', { name: /Diagnóstico: cargado/ })).toBeInTheDocument()
   })
 })
+
+describe('<PeriodBlock /> inasistencias en la asignatura', () => {
+  const block = (attendance: Parameters<typeof PeriodBlock>[0]['attendance']) =>
+    render(<PeriodBlock period={TRAMO} grades={[]} saved={null} levels={LEVELS} decimals={0} editable={false} attendance={attendance} />)
+
+  it('al pie del período, en palabras y sin nombrar lo que es cero', () => {
+    block({ absent: 2, justified: 0, late: 1, classes: 14 })
+    expect(screen.getByText('Inasistencias:').parentElement).toHaveTextContent('Inasistencias: 2 sin justificar · 1 llegada tarde')
+  })
+
+  it('con listas y sin faltas dice "ninguna"; sin listas pasadas no dice nada', () => {
+    const { unmount } = block({ absent: 0, justified: 0, late: 0, classes: 3 })
+    expect(screen.getByText('Inasistencias:').parentElement).toHaveTextContent('Inasistencias: ninguna')
+    unmount()
+    block({ absent: 0, justified: 0, late: 0, classes: 0 })
+    expect(screen.queryByText('Inasistencias:')).not.toBeInTheDocument()
+  })
+})

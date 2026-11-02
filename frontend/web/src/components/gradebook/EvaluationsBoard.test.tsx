@@ -230,6 +230,48 @@ describe('<EvaluationsBoard /> con suplencia', () => {
     expect(screen.queryByLabelText('R: rendimiento de Marzo – Abril')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Imprimir evaluaciones del alumno' })).not.toBeInTheDocument()
     expect(screen.queryByText('Importar desde Moodle')).not.toBeInTheDocument()
+    // Las inasistencias en la asignatura son del titular: ni se piden.
+    expect(apiMock.mock.calls.some(([path]) => String(path).includes('/subject-attendance'))).toBe(false)
+  })
+
+  it('la carta dice las inasistencias del alumno en la asignatura: arriba las del año y en cada período las suyas', async () => {
+    respond()
+    const original = apiMock.getMockImplementation()!
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (String(path).endsWith('/subject-attendance')) {
+        return {
+          students: [
+            {
+              studentId: 's1',
+              total: { absent: 3, justified: 1, late: 2, classes: 30 },
+              periods: { p1: { absent: 1, justified: 0, late: 0, classes: 12 } },
+            },
+          ],
+        }
+      }
+      return original(path, init)
+    })
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={detail()} />)
+
+    const total = await screen.findByText('Inasistencias del año en Física:')
+    expect(total.parentElement).toHaveTextContent(
+      'Inasistencias del año en Física: 3 sin justificar · 1 justificada · 2 llegadas tarde',
+    )
+    expect(screen.getByText('Inasistencias:').parentElement).toHaveTextContent('Inasistencias: 1 sin justificar')
+  })
+
+  it('si no llegan las inasistencias, la carta se muestra igual', async () => {
+    respond()
+    const original = apiMock.getMockImplementation()!
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (String(path).endsWith('/subject-attendance')) throw new Error('falló')
+      return original(path, init)
+    })
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={detail()} />)
+
+    expect(await screen.findByRole('button', { name: 'Agregar calificación a Benítez, Ana' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Inasistencias/)).not.toBeInTheDocument()
   })
 
   it('el titular ve marcadas las notas que cargó el suplente', async () => {
