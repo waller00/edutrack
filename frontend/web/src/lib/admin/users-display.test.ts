@@ -154,17 +154,18 @@ describe('getLockLabel', () => {
 })
 
 describe('getAdminUserSaveErrorMessage', () => {
-  it('prioriza mensaje del API y mapea códigos', () => {
+  it('prioriza lo que explicó el sistema y, si no, dice qué pasó según el código', () => {
     expect(
       getAdminUserSaveErrorMessage({
         status: 409,
         message: 'Esa cédula ya está asignada a otro usuario.',
-        data: { message: 'Esa cédula ya está asignada a otro usuario.' },
+        specific: true,
       }),
     ).toContain('cédula ya está asignada')
-    expect(getAdminUserSaveErrorMessage({ status: 409, message: 'API 409' })).toContain('registrados')
-    expect(getAdminUserSaveErrorMessage({ status: 400, message: 'API 400' })).toContain('inválidos')
-    expect(getAdminUserSaveErrorMessage({ status: 403, message: 'API 403' })).toContain('permiso')
+    const generic = (status: number) => ({ status, message: 'Algo genérico', specific: false })
+    expect(getAdminUserSaveErrorMessage(generic(409))).toContain('registrados')
+    expect(getAdminUserSaveErrorMessage(generic(400))).toContain('Revisá los datos')
+    expect(getAdminUserSaveErrorMessage(generic(403))).toContain('permiso')
     expect(getAdminUserSaveErrorMessage({ message: '500' })).toContain('No se pudo')
   })
 })

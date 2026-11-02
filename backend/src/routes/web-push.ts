@@ -13,7 +13,7 @@ const r = Router();
 r.get("/vapid-public-key", (_req, res) => {
   const publicKey = getVapidPublicKey();
   if (!publicKey) {
-    return res.status(503).json({ message: "Push web no configurado (VAPID) en el servidor." });
+    return res.status(503).json({ message: "Los avisos en este equipo todavía no están disponibles en EduTrack." });
   }
   res.json({ publicKey });
 });
@@ -45,7 +45,7 @@ const subscribeSchema = z.object({
 r.post("/subscribe", authGuard, async (req, res) => {
   try {
     if (!isWebPushConfigured()) {
-      return res.status(503).json({ message: "Push web no configurado (VAPID) en el servidor." });
+      return res.status(503).json({ message: "Los avisos en este equipo todavía no están disponibles en EduTrack." });
     }
     const userId = (req as any).user?.id as string | undefined;
     if (!userId) return res.status(401).json({ message: "No autorizado" });
@@ -113,7 +113,7 @@ r.delete("/subscribe", authGuard, async (req, res) => {
 r.post("/test", authGuard, async (req, res) => {
   try {
     if (!isWebPushConfigured()) {
-      return res.status(503).json({ message: "Push web no configurado (VAPID) en el servidor." });
+      return res.status(503).json({ message: "Los avisos en este equipo todavía no están disponibles en EduTrack." });
     }
     const userId = (req as any).user?.id as string | undefined;
     if (!userId) return res.status(401).json({ message: "No autorizado" });

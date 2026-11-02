@@ -702,7 +702,7 @@ export default function AdminAnalyticsPage() {
       const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, {
         credentials: 'include',
       })
-      if (!dl.ok) throw new Error(`Error descargando exportación: ${dl.status}`)
+      if (!dl.ok) throw new Error('No se pudo descargar la exportación. Probá de nuevo en un momento.')
       const blob = await dl.blob()
       const url = globalThis.URL.createObjectURL(blob)
       const a = document.createElement('a')

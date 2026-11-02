@@ -147,7 +147,7 @@ describe('UserNav', () => {
     const menuLinks = screen.getAllByRole('link')
     expect(menuLinks.map((link) => link.textContent?.trim()).slice(-3)).toEqual([
       'Mi perfil',
-      'Onboarding de EduTrack',
+      'Guía de EduTrack',
       'Configuración del sistema',
     ])
     expect(screen.getByRole('link', { name: /configuración del sistema/i })).toBeInTheDocument()
@@ -329,7 +329,9 @@ it('adscripción: las faltas en Asistencia de estudiantes, las notas en Rendimie
     role: 'ADSCRIPTO',
     isActive: true,
     isApproved: true,
+    // Como Adscripción de fábrica: la asistencia por estudiante pide `student-attendance.read`.
     permissions: [
+      { id: 'student-attendance.read', scope: 'all' },
       { id: 'student-attendance.justify', scope: 'all' },
       { id: 'student-reports.read', scope: 'all' },
       { id: 'gradebook.read', scope: 'all' },
@@ -367,6 +369,7 @@ it('el menú va por destinatario: lo propio, el personal y los estudiantes no se
     isApproved: true,
     permissions: [
       { id: 'attendance.read', scope: 'all' },
+      { id: 'student-attendance.read', scope: 'all' },
       { id: 'student-attendance.manage', scope: 'all' },
       { id: 'students.manage', scope: 'all' },
     ],

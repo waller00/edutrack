@@ -94,10 +94,10 @@ export default function ProfilePage() {
       globalThis.history.replaceState(null, '', '/profile')
     }
     if (params.has('twoFactorDisabled')) {
-      notify('2FA desactivado', 'success')
+      notify('Verificación en dos pasos desactivada', 'success')
       setTwoFactorEnabled(false)
     } else if (params.has('twoFactorDisableError')) {
-      notify('No se pudo desactivar 2FA. Reintentá o solicitá la confirmación por correo.', 'error')
+      notify('No se pudo desactivar la verificación en dos pasos. Reintentá o pedí la confirmación por correo.', 'error')
     }
     // Limpiamos los params para que un refresh o "atrás" no re-dispare el aviso
     // ni vuelva a forzar el estado de 2FA en cada montaje.
@@ -174,7 +174,7 @@ export default function ProfilePage() {
     setDisableEmailBusy(true)
     try {
       await api('/auth/account/2fa/disable-email', { method: 'POST', body: JSON.stringify({}) })
-      notify('Te enviamos un correo para confirmar la desactivación de 2FA.', 'success')
+      notify('Te enviamos un correo para confirmar que querés desactivar la verificación en dos pasos.', 'success')
     } catch (e: any) {
       notify(e?.data?.message || e?.message || 'No se pudo enviar el correo de confirmación', 'error')
     } finally {
@@ -190,9 +190,9 @@ export default function ProfilePage() {
       await api('/auth/account/2fa/disable', { method: 'POST', body: JSON.stringify({ code: twoFactorCode }) })
       setTwoFactorEnabled(false)
       setTwoFactorCode('')
-      notify('2FA desactivado', 'success')
+      notify('Verificación en dos pasos desactivada', 'success')
     } catch (e: any) {
-      notify(e?.data?.message || e?.message || 'No se pudo desactivar 2FA', 'error')
+      notify(e?.data?.message || e?.message || 'No se pudo desactivar la verificación en dos pasos', 'error')
     } finally {
       setTwoFactorDisableBusy(false)
     }
@@ -319,12 +319,12 @@ export default function ProfilePage() {
                   <div className="mt-4 space-y-3">
                     <p className="text-xs text-slate-500">Ingresá el código de tu autenticador para desactivarla.</p>
                     <form onSubmit={disableTwoFactorWithCode} className="space-y-2">
-                      <label htmlFor="profile-2fa-code" className="block text-sm font-medium text-slate-700">Código de 2FA</label>
+                      <label htmlFor="profile-2fa-code" className="block text-sm font-medium text-slate-700">Código de verificación</label>
                       <div className="flex flex-col gap-2 sm:flex-row">
                         <input id="profile-2fa-code" value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value)} disabled={twoFactorDisableBusy}
                           className="input-field text-center tabular-nums sm:max-w-40" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,8}" required placeholder="123456" />
                         <button type="submit" disabled={twoFactorDisableBusy || disableEmailBusy || !twoFactorCode.trim()} className="btn-secondary w-full justify-center border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60 sm:w-auto">
-                          <PendingButtonContent pending={twoFactorDisableBusy} pendingText="Desactivando…" idle="Desactivar 2FA" />
+                          <PendingButtonContent pending={twoFactorDisableBusy} pendingText="Desactivando…" idle="Desactivar verificación" />
                         </button>
                       </div>
                     </form>
@@ -334,7 +334,7 @@ export default function ProfilePage() {
                   </div>
                 </details>
               </>
-            ) : <a href={accountTwoFactorUrl()} className="btn-primary w-full sm:w-auto">Configurar 2FA<ExternalLink className="h-4 w-4 shrink-0" aria-hidden /></a>}
+            ) : <a href={accountTwoFactorUrl()} className="btn-primary w-full sm:w-auto">Activar la verificación en dos pasos<ExternalLink className="h-4 w-4 shrink-0" aria-hidden /></a>}
           </div>
           <SessionsCard confirmRequested={closeSessionsRequested} onClosed={(text) => notify(text, 'success')} />
         </div>

@@ -223,15 +223,16 @@ export default function RegisterPage() {
       setRegisteredEmail(res?.email || email)
       setOk(true)
     } catch (e: unknown) {
-      const err = e as { status?: number; message?: string; data?: { message?: string } }
-      const apiMsg = (typeof err.data?.message === 'string' && err.data.message) || err.message || ''
-      const isBareStatus = /^API \d{3}$/i.test(apiMsg.trim())
-      if (!isBareStatus && apiMsg) {
-        setError(apiMsg)
+      // `specific`: el sistema explicó qué pasó; si no, el mensaje es el genérico del código.
+      const err = e as { status?: number; message?: string; specific?: boolean }
+      if (err.specific && err.message) {
+        setError(err.message)
       } else if (err.status === 409) {
         setError('Ese correo, usuario o cédula ya está registrado.')
+      } else if (err.status === 0 && err.message) {
+        setError(err.message)
       } else {
-        setError('No se pudo registrar. Intenta nuevamente.')
+        setError('No se pudo registrar. Intentá nuevamente.')
       }
     } finally {
       setLoading(false)

@@ -145,7 +145,7 @@ describe('ProfilePage', () => {
     )
   })
 
-  it('muestra acciones para contraseña y 2FA', async () => {
+  it('muestra acciones para contraseña y verificación en dos pasos', async () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false })
     renderProfile()
     await waitForProfileLoaded()
@@ -155,13 +155,13 @@ describe('ProfilePage', () => {
       'href',
       'http://localhost:4000/auth/account/password',
     )
-    expect(await screen.findByRole('link', { name: /configurar 2fa/i })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: /activar la verificación en dos pasos/i })).toHaveAttribute(
       'href',
       'http://localhost:4000/auth/account/2fa',
     )
   })
 
-  it('pide código OTP y mantiene recuperación por correo para desactivar 2FA', async () => {
+  it('pide el código y mantiene la recuperación por correo para desactivar la verificación en dos pasos', async () => {
     mockedApi
       .mockResolvedValueOnce({ ...baseMe })
       .mockResolvedValueOnce({ enabled: true })
@@ -173,7 +173,7 @@ describe('ProfilePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Seguridad' }))
     await screen.findByText('Activada')
     fireEvent.click(screen.getByText('Desactivar verificación en dos pasos'))
-    await screen.findByLabelText(/código de 2fa/i)
+    await screen.findByLabelText(/código de verificación/i)
     fireEvent.click(screen.getByRole('button', { name: /desactivar por correo/i }))
 
     await waitFor(() =>
@@ -181,9 +181,9 @@ describe('ProfilePage', () => {
     )
     expect(await screen.findByText(/te enviamos un correo/i)).toBeInTheDocument()
 
-    const codeInput = await screen.findByLabelText(/código de 2fa/i)
+    const codeInput = await screen.findByLabelText(/código de verificación/i)
     fireEvent.change(codeInput, { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: /desactivar 2fa/i }))
+    fireEvent.click(screen.getByRole('button', { name: /desactivar verificación$/i }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/auth/account/2fa/disable', expect.objectContaining({
@@ -191,7 +191,7 @@ describe('ProfilePage', () => {
         body: JSON.stringify({ code: '123456' }),
       })),
     )
-    expect(await screen.findByText('2FA desactivado')).toBeInTheDocument()
+    expect(await screen.findByText('Verificación en dos pasos desactivada')).toBeInTheDocument()
   })
 
   it('muestra el aviso y limpia los params de la URL tras desactivar 2FA', async () => {
@@ -204,7 +204,7 @@ describe('ProfilePage', () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: true })
     renderProfile()
 
-    expect(await screen.findByText('2FA desactivado')).toBeInTheDocument()
+    expect(await screen.findByText('Verificación en dos pasos desactivada')).toBeInTheDocument()
     // El param se elimina para que un refresh/atrás no re-dispare el aviso.
     expect(replaceState).toHaveBeenCalledWith(null, '', '/profile')
     replaceState.mockRestore()
@@ -325,9 +325,9 @@ describe('ProfilePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Seguridad' }))
     const recovery = await screen.findByRole('link', { name: 'Códigos de respaldo' })
     expect(recovery).toHaveAttribute('href', 'http://localhost:4000/auth/account/recovery-codes')
-    expect(screen.getByRole('button', { name: 'Desactivar 2FA' })).not.toBeVisible()
+    expect(screen.getByRole('button', { name: 'Desactivar verificación' })).not.toBeVisible()
     fireEvent.click(screen.getByText('Desactivar verificación en dos pasos'))
-    expect(screen.getByRole('button', { name: 'Desactivar 2FA' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Desactivar verificación' })).toBeDisabled()
   })
 
   it('no confunde un error de estado 2FA con una cuenta sin protección', async () => {
@@ -350,11 +350,11 @@ describe('ProfilePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Seguridad' }))
     await screen.findByText('Activada')
     fireEvent.click(screen.getByText('Desactivar verificación en dos pasos'))
-    fireEvent.change(screen.getByLabelText('Código de 2FA'), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Desactivar 2FA' }))
+    fireEvent.change(screen.getByLabelText('Código de verificación'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Desactivar verificación' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Código incorrecto')
     expect(screen.getByText('Activada')).toBeVisible()
-    expect(screen.getByLabelText('Código de 2FA')).toHaveValue('123456')
+    expect(screen.getByLabelText('Código de verificación')).toHaveValue('123456')
   })
 
 })

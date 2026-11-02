@@ -199,7 +199,7 @@ r.get('/compare-metrics', async (req, res) => {
   const a = z.string().uuid().safeParse(req.query.a)
   const b = z.string().uuid().safeParse(req.query.b)
   if (!a.success || !b.success) {
-    return res.status(400).json({ message: 'Parámetros a y b deben ser UUID de SchoolYear' })
+    return res.status(400).json({ message: 'Elegí los dos ciclos lectivos que querés comparar.' })
   }
   try {
     const [ya, yb] = await Promise.all([

@@ -69,7 +69,7 @@ export async function authGuard(req: Request, res: Response, next: NextFunction)
         else testProfilePermissions.delete(user.sub);
         return next();
       } catch {
-        return res.status(401).json({ message: "Token inválido" });
+        return res.status(401).json({ message: "Tu sesión terminó. Volvé a ingresar." });
       }
     }
   }

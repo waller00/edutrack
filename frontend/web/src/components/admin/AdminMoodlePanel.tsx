@@ -219,7 +219,7 @@ export default function AdminMoodlePanel() {
         </div>
         {!data.moodleConfigured && (
           <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-            La conexión debe configurarse en el servidor antes de sincronizar.
+            La conexión con Moodle todavía no está configurada. Pedíselo a quien instaló EduTrack antes de sincronizar.
           </p>
         )}
         {health?.reconcile?.running && (
@@ -309,8 +309,8 @@ export default function AdminMoodlePanel() {
           </label>
           {data.moodleSyncEnabledFromEnv && !data.moodleSyncEnabled && (
             <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
-              La sincronización sigue activa por la configuración del servidor.
-              Para desactivarla por completo, revisá esa configuración.
+              La sincronización sigue activa porque así quedó en la instalación de EduTrack.
+              Para apagarla del todo, pedíselo a quien la instaló.
             </p>
           )}
           <SettingsDetails

@@ -468,6 +468,13 @@ y `lib/messages/`.
 > `onboarding-anchors.test.ts` lo exige, y también que cada ancla exista en el código. El resaltado
 > deja pasar los clics: nunca bloquear la pantalla real.
 
+> **La pantalla no habla en técnico.** Nada de "API", "servidor", códigos HTTP, "2FA" ni nombres
+> de piezas (Keycloak, Redis, VAPID) en lo que ve la persona: "verificación en dos pasos", "Guía"
+> (no "onboarding"). Los errores pasan por `lib/api/friendly-error.ts`: un mensaje genérico del
+> backend ("Error interno del servidor", "Datos inválidos") se cambia por uno según el código, y
+> `error.specific` dice si el sistema explicó qué pasó. Un `catch` del backend nunca reenvía el
+> texto crudo de una excepción inesperada: sólo el de los errores de negocio (con `statusCode`).
+
 ## Tests
 
 - Framework: **Vitest** (backend y frontend)

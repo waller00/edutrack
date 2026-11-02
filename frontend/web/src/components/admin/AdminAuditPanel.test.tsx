@@ -223,10 +223,10 @@ describe('AdminAuditPanel', () => {
   })
 
   it('muestra un error con reintento sin informar que no hay registros', async () => {
-    mockedApi.mockRejectedValueOnce(new Error('No se pudo conectar con la API'))
+    mockedApi.mockRejectedValueOnce(new Error('No hay conexión con EduTrack. Revisá tu internet y probá de nuevo.'))
     render(<AdminAuditPanel />)
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'No se pudo conectar con la API',
+      'No hay conexión con EduTrack. Revisá tu internet y probá de nuevo.',
     )
     expect(
       screen.queryByText('Todavía no hay movimientos registrados.'),

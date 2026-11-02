@@ -18,7 +18,7 @@ const staff: AuthMe = { id: 'staff-guide', role: 'STAFF', permissions: [
   { id: 'attendance.read', scope: 'own' }, { id: 'licenses.read', scope: 'own' },
 ] }
 
-describe('onboarding práctico', () => {
+describe('guía práctica', () => {
   beforeEach(() => {
     localStorage.clear()
     navigation.pathname = '/guia'
@@ -27,8 +27,8 @@ describe('onboarding práctico', () => {
 
   it('muestra los pasos propios y permite elegir la pantalla que se quiere conocer', () => {
     render(<GuidePage />)
-    expect(screen.getByRole('heading', { name: 'Onboarding' })).toBeInTheDocument()
-    const steps = screen.getByRole('navigation', { name: 'Pasos de tu onboarding' })
+    expect(screen.getByRole('heading', { name: 'Guía' })).toBeInTheDocument()
+    const steps = screen.getByRole('navigation', { name: 'Pasos de tu guía' })
     expect(within(steps).queryByRole('button', { name: /Libretas/ })).not.toBeInTheDocument()
     expect(within(steps).queryByRole('button', { name: /Asistencia del personal/ })).not.toBeInTheDocument()
     fireEvent.click(within(steps).getByRole('button', { name: /Mis asistencias/ }))

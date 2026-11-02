@@ -1212,7 +1212,7 @@ r.get('/moodle/status', requirePermission('settings.manage', 'all'), async (_req
 
 r.post('/moodle/reconcile', requirePermission('settings.manage', 'all'), async (_req, res) => {
   if (!isMoodleIntegrationEnabled()) {
-    return res.status(503).json({ message: 'Moodle no configurado (MOODLE_BASE_URL + MOODLE_WS_TOKEN)' })
+    return res.status(503).json({ message: 'La conexión con Moodle todavía no está configurada.' })
   }
   try {
     const moodleSettings = await getMoodleOperationalSettings()

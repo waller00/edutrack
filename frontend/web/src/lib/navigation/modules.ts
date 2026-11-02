@@ -119,7 +119,7 @@ export const NAV_GROUP_META: Record<NavGroupId, NavGroupMeta> = {
   inicio: {
     title: 'Inicio',
     icon: LayoutDashboard,
-    description: 'El resumen del día y tu onboarding.',
+    description: 'El resumen del día y tu guía.',
     showChip: false,
   },
   mine: {
@@ -172,7 +172,7 @@ export const APP_MODULES: readonly AppModule[] = [
   },
   {
     id: 'guide',
-    label: 'Onboarding',
+    label: 'Guía',
     href: '/guia',
     description: 'Conocé qué podés ver y hacer con tu perfil, paso a paso dentro de cada pantalla.',
     group: 'inicio',

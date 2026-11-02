@@ -199,7 +199,7 @@ async function beginLoginFlow(
   });
   const redis = getRedis();
   if (!redis) {
-    res.status(503).json({ message: "Redis no disponible" });
+    res.status(503).json({ message: "No se pudo completar el ingreso. Probá de nuevo en unos minutos." });
     return;
   }
   const returnTo = options.returnTo && options.returnTo.startsWith("/") ? options.returnTo : "/";
@@ -238,7 +238,7 @@ r.get("/callback", async (req, res) => {
   if (!state || browserState !== state) return res.redirect(`${frontendUrl()}/login?error=state`);
 
   const redis = getRedis();
-  if (!redis) return res.status(503).json({ message: "Redis no disponible" });
+  if (!redis) return res.status(503).json({ message: "No se pudo completar el ingreso. Probá de nuevo en unos minutos." });
 
   try {
     const stored = await redis.get(OAUTH_PREFIX + state);
@@ -363,7 +363,7 @@ r.post("/account/password", rateLimit(PASSWORD_CREATE_LIMIT), async (req, res) =
     await setInitialKeycloakPassword(session.kcId, parsed.data);
   } catch (error) {
     if ((error as { status?: number }).status === 400) {
-      return res.status(400).json({ message: "Keycloak rechazó la contraseña: no puede contener tu usuario ni tu correo." });
+      return res.status(400).json({ message: "La contraseña no puede contener tu usuario ni tu correo." });
     }
     console.error("[auth/account/password] keycloak:", error);
     return res.status(503).json({ message: "No se pudo crear la contraseña. Probá de nuevo en unos minutos." });
@@ -494,15 +494,15 @@ r.post("/account/2fa/disable", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
   const code = typeof req.body?.code === "string" ? req.body.code : "";
-  if (!code) return res.status(400).json({ message: "Ingresá el código de 2FA." });
+  if (!code) return res.status(400).json({ message: "Ingresá el código de verificación." });
   try {
     const ok = await verifyKeycloakUserOtpCode(session.kcId, code);
-    if (!ok) return res.status(401).json({ message: "Código de 2FA incorrecto." });
+    if (!ok) return res.status(401).json({ message: "El código de verificación no es correcto." });
     const removed = await deleteKeycloakUserOtpCredentials(session.kcId);
     res.json({ ok: true, removed });
   } catch (error) {
     console.error("[auth/account/2fa/disable] disable:", error);
-    res.status(502).json({ message: "No se pudo desactivar 2FA." });
+    res.status(502).json({ message: "No se pudo desactivar la verificación en dos pasos." });
   }
 });
 
@@ -684,16 +684,16 @@ function renderDisable2faConfirmPage(confirmUrl: string, token: string): string 
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex, nofollow" />
-<title>Confirmar desactivación de 2FA</title>
+<title>Desactivar la verificación en dos pasos</title>
 <style>body{font-family:system-ui,Segoe UI,Roboto,sans-serif;background:#f8fafc;color:#0f172a;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}main{max-width:28rem;background:#fff;border:1px solid #e2e8f0;border-radius:1rem;padding:2rem;box-shadow:0 10px 25px rgba(15,23,42,.06)}h1{font-size:1.25rem;margin:0 0 .75rem}p{color:#475569;line-height:1.5}button{margin-top:1.25rem;width:100%;padding:.75rem 1rem;border:0;border-radius:.5rem;background:#dc2626;color:#fff;font-size:1rem;font-weight:600;cursor:pointer}</style>
 </head>
 <body>
 <main>
 <h1>Desactivar verificación en dos pasos</h1>
-<p>Vas a desactivar la verificación en dos pasos (2FA) de tu cuenta EduTrack. Confirmá solo si fuiste vos quien lo solicitó.</p>
+<p>Vas a desactivar la verificación en dos pasos de tu cuenta EduTrack. Confirmá solo si fuiste vos quien lo solicitó.</p>
 <form method="post" action="${action}">
 <input type="hidden" name="token" value="${value}" />
-<button type="submit">Confirmar desactivación de 2FA</button>
+<button type="submit">Desactivar la verificación en dos pasos</button>
 </form>
 </main>
 </body>
@@ -727,7 +727,7 @@ function renderDisable2faStatusPage(input: { title: string; message: string; but
 function renderDisable2faRequestSentPage(): string {
   return renderDisable2faStatusPage({
     title: "Revisá tu correo",
-    message: "Si la cuenta existe, tiene el correo verificado y mantiene 2FA activo, te enviamos un enlace para desactivarlo. El enlace vence en 15 minutos.",
+    message: "Si la cuenta existe, tiene el correo verificado y tiene la verificación en dos pasos activa, te enviamos un enlace para desactivarlo. El enlace vence en 15 minutos.",
     buttonText: "Volver al ingreso",
     buttonHref: `${frontendUrl()}/login`,
   });
@@ -744,7 +744,7 @@ function renderDisable2faTooManyRequestsPage(): string {
 
 function renderDisable2faSuccessPage(): string {
   return renderDisable2faStatusPage({
-    title: "2FA desactivado correctamente",
+    title: "Verificación en dos pasos desactivada",
     message: "La verificación en dos pasos fue desactivada. Ya podés iniciar sesión nuevamente con tu usuario y contraseña.",
     buttonText: "Iniciar sesión",
     buttonHref: `${frontendUrl()}/login`,
@@ -756,9 +756,9 @@ async function sendDisable2faEmail(input: { kcId: string; userId: string; email:
   const url = `${publicApiUrl()}/auth/account/2fa/disable-email?token=${encodeURIComponent(token)}`;
   await sendMail({
     to: input.email,
-    subject: "Confirmar desactivación de 2FA",
+    subject: "Desactivar la verificación en dos pasos",
     html: `<p>Recibimos una solicitud para desactivar la verificación en dos pasos de tu cuenta EduTrack.</p><p>Si fuiste vos, confirmalo desde este enlace válido por 15 minutos:</p><p><a href="${url}">${url}</a></p><p>Si no fuiste vos, ignorá este correo.</p>`,
-    text: `Confirmá la desactivación de 2FA desde este enlace válido por 15 minutos: ${url}`,
+    text: `Para desactivar la verificación en dos pasos, abrí este enlace (vale por 15 minutos): ${url}`,
   });
 }
 
@@ -825,7 +825,7 @@ r.get("/account/2fa/status", async (req, res) => {
     res.json(status);
   } catch (error) {
     console.error("[auth/account/2fa/status] keycloak:", error);
-    res.status(502).json({ message: "No se pudo consultar el estado de 2FA." });
+    res.status(502).json({ message: "No se pudo consultar la verificación en dos pasos." });
   }
 });
 
@@ -833,15 +833,15 @@ r.delete("/account/2fa", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
   const code = typeof req.body?.code === "string" ? req.body.code : "";
-  if (!code) return res.status(400).json({ message: "Ingresá el código de 2FA." });
+  if (!code) return res.status(400).json({ message: "Ingresá el código de verificación." });
   try {
     const ok = await verifyKeycloakUserOtpCode(session.kcId, code);
-    if (!ok) return res.status(401).json({ message: "Código de 2FA incorrecto." });
+    if (!ok) return res.status(401).json({ message: "El código de verificación no es correcto." });
     const removed = await deleteKeycloakUserOtpCredentials(session.kcId);
     res.json({ ok: true, removed });
   } catch (error) {
     console.error("[auth/account/2fa] disable:", error);
-    res.status(502).json({ message: "No se pudo desactivar 2FA." });
+    res.status(502).json({ message: "No se pudo desactivar la verificación en dos pasos." });
   }
 });
 
@@ -880,7 +880,7 @@ r.post("/reset-password", rateLimit(PASSWORD_RESET_LIMIT), async (req, res) => {
       return res.status(400).json({ code: error.code, message: error.message });
     }
     if ((error as { status?: number }).status === 400) {
-      return res.status(400).json({ message: "Keycloak rechazó la contraseña: no puede contener tu usuario ni tu correo." });
+      return res.status(400).json({ message: "La contraseña no puede contener tu usuario ni tu correo." });
     }
     console.error("[auth/reset-password] keycloak:", error);
     return res.status(503).json({ message: "No se pudo cambiar la contraseña. Probá de nuevo en unos minutos." });

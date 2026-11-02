@@ -1,4 +1,5 @@
 import { apiBaseUrl } from '@/lib/api/client'
+import { isSpecificMessage, statusMessage } from '@/lib/api/friendly-error'
 
 /**
  * Nombre del archivo que manda el servidor. Primero `filename*` (UTF-8, conserva las tildes de un
@@ -21,11 +22,11 @@ async function downloadErrorText(res: Response): Promise<string> {
   if (res.status === 403) return 'No tenés permiso para descargar este archivo.'
   try {
     const data = (await res.json()) as { message?: string } | null
-    if (data?.message) return data.message
+    if (isSpecificMessage(data?.message)) return data.message.trim()
   } catch {
     // La respuesta no es JSON: alcanza con el código.
   }
-  return `No se pudo generar el archivo (${res.status})`
+  return res.status >= 500 ? 'No se pudo generar el archivo. Probá de nuevo en un momento.' : statusMessage(res.status)
 }
 
 /**

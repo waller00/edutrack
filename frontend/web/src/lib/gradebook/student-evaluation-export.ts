@@ -47,7 +47,7 @@ export async function downloadStudentEvaluationsXlsx(
     const message =
       res.status === 403
         ? 'No tenés permiso para exportar esta libreta.'
-        : `No se pudo generar el Excel (${res.status})`
+        : 'No se pudo generar el Excel. Probá de nuevo en un momento.'
     throw new Error(message)
   }
   const blob = await res.blob()

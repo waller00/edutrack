@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { api } from './client'
+import { NO_CONNECTION_MESSAGE, TOO_SLOW_MESSAGE } from './friendly-error'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -21,22 +22,22 @@ describe('api()', () => {
     await expect(api('/x')).rejects.toMatchObject({ message: 'Falló — por X', status: 400 })
   })
 
-  it('error sin cuerpo JSON → "API <status>"', async () => {
+  it('error sin cuerpo JSON → el mensaje del código, sin el número', async () => {
     mockFetch(() => new Response('no-json', { status: 500 }))
-    await expect(api('/x')).rejects.toMatchObject({ message: 'API 500', status: 500 })
+    await expect(api('/x')).rejects.toMatchObject({ message: 'Algo falló de nuestro lado. Probá de nuevo en un momento.', status: 500 })
   })
 
-  it('AbortError → "API sin respuesta" y status 0', async () => {
+  it('AbortError → "tardó demasiado" y status 0', async () => {
     mockFetch(() => {
       throw new DOMException('aborted', 'AbortError')
     })
-    await expect(api('/x')).rejects.toMatchObject({ message: 'API sin respuesta', status: 0 })
+    await expect(api('/x')).rejects.toMatchObject({ message: TOO_SLOW_MESSAGE, status: 0 })
   })
 
-  it('error de red → "No se pudo conectar con la API" y status 0', async () => {
+  it('error de red → "No hay conexión con EduTrack" y status 0', async () => {
     mockFetch(() => {
       throw new TypeError('network down')
     })
-    await expect(api('/x')).rejects.toMatchObject({ message: 'No se pudo conectar con la API', status: 0 })
+    await expect(api('/x')).rejects.toMatchObject({ message: NO_CONNECTION_MESSAGE, status: 0 })
   })
 })

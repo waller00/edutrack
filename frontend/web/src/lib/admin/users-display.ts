@@ -132,9 +132,8 @@ export function buildAdminUserEditChanges(original: AdminUserRow | null, edited:
 }
 
 export function getAdminUserSaveErrorMessage(error: unknown): string {
-  const err = error as { message?: string; status?: number; data?: { message?: string } }
-  const fromBody = err.data?.message != null ? String(err.data.message).trim() : ''
-  if (fromBody) return fromBody
+  const err = error as { message?: string; status?: number; specific?: boolean }
+  if (err.specific && err.message) return err.message.trim()
 
   const m = String(err.message || '').trim()
   const bareHttpCode = /^\d{3}$/.test(m)
@@ -143,10 +142,10 @@ export function getAdminUserSaveErrorMessage(error: unknown): string {
   const mentions403 = err.status === 403 || /\b403\b/.test(m)
 
   if (mentions409) return 'Usuario o cédula ya registrados'
-  if (mentions400) return 'Datos inválidos (verifica cédula y fechas)'
+  if (mentions400) return 'Revisá los datos: la cédula o alguna fecha no son válidas.'
   if (mentions403) return 'No tenés permiso para esta acción'
 
-  if (m && !m.startsWith('API ') && !bareHttpCode) return m
+  if (m && !bareHttpCode) return m
 
   return 'No se pudo guardar'
 }

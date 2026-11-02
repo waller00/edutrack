@@ -215,7 +215,7 @@ describe("auth-keycloak account routes", () => {
       .send({ code: "000000" });
 
     expect(res.status).toBe(401);
-    expect(res.body.message).toBe("Código de 2FA incorrecto.");
+    expect(res.body.message).toBe("El código de verificación no es correcto.");
     expect(deleteKeycloakUserOtpCredentialsMock).not.toHaveBeenCalled();
   });
 
@@ -229,7 +229,7 @@ describe("auth-keycloak account routes", () => {
     });
     expect(sendMailMock).toHaveBeenCalledWith(expect.objectContaining({
       to: "u@example.com",
-      subject: "Confirmar desactivación de 2FA",
+      subject: "Desactivar la verificación en dos pasos",
     }));
   });
 
@@ -254,7 +254,7 @@ describe("auth-keycloak account routes", () => {
     expect(getKeycloakUserIdByEmailMock).toHaveBeenCalledWith("u@example.com");
     expect(sendMailMock).toHaveBeenCalledWith(expect.objectContaining({
       to: "u@example.com",
-      subject: "Confirmar desactivación de 2FA",
+      subject: "Desactivar la verificación en dos pasos",
     }));
   });
 
@@ -302,7 +302,7 @@ describe("auth-keycloak account routes", () => {
     const ok = await request(app()).post("/auth/account/2fa/disable-email/confirm").send({ token });
 
     expect(ok.status).toBe(200);
-    expect(ok.text).toContain("2FA desactivado correctamente");
+    expect(ok.text).toContain("Verificación en dos pasos desactivada");
     expect(deleteKeycloakUserOtpCredentialsMock).toHaveBeenCalledWith("kc-1");
     expect(redisMock.set).toHaveBeenCalledWith(
       expect.stringContaining("bff:2fa-disable-used:"),
@@ -713,7 +713,7 @@ describe("auth-keycloak recuperar contraseña (correo de EduTrack)", () => {
     const caido = await request(app()).post("/auth/reset-password").send({ token: "tok-1", password: "Segura123!" });
 
     expect(politica.status).toBe(400);
-    expect(politica.body.message).toMatch(/Keycloak rechazó/);
+    expect(politica.body.message).toMatch(/no puede contener tu usuario ni tu correo/);
     expect(caido.status).toBe(503);
   });
 });

@@ -341,7 +341,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
             className="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
           >
             <CircleHelp className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
-            Onboarding de EduTrack
+            Guía de EduTrack
           </a>
           {hasPermission(me, 'settings.manage', 'all') && (
             <a

@@ -39,7 +39,7 @@ export default function GuidePage() {
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
           {onboarding.finished
             ? 'Ya conocés las herramientas de tu perfil. Podés volver a cualquier paso cuando lo necesites.'
-            : 'Este onboarding te lleva a las pantallas que podés usar y te explica qué hacer en cada una. Abrí un paso, explorá la pantalla y confirmá cuando termines.'}
+            : 'Esta guía te lleva a las pantallas que podés usar y te muestra qué hacer en cada una. Abrí un paso, mirá la pantalla y confirmá cuando termines.'}
         </p>
         <p className="mt-2 text-xs text-slate-500">El recorrido se adapta a tus permisos y su alcance. Tu avance se guarda en este navegador para tu cuenta.</p>
         <div className="mt-5 flex items-center justify-between gap-3 text-sm">
@@ -50,12 +50,12 @@ export default function GuidePage() {
             </button>
           )}
         </div>
-        <progress aria-label="Progreso del onboarding" max={total || 1} value={count} className="mt-2 h-2 w-full overflow-hidden rounded-full accent-emerald-600" />
+        <progress aria-label="Progreso de la guía" max={total || 1} value={count} className="mt-2 h-2 w-full overflow-hidden rounded-full accent-emerald-600" />
       </section>
 
       {onboarding.ready && step && (
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(15rem,1fr)_minmax(0,1.7fr)]">
-          <nav aria-label="Pasos de tu onboarding" className="max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 lg:max-h-none">
+          <nav aria-label="Pasos de tu guía" className="max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 lg:max-h-none">
             <p className="px-2 pb-3 pt-1 text-sm font-semibold text-slate-900">Tu recorrido</p>
             <ol className="space-y-1">
               {onboarding.steps.map((entry, index) => {

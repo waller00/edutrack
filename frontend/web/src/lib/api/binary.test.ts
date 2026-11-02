@@ -51,7 +51,7 @@ describe('apiBlob', () => {
       },
     } as unknown as Response)
 
-    await expect(apiBlob('/x')).rejects.toMatchObject({ message: 'API 502', status: 502 })
+    await expect(apiBlob('/x')).rejects.toMatchObject({ message: 'Algo falló de nuestro lado. Probá de nuevo en un momento.', status: 502 })
   })
 })
 

@@ -11,7 +11,7 @@ function signedIn(id = 'banner-user') {
   return me
 }
 
-describe('invitación al onboarding', () => {
+describe('invitación a la guía', () => {
   beforeEach(() => {
     localStorage.clear()
     signedIn()
@@ -19,22 +19,22 @@ describe('invitación al onboarding', () => {
 
   it('se puede ocultar por cuenta y sigue disponible para otra persona', () => {
     const { unmount } = render(<GuideWelcomeBanner />)
-    expect(screen.getByRole('link', { name: 'Empezar onboarding' })).toHaveAttribute('href', '/guia')
-    fireEvent.click(screen.getByRole('button', { name: 'Ocultar invitación al onboarding' }))
+    expect(screen.getByRole('link', { name: 'Empezar la guía' })).toHaveAttribute('href', '/guia')
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar invitación a la guía' }))
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
     unmount()
     const hidden = render(<GuideWelcomeBanner />)
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
     signedIn('someone-else')
     hidden.rerender(<GuideWelcomeBanner />)
-    expect(screen.getByRole('link', { name: 'Empezar onboarding' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Empezar la guía' })).toBeInTheDocument()
   })
 
   it('ofrece retomar el avance y desaparece al terminar todos los pasos', () => {
     const me = signedIn()
     localStorage.setItem(onboardingStorageKey(me)!, JSON.stringify({ started: true, completed: ['profile'] }))
     const { unmount } = render(<GuideWelcomeBanner />)
-    expect(screen.getByRole('link', { name: 'Continuar onboarding' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Continuar la guía' })).toBeInTheDocument()
     expect(screen.getByText(/1 de 2 pasos completados/)).toBeInTheDocument()
     unmount()
     localStorage.setItem(onboardingStorageKey(me)!, JSON.stringify({ started: true, completed: ['profile', 'my-attendance'] }))
@@ -47,8 +47,8 @@ describe('invitación al onboarding', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('bloqueado') })
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('bloqueado') })
     render(<GuideWelcomeBanner />)
-    expect(screen.getByRole('link', { name: 'Empezar onboarding' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Ocultar invitación al onboarding' }))
+    expect(screen.getByRole('link', { name: 'Empezar la guía' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar invitación a la guía' }))
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
   })
 })

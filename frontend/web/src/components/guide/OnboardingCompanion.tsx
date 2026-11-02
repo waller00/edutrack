@@ -24,7 +24,7 @@ export default function OnboardingCompanion() {
   const spotsOn = onStep && step.spots.length > 0 && !onboarding.progress.spotsHidden.includes(stepId)
 
   return (
-    <aside aria-label="Onboarding en curso" className="mx-3 mt-4 rounded-xl border border-emerald-200 bg-white p-4 shadow-sm sm:mx-4 lg:mx-6">
+    <aside aria-label="Guía en curso" className="mx-3 mt-4 rounded-xl border border-emerald-200 bg-white p-4 shadow-sm sm:mx-4 lg:mx-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
           <Route className="h-4 w-4 shrink-0" aria-hidden />

@@ -1,4 +1,5 @@
 import { apiBaseUrl } from '@/lib/api/base-url'
+import { friendlyMessage } from '@/lib/api/friendly-error'
 
 /**
  * Lectura y escritura de contenido binario contra la API.
@@ -11,14 +12,14 @@ import { apiBaseUrl } from '@/lib/api/base-url'
  * distinguir de un fallo real.
  */
 
-async function messageFromError(res: Response, fallback: string): Promise<string> {
+async function messageFromError(res: Response): Promise<string> {
   try {
     const data = await res.json()
-    if (data && typeof data === 'object' && 'message' in data) return String((data as any).message)
+    if (data && typeof data === 'object' && 'message' in data) return friendlyMessage((data as any).message, res.status)
   } catch {
     /* el cuerpo no era JSON */
   }
-  return fallback
+  return friendlyMessage(null, res.status)
 }
 
 function apiError(message: string, status: number): Error & { status: number } {
@@ -31,7 +32,7 @@ function apiError(message: string, status: number): Error & { status: number } {
 export async function apiBlob(path: string): Promise<Blob | null> {
   const res = await fetch(`${apiBaseUrl()}${path}`, { credentials: 'include', cache: 'no-store' })
   if (res.status === 404) return null
-  if (!res.ok) throw apiError(await messageFromError(res, `API ${res.status}`), res.status)
+  if (!res.ok) throw apiError(await messageFromError(res), res.status)
   return res.blob()
 }
 
@@ -44,6 +45,6 @@ export async function apiUpload<T>(path: string, file: Blob, method = 'PUT'): Pr
     headers: { 'Content-Type': file.type },
     body: file,
   })
-  if (!res.ok) throw apiError(await messageFromError(res, `API ${res.status}`), res.status)
+  if (!res.ok) throw apiError(await messageFromError(res), res.status)
   return res.json() as Promise<T>
 }

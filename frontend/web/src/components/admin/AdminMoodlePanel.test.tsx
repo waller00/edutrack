@@ -121,7 +121,7 @@ describe('AdminMoodlePanel', () => {
     mockLoaded({ moodleSyncEnabled: false, moodleSyncEnabledFromEnv: true })
     render(<AdminMoodlePanel />)
     expect(
-      await screen.findByText(/sigue activa por la configuración del servidor/),
+      await screen.findByText(/sigue activa porque así quedó en la instalación/),
     ).toBeVisible()
   })
 
