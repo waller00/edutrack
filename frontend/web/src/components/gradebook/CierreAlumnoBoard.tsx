@@ -31,11 +31,12 @@ import {
 } from '@/lib/gradebook/grade-scale'
 import StudentCombobox from '@/components/forms/StudentCombobox'
 import { printStudentClosure } from '@/lib/gradebook/student-closure-export'
-import { formatClosureStamp, periodInfoMessage } from '@/lib/gradebook/period-info'
+import { formatClosureStamp, periodStatusText } from '@/lib/gradebook/period-info'
+import { todayYmdUruguay } from '@/lib/libreta/absence-day'
 import { libretaCode } from '@/components/libreta/MisLibretas'
 import type { GradeBookDetail, GradeBookHeader, RosterStudent } from '@/lib/gradebook/types'
 import PeriodBlock, { type BlockGrade, type BlockLevel } from './PeriodBlock'
-import MeetingPeriodsBar from './MeetingPeriodsBar'
+import MeetingClosePanel from './MeetingClosePanel'
 import GradeSelect from './GradeSelect'
 import ConductSelect, { conductText, type ConductOption } from './ConductSelect'
 import CierreGrupoTable from './CierreGrupoTable'
@@ -106,7 +107,6 @@ type BoardResponse = { assessments: BoardAssessment[]; grades: BoardGrade[] }
 /** Borrador por período: R (rendimiento), el texto y C (conducta), en centésimos como texto (`''` sin dato). */
 type Draft = Record<string, { meeting: string; judgement: string; conduct: string }>
 
-type InfoModal = { title: string; body: string } | null
 type MeetingModal = { periodName: string; text: string; meta: string | null } | null
 type Mode = 'alumno' | 'grupo'
 
@@ -230,7 +230,7 @@ function periodCompleteness(period: ClosurePeriod, d: Draft[string]) {
     (period.requiresGeneralGrade && gradeSelectToHundredths(d.meeting) == null) ||
     (needsConduct && d.conduct === '') ||
     (period.requiresConceptualJudgement && d.judgement.trim().length === 0)
-  return { missing, complete: !missing }
+  return { missing }
 }
 
 function SimpleModal({
@@ -289,8 +289,14 @@ export default function CierreAlumnoBoard({
   const router = useRouter()
   const students = detail.students
   const [focusIndex, setFocusIndex] = useState(0)
-  const [mode, setMode] = useState<Mode>('alumno')
+  // Abre en todo el grupo: es la forma de cerrar una reunión. La carta es para mirar a uno solo.
+  const [mode, setMode] = useState<Mode>('grupo')
   const [groupDirty, setGroupDirty] = useState(false)
+  // Desde el panel, "Ir al informe del grupo" o "la tabla del grupo" saltan a una reunión: la tabla
+  // se vuelve a montar en ese período aunque ya estuviera abierta en otro.
+  const [groupJump, setGroupJump] = useState<{ periodId: string | null; n: number }>({ periodId: null, n: 0 })
+  // Cambia al guardar: el panel vuelve a contar lo que falta para cerrar.
+  const [refreshKey, setRefreshKey] = useState(0)
   const [mine, setMine] = useState<GradeBookHeader[]>([])
   const [sheet, setSheet] = useState<ClosureSheet | null>(null)
   const [board, setBoard] = useState<BoardResponse | null>(null)
@@ -301,7 +307,6 @@ export default function CierreAlumnoBoard({
   const [printBusy, setPrintBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
-  const [infoModal, setInfoModal] = useState<InfoModal>(null)
   const [meetingModal, setMeetingModal] = useState<MeetingModal>(null)
 
   const selected = students[focusIndex] ?? null
@@ -384,6 +389,27 @@ export default function CierreAlumnoBoard({
     setFocusIndex(idx)
   }
 
+  /** La carta de un alumno (o la del que estaba elegido), sin tirar lo que no se guardó. */
+  function showStudent(studentId?: string) {
+    if (mode === 'alumno') {
+      if (studentId) selectStudent(studentId)
+      return
+    }
+    if (!confirmDiscard(unsaved, DISCARD_MESSAGE)) return
+    setMode('alumno')
+    setGroupDirty(false)
+    const idx = studentId ? students.findIndex((s) => s.studentId === studentId) : -1
+    if (idx >= 0) setFocusIndex(idx)
+  }
+
+  /** La tabla de todo el grupo; con `periodId`, abierta en esa reunión. */
+  function showGroup(periodId?: string) {
+    if (!confirmDiscard(unsaved, DISCARD_MESSAGE)) return
+    setMode('grupo')
+    setGroupDirty(false)
+    if (periodId) setGroupJump((jump) => ({ periodId, n: jump.n + 1 }))
+  }
+
   const visibleStudents = selected ? [selected] : []
 
   const studentGrades = useMemo(() => {
@@ -407,6 +433,7 @@ export default function CierreAlumnoBoard({
         body: JSON.stringify({ entries }),
       })
       setOkMsg('Cierre guardado.')
+      setRefreshKey((key) => key + 1)
       await loadStudent()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar')
@@ -473,7 +500,7 @@ export default function CierreAlumnoBoard({
     <div className="space-y-3">
       <header>
         <h2 className="text-base font-bold uppercase tracking-wide text-teal-800">
-          Cierre por alumno · C y R
+          Cierre de períodos · C y R
         </h2>
         <p className="text-sm text-slate-600">{courseLabel}</p>
         <p className="text-xs text-slate-500">
@@ -481,10 +508,13 @@ export default function CierreAlumnoBoard({
         </p>
       </header>
 
-      <MeetingPeriodsBar
+      <MeetingClosePanel
         gradeBookId={gradeBookId}
         canClose={detail.access.canGrade}
+        refreshKey={refreshKey}
         onChanged={() => void loadStudent()}
+        onPickStudent={(studentId) => showStudent(studentId)}
+        onOpenGroup={(periodId) => showGroup(periodId)}
       />
 
       <div className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-slate-100/80 px-3 py-2 text-sm">
@@ -506,38 +536,54 @@ export default function CierreAlumnoBoard({
           ))}
         </select>
 
-        {/* Un solo buscador: "Todo el grupo" (cierre por período) es la primera opción y cada
-            alumno abre su cierre. Antes eran un selector de modo y otro de alumno. */}
-        <StudentCombobox
-          students={students}
-          value={mode === 'grupo' ? null : selected?.studentId ?? null}
-          allLabel="Todo el grupo, por período"
-          numbered
-          label="Alumno"
-          hideLabel
-          disabled={students.length === 0}
-          className="min-w-[16rem] flex-1"
-          onChange={(studentId) => {
-            if (studentId === null) {
-              if (mode === 'grupo' || !confirmDiscard(unsaved, DISCARD_MESSAGE)) return
-              setMode('grupo')
-              setGroupDirty(false)
-              return
-            }
-            if (mode === 'grupo') {
-              if (!confirmDiscard(unsaved, DISCARD_MESSAGE)) return
-              setMode('alumno')
-              setGroupDirty(false)
-              const idx = students.findIndex((s) => s.studentId === studentId)
-              if (idx >= 0) setFocusIndex(idx)
-              return
-            }
-            selectStudent(studentId)
-          }}
-        />
+        {/* Las dos vistas a la vista: "Todo el grupo" estaba escondido como primera opción del
+            buscador de alumnos. */}
+        <div role="group" aria-label="Vista del cierre" className="inline-flex overflow-hidden rounded border border-slate-300 bg-white">
+          {(
+            [
+              ['grupo', 'Todo el grupo'],
+              ['alumno', 'Alumno por alumno'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={mode === value}
+              onClick={() => (value === 'grupo' ? showGroup() : showStudent())}
+              className={`px-3 py-1.5 text-sm font-medium ${
+                mode === value ? 'bg-teal-700 text-white' : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'alumno' && (
+          <StudentCombobox
+            students={students}
+            value={selected?.studentId ?? null}
+            numbered
+            label="Alumno"
+            hideLabel
+            disabled={students.length === 0}
+            className="min-w-[16rem] flex-1"
+            onChange={(studentId) => {
+              if (studentId) selectStudent(studentId)
+            }}
+          />
+        )}
       </div>
 
-      {mode === 'grupo' && <CierreGrupoTable gradeBookId={gradeBookId} onDirtyChange={setGroupDirty} />}
+      {mode === 'grupo' && (
+        <CierreGrupoTable
+          key={`${groupJump.periodId ?? 'en-curso'}-${groupJump.n}`}
+          gradeBookId={gradeBookId}
+          initialPeriodId={groupJump.periodId ?? undefined}
+          onDirtyChange={setGroupDirty}
+          onSaved={() => setRefreshKey((key) => key + 1)}
+        />
+      )}
 
       {error && (
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
@@ -671,17 +717,17 @@ export default function CierreAlumnoBoard({
                               R · Rendimiento
                             </th>
                             <th scope="col" className="px-3 py-2 text-left font-medium">Informe / juicio</th>
-                            <th scope="col" className="px-3 py-2 text-center font-medium">Juicio Reu.</th>
-                            <th scope="col" className="px-3 py-2 text-center font-medium">Info.</th>
+                            <th scope="col" className="px-3 py-2 text-center font-medium">Juicio de la reunión</th>
+                            <th scope="col" className="px-3 py-2 text-left font-medium">Estado</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {periods.map((period) => {
                             const d = draft[period.periodId] ?? { meeting: '', judgement: '', conduct: '' }
-                            const { complete, missing } = periodCompleteness(period, d)
+                            const { missing } = periodCompleteness(period, d)
                             const judgementLabel = judgementLabelOf(period)
                             const hasGrades = periodKind(period) !== 'DIAGNOSTICO'
-                            const infoText = periodInfoMessage(period)
+                            const statusText = periodStatusText(period, todayYmdUruguay())
                             const hasMeeting = Boolean(period.meetingJudgement?.trim())
                             return (
                               <tr key={period.periodId}>
@@ -791,37 +837,19 @@ export default function CierreAlumnoBoard({
                                     </span>
                                   )}
                                 </td>
-                                <td className="px-3 py-2 text-center">
-                                  <button
-                                    type="button"
-                                    title={infoText}
-                                    aria-label={`Info de ${period.name}: ${infoText}`}
-                                    onClick={() =>
-                                      setInfoModal({
-                                        title: period.name,
-                                        body: infoText,
-                                      })
-                                    }
-                                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full ${
-                                      period.status === 'CLOSED'
-                                        ? 'bg-sky-600 text-white hover:bg-sky-700'
-                                        : !period.canEdit
-                                          ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300 hover:bg-amber-50'
-                                          : complete && !missing
-                                            ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100'
-                                            : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100'
-                                    }`}
-                                  >
-                                    {period.status === 'CLOSED' ? (
-                                      <Info className="h-4 w-4" aria-hidden />
-                                    ) : !period.canEdit || missing ? (
-                                      <AlertTriangle className="h-4 w-4" aria-hidden />
-                                    ) : complete ? (
-                                      <CheckCircle2 className="h-4 w-4" aria-hidden />
-                                    ) : (
-                                      <Info className="h-4 w-4" aria-hidden />
-                                    )}
-                                  </button>
+                                <td className="px-3 py-2 text-xs">
+                                  {/* En palabras: antes era un ícono cuyo color había que adivinar. */}
+                                  <span className="text-slate-700">{statusText}</span>
+                                  {period.status !== 'CLOSED' && period.canEdit && (
+                                    <span className={`mt-0.5 flex items-center gap-1 ${missing ? 'text-amber-800' : 'text-emerald-700'}`}>
+                                      {missing ? (
+                                        <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                                      ) : (
+                                        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                                      )}
+                                      {missing ? 'Falta completar' : 'Completo'}
+                                    </span>
+                                  )}
                                 </td>
                               </tr>
                             )
@@ -867,12 +895,6 @@ export default function CierreAlumnoBoard({
             Cancelar
           </button>
         </div>
-      )}
-
-      {infoModal && (
-        <SimpleModal title={infoModal.title} onClose={() => setInfoModal(null)}>
-          <p className="text-sm text-slate-800">{infoModal.body}</p>
-        </SimpleModal>
       )}
 
       {meetingModal && (

@@ -48,9 +48,15 @@ type Patch = {
 
 const DISCARD_MESSAGE = 'Hay cambios sin guardar en el cierre del grupo. ¿Descartarlos?'
 
-/** El período en curso: el que contiene hoy, o el último que ya empezó, o el primero. */
+/**
+ * El período en curso. Primero la reunión que contiene hoy, porque en esta vista se cierra; después
+ * cualquiera que contenga hoy, el último que ya empezó o el primero.
+ */
 export function currentPeriodId(periods: Options['periods'], today: string): string {
-  const containing = periods.find((p) => (!p.startsOn || p.startsOn <= today) && (!p.endsOn || today <= p.endsOn))
+  const contains = (p: Options['periods'][number]) => (!p.startsOn || p.startsOn <= today) && (!p.endsOn || today <= p.endsOn)
+  const meeting = periods.find((p) => p.isMeeting && contains(p))
+  if (meeting) return meeting.id
+  const containing = periods.find(contains)
   if (containing) return containing.id
   const started = periods.filter((p) => p.startsOn && p.startsOn <= today)
   return started.at(-1)?.id ?? periods[0]?.id ?? ''
@@ -254,15 +260,21 @@ export function GroupReportCard({
 export default function CierreGrupoTable({
   gradeBookId,
   periodId: fixedPeriodId,
+  initialPeriodId,
   readOnly = false,
   onDirtyChange,
+  onSaved,
 }: {
   gradeBookId: string
   /** Período fijo: no se ofrece el selector. */
   periodId?: string
+  /** El período con el que abre (el panel de cierre salta a una reunión); después se elige igual. */
+  initialPeriodId?: string
   readOnly?: boolean
   /** El padre lo necesita para no cambiar de vista con cambios sin guardar. */
   onDirtyChange?: (dirty: boolean) => void
+  /** Se guardaron notas o el informe del grupo: el panel de cierre vuelve a contar lo que falta. */
+  onSaved?: () => void
 }) {
   const [options, setOptions] = useState<Options | null>(null)
   const [chosenPeriodId, setPeriodId] = useState('')
@@ -279,7 +291,12 @@ export default function CierreGrupoTable({
       .then((opts) => {
         if (cancelled) return
         setOptions(opts)
-        setPeriodId((current) => current || currentPeriodId(opts.periods, todayYmdUruguay()))
+        // Se calcula acá y no dentro del actualizador: React lo corre al dibujar, y una respuesta sin
+        // períodos tiraba abajo toda la pantalla del cierre.
+        const periods = opts?.periods ?? []
+        const asked = initialPeriodId && periods.some((p) => p.id === initialPeriodId) ? initialPeriodId : null
+        const opening = asked || currentPeriodId(periods, todayYmdUruguay())
+        setPeriodId((current) => current || opening)
       })
       .catch((err) => {
         if (!cancelled) setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'No se pudieron cargar los períodos' })
@@ -287,7 +304,7 @@ export default function CierreGrupoTable({
     return () => {
       cancelled = true
     }
-  }, [gradeBookId])
+  }, [gradeBookId, initialPeriodId])
 
   const loadSheet = useCallback(async () => {
     if (!periodId) return
@@ -328,6 +345,7 @@ export default function CierreGrupoTable({
     try {
       await api(`/gradebook/${gradeBookId}/periods/${periodId}/grades`, { method: 'PUT', body: JSON.stringify({ entries }) })
       setMessage({ kind: 'ok', text: `Guardado: ${entries.length} alumno${entries.length === 1 ? '' : 's'}.` })
+      onSaved?.()
       await loadSheet()
     } catch (err) {
       setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'No se pudo guardar' })
@@ -430,9 +448,10 @@ export default function CierreGrupoTable({
           periodId={periodId}
           report={sheet.groupReport}
           editable={canEdit}
-          onSaved={(body) =>
+          onSaved={(body) => {
             setSheet((prev) => (prev?.groupReport ? { ...prev, groupReport: { ...prev.groupReport, body } } : prev))
-          }
+            onSaved?.()
+          }}
         />
       )}
 

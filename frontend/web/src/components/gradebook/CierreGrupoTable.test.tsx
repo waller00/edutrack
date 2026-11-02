@@ -129,11 +129,39 @@ describe('<CierreGrupoTable />', () => {
   })
 })
 
+describe('<CierreGrupoTable /> desde el panel de cierre', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('abre en el período pedido y avisa cuando guarda', async () => {
+    respond()
+    const onSaved = vi.fn()
+    const user = userEvent.setup()
+    render(<CierreGrupoTable gradeBookId="gb-1" initialPeriodId="p-e2" onSaved={onSaved} />)
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/gradebook/gb-1/periods/p-e2'))
+    expect(screen.getByLabelText('Período')).toHaveValue('p-e2')
+
+    await user.selectOptions(await screen.findByLabelText('R (rendimiento) de Cabrera, Luis'), '9')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+  })
+})
+
 describe('currentPeriodId', () => {
   const periods = [
     { id: 'a', code: 'A', name: 'A', startsOn: '2026-03-01', endsOn: '2026-05-31' },
     { id: 'b', code: 'B', name: 'B', startsOn: '2026-06-01', endsOn: '2026-08-31' },
   ]
+
+  it('si hoy cae en un tramo y en su entrega, elige la entrega: es lo que se cierra', () => {
+    const withMeeting = [
+      { id: 'tramo', code: 'T', name: 'Marzo-Abril', startsOn: '2026-03-01', endsOn: '2026-04-30' },
+      { id: 'entrega', code: 'E', name: '1.ª Entrega', startsOn: '2026-03-01', endsOn: '2026-05-31', isMeeting: true },
+    ]
+    expect(currentPeriodId(withMeeting, '2026-04-10')).toBe('entrega')
+  })
 
   it('elige el período que contiene hoy, o el último que ya empezó', () => {
     expect(currentPeriodId(periods, '2026-07-01')).toBe('b')

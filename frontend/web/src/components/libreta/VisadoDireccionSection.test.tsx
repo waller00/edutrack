@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import VisadoDireccionSection, { openingMeeting, reviewableMeetings } from './VisadoDireccionSection'
-import ObservacionesDireccion from './ObservacionesDireccion'
 import type { DecisionRow } from './VisadoDecision'
 import { api } from '@/lib/api/client'
 
@@ -150,6 +149,15 @@ describe('<VisadoDireccionSection />', () => {
     expect(review.compareDocumentPosition(decision) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it('arriba, las mismas etapas que ve el docente, con las palabras de quien revisa', async () => {
+    respond([endorsementRow({ blockingSections: ['GRADES'], canFinalize: false })])
+    render(<VisadoDireccionSection />)
+
+    const steps = await screen.findByRole('list', { name: 'Etapas de la reunión' })
+    expect(within(steps).getByText('Revisión').closest('li')).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByText('Observada: espera al docente')).toBeInTheDocument()
+  })
+
   it('abre en la reunión que se eligió en Control', async () => {
     search.params = new URLSearchParams({ reunion: 'p-2' })
     respond([endorsementRow(), SECOND])
@@ -253,33 +261,5 @@ describe('reunión con la que abre', () => {
     expect(openingMeeting(list, null)?.period.id).toBe('p-2')
     expect(openingMeeting(rows({ overallStatus: 'ENDORSED' }, { overallStatus: 'ENDORSED' }), 'otra')?.period.id).toBe('p-2')
     expect(openingMeeting([], null)).toBeNull()
-  })
-})
-
-describe('<ObservacionesDireccion />', () => {
-  beforeEach(() => {
-    mockedApi.mockReset()
-  })
-
-  it('le muestra al docente lo que le observaron y si está reabierto para corregir', async () => {
-    const observed = SECTIONS.map((s) =>
-      s.section === 'GROUP_REPORT' ? { ...s, status: 'OBSERVED', observations: 'Falta el informe del grupo.' } : s,
-    )
-    mockedApi.mockResolvedValue({
-      data: [endorsementRow({ sections: observed, overallStatus: 'OBSERVED', periodStatus: 'REOPENED', reopenReason: 'Completar' })],
-    } as never)
-    render(<ObservacionesDireccion gradeBookId="gb-1" />)
-
-    const item = await screen.findByText(/Te observaron informe del grupo · 1.ª Entrega/)
-    const card = item.closest('li') as HTMLElement
-    expect(within(card).getByText('Falta el informe del grupo.')).toBeInTheDocument()
-    expect(within(card).getByText(/reabierto para que lo corrijas: Completar/)).toBeInTheDocument()
-  })
-
-  it('sin observaciones ni visados no ocupa lugar', async () => {
-    mockedApi.mockResolvedValue({ data: [endorsementRow()] } as never)
-    const { container } = render(<ObservacionesDireccion gradeBookId="gb-1" />)
-    await waitFor(() => expect(mockedApi).toHaveBeenCalled())
-    expect(container).toBeEmptyDOMElement()
   })
 })

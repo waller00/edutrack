@@ -394,8 +394,8 @@ pantalla con paneles apilados.
 - **Suplente:** sólo **Tus notas (suplencia)** (`evaluaciones`), con la lista del grupo. Ver
   "Acceso del suplente" más abajo.
 - **Docente titular:** `planificacion`, `desarrollo`, `evaluaciones` y `cierre`. Lo que Dirección
-  le observó en el visado lo ve arriba de *Cierre de períodos*. La libreta ya no tiene sección de
-  mensajes: la supervisión le escribe por la mensajería 1 a 1.
+  le observó en el visado lo ve en *Cierre de períodos*, en el panel de esa reunión. La libreta ya
+  no tiene sección de mensajes: la supervisión le escribe por la mensajería 1 a 1.
 - **Supervisión** (Dirección, adscripción, inspección): las mismas cuatro, de sólo lectura, y
   **Revisión y visado** (`visado`): de a una reunión cerrada, primero lo que cerró el docente (C, R
   y juicio de cada alumno, informe del grupo, y si dio lo que planificó: planificación al lado del
@@ -412,8 +412,23 @@ secciones se eligen de un selector, para no empujar el contenido una pantalla ha
 visado; `/libreta/visado` redirige a su paso de visado),
 `/libreta/indicadores`, `/libreta/estudiante/[id]` (ficha) y `/libreta/configuracion`
 (parametrización académica). Entradas globales de trabajo: `/libreta/evaluaciones` y
-`/libreta/cierre-alumno` (*Cierre de períodos*: C, R e informe alumno por alumno y el cierre de cada
-entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
+`/libreta/cierre-alumno` (*Cierre de períodos*: C, R e informe de todo el grupo o alumno por alumno,
+y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
+
+**Cierre de períodos.** Abre en *Todo el grupo* (la tabla de C, R y juicio de cada alumno por
+reunión, más el informe del grupo); *Alumno por alumno* abre la carta de uno con todas sus notas.
+Arriba, el panel *Reuniones y cierre* tiene una fila por reunión con su etapa en palabras
+(Abierta, Lista para cerrar, En revisión, Observada, Reabierta, Visada). La reunión en curso se
+despliega con la línea de etapas (Cargar → Cerrar → Revisión → Visada) y:
+
+- si falta algo, qué y de quién: R, C, el juicio o el informe del grupo, con los nombres (cada uno
+  abre la carta de ese alumno) y un acceso a la tabla del grupo en esa reunión;
+- si no falta nada, el botón «Cerrar» con su confirmación (cerrar una entrega cierra sus tramos);
+- cerrada, cuándo se cerró y lo que le observaron en el visado, con su texto. Administración la
+  reabre desde ahí, con motivo.
+
+La columna *Estado* de la carta dice en palabras si el período está abierto (hasta qué día),
+todavía no se habilita, está cerrado o reabierto, y si al alumno le falta completar algo.
 
 - **Unidad:** una libreta es `(ciclo, oferta de curso, orientación opcional, asignatura)`. En
   EduTrack el "grupo" es el curso más su orientación —no hay grupos paralelos—, así que esa clave
@@ -696,8 +711,8 @@ bandeja; se revisa y se visa en *Revisión y visado* de cada libreta (`/libreta/
 - **Append-only.** El estado vigente de cada sección es su última fila; nada se actualiza ni se
   borra. Una observación posterior a un visado no lo elimina, lo **sucede**, y el visado anterior
   sigue consultable con su autor y su fecha. Eso es RF-083 por construcción, no por convención.
-- **Secciones independientes (RF-081):** Calificaciones, Cierre del período y Juicios conceptuales,
-  más `ALL` para el visado del período.
+- **Secciones independientes (RF-081):** las partes que se observan por separado (ver *Secciones
+  del visado*), más `ALL` para el visado del período.
 - **Sólo se visa lo cerrado.** Un período abierto no llega a la grilla: no hay nada firme que visar
   mientras el docente todavía puede cambiar una nota.
 - **Visado final (RF-082):** se habilita cuando ninguna sección obligatoria queda observada. Una
@@ -716,12 +731,18 @@ bandeja; se revisa y se visa en *Revisión y visado* de cada libreta (`/libreta/
   plegados al pie; los botones aparecen sólo para quien tiene la atribución.
 - **Sin visado en lote ni desde la fila.** Visar de una vez lo que estaba "listo" era dar por
   buenas libretas que nadie había mirado; se sacó (también la ruta `/endorsements/bulk`).
-- **Secciones del visado:** Calificaciones, Cierre, Juicios, **Seguimiento** (`PLANNING`: si dio lo
-  que planificó) e **Informe del grupo** (`GROUP_REPORT`), más el visado del período (`ALL`).
+- **Secciones del visado:** *Notas de las evaluaciones* (`GRADES`), *C y R del cierre* (`CLOSURE`),
+  *Juicios* (`JUDGEMENTS`), *Planificación y desarrollo* (`PLANNING`: si dio lo que planificó) e
+  *Informe del grupo* (`GROUP_REPORT`), más el visado del período (`ALL`). Los nombres son los
+  mismos en la pantalla y en el aviso al docente; antes "Calificaciones" y "Cierre" parecían lo
+  mismo y "Seguimiento" era la planificación.
 - **Visar es de Dirección, no del docente.** Dirección visa en *Revisión y visado* de cada libreta,
-  después de mirarla. **El docente ve lo que le observaron** arriba de
-  *Cierre de períodos* (`GET /gradebook/:id/endorsements`), incluidas las observaciones de un
-  período reabierto para corregir; los avisos de observación, visado y reapertura lo llevan ahí.
+  después de mirarla. **El docente ve lo que le observaron** en *Cierre de períodos*, en el panel
+  de esa reunión (`GET /gradebook/:id/endorsements`), incluidas las observaciones de un período
+  reabierto para corregir; los avisos de observación, visado y reapertura lo llevan ahí.
+- **Las mismas etapas para todos:** Cargar → Cerrar → Revisión → Visada. El docente las ve en su
+  panel de cierre y quien revisa, arriba de *Revisión y visado*, con las frases de la bandeja de
+  Control.
 - **Antigüedad del pendiente** en la bandeja, para priorizar (§5.9), junto con la marca de cierre
   fuera de plazo. La bandeja filtra por reunión y por grupo (orientación más tronco común), sin
   tope de filas; con *Todas las reuniones* muestra también lo pendiente de las anteriores.

@@ -60,19 +60,16 @@ function waitingText(row: DecisionRow): string | null {
 }
 
 /** El estado de la reunión en palabras, con la fecha del visado si lo hay. */
+/**
+ * El encabezado de la decisión. En qué etapa está la reunión ya lo dice la línea de etapas de
+ * arriba (las mismas que ve el docente): acá no se repite.
+ */
 function DecisionStatus({ row }: { row: DecisionRow }) {
-  const state = reviewState(row)
-  const endorsedAt = state.kind === 'ENDORSED' ? sectionState(row, 'ALL').occurredAt : null
   return (
     <div className="flex flex-wrap items-center gap-2">
       <h3 id="visado-decision" className="text-sm font-semibold text-gray-900">
         2. Tu decisión
       </h3>
-      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${state.className}`}>
-        <span aria-hidden>{state.symbol}</span>
-        {state.label}
-        {endorsedAt && ` el ${formatEndorsementDate(endorsedAt)}`}
-      </span>
       {row.closedLate && <span className="text-xs text-amber-800">▲ Cerrada fuera de plazo</span>}
     </div>
   )

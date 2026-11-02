@@ -15,10 +15,14 @@ export type Status = 'PENDING' | 'OBSERVED' | 'CORRECTED' | 'ENDORSED'
  */
 export const MANDATORY_SECTIONS: readonly Section[] = ['GRADES', 'CLOSURE', 'JUDGEMENTS', 'PLANNING', 'GROUP_REPORT']
 
+/**
+ * Los mismos nombres que ve la pantalla (`ENDORSEMENT_SECTION_LABELS` del front): el aviso al
+ * docente dice qué parte le observaron, y "Calificaciones" y "Cierre" parecían lo mismo.
+ */
 export const SECTION_LABELS: Record<Section, string> = {
-  GRADES: 'Calificaciones',
-  CLOSURE: 'Cierre del período',
-  JUDGEMENTS: 'Juicios conceptuales',
+  GRADES: 'Notas de las evaluaciones',
+  CLOSURE: 'C y R del cierre',
+  JUDGEMENTS: 'Juicios',
   PLANNING: 'Planificación y desarrollo',
   GROUP_REPORT: 'Informe del grupo',
   ALL: 'Visado del período',

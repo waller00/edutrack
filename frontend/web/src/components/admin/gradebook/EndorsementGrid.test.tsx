@@ -56,7 +56,7 @@ describe('<EndorsementGrid />', () => {
     renderGrid()
     expect(within(rowOf('Materia lista')).getByText('Para revisar')).toBeInTheDocument()
     expect(within(rowOf('Materia observada')).getByText('Observada: espera al docente')).toBeInTheDocument()
-    expect(within(rowOf('Materia observada')).getByText('Observado: Calificaciones, Juicios')).toBeInTheDocument()
+    expect(within(rowOf('Materia observada')).getByText('Observado: Notas de las evaluaciones, Juicios')).toBeInTheDocument()
     expect(within(rowOf('Materia corregida')).getByText('Volvió a cerrarse: revisá la corrección')).toBeInTheDocument()
     expect(within(rowOf('Materia visada')).getByText('Visada')).toBeInTheDocument()
   })

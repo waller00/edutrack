@@ -97,7 +97,7 @@ describe('estado de la revisión', () => {
   })
 
   it('dice qué partes se observaron', () => {
-    expect(observedLabels(row({ blockingSections: ['GRADES', 'JUDGEMENTS'] }))).toBe('Calificaciones, Juicios')
+    expect(observedLabels(row({ blockingSections: ['GRADES', 'JUDGEMENTS'] }))).toBe('Notas de las evaluaciones, Juicios')
   })
 })
 

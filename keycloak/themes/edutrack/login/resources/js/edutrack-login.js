@@ -123,20 +123,6 @@
     button.setAttribute('aria-hidden', 'true')
   }
 
-  /**
-   * Quien se registró con Google no tiene contraseña: si la escribe, Keycloak sólo dice que es
-   * incorrecta. Este aviso le dice por dónde entrar y cómo crear una.
-   */
-  function addGoogleAccountHint() {
-    if (!screenFlags().isLogin || !document.querySelector('#social-google')) return
-    var form = document.querySelector('#kc-form-login')
-    if (!form || !form.parentElement || document.querySelector('.et-login-hint')) return
-    var hint = document.createElement('p')
-    hint.className = 'et-login-hint'
-    hint.textContent =
-      '¿Te registraste con Google? Usá «Continuar con Google».'
-    form.parentElement.insertBefore(hint, form.nextSibling)
-  }
 
   function isRequiredActionScreen() {
     return window.location.href.indexOf('/login-actions/required-action') >= 0 ||
@@ -229,15 +215,19 @@
 
   /**
    * Sólo la etiqueta que encabeza los botones sociales. Las otras bandas del pie son el texto
-   * propio de la pantalla: en "Recuperar contraseña" la instrucción quedaba pisada por
-   * "También podés ingresar con", sin ningún botón debajo.
+   * propio de la pantalla: en "Recuperar contraseña" la instrucción quedaba pisada por la de
+   * Google, sin ningún botón debajo.
+   *
+   * Es el único aviso para quien se registró con Google (no tiene contraseña: si la escribe,
+   * Keycloak sólo dice que es incorrecta). Había otro igual debajo del formulario: decía lo
+   * mismo dos veces.
    */
   function localizeSocialProvidersLabel() {
     var providers = document.querySelector('#kc-social-providers')
     if (!providers || !providers.querySelector('a[id^="social-"]')) return
     var band = providers.previousElementSibling
     var item = band && band.querySelector('.pf-v5-c-login__main-footer-band-item')
-    if (item) item.textContent = 'También podés ingresar con'
+    if (item) item.textContent = '¿Te registraste con Google? Entrá desde acá'
   }
 
   function localizeVisibleText() {
@@ -473,11 +463,10 @@
     dedupeAuthenticatorSelection()
     addLostTwoFactorEmailRecovery()
     if (brokerLink) {
-      // Ya tiene cuenta: no tiene sentido ofrecerle "Crear usuario" ni el aviso de Google.
+      // Ya tiene cuenta: no tiene sentido ofrecerle "Crear usuario".
       hideReviewProfileButton()
       return
     }
-    addGoogleAccountHint()
     if (!screenFlags().isAction) addRegisterLink()
   })
 })()

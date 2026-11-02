@@ -13,11 +13,16 @@ export type EndorsementStatus = 'PENDING' | 'OBSERVED' | 'CORRECTED' | 'ENDORSED
 /** Secciones que se revisan por separado; `ALL` es el visado del período. */
 export const REVIEW_SECTIONS: readonly EndorsementSection[] = ['GRADES', 'CLOSURE', 'JUDGEMENTS', 'PLANNING', 'GROUP_REPORT']
 
+/**
+ * Las partes que se observan, con nombres que no se pisan: "Calificaciones" y "Cierre" parecían lo
+ * mismo, y "Seguimiento" era en realidad la planificación. Son los del backend (`SECTION_LABELS`),
+ * que arma el aviso al docente: los dos tienen que decir lo mismo.
+ */
 export const ENDORSEMENT_SECTION_LABELS: Record<EndorsementSection, string> = {
-  GRADES: 'Calificaciones',
-  CLOSURE: 'Cierre',
+  GRADES: 'Notas de las evaluaciones',
+  CLOSURE: 'C y R del cierre',
   JUDGEMENTS: 'Juicios',
-  PLANNING: 'Seguimiento',
+  PLANNING: 'Planificación y desarrollo',
   GROUP_REPORT: 'Informe del grupo',
   ALL: 'Período',
 }
@@ -147,7 +152,7 @@ export function nextForReview(queue: readonly EndorsementRow[], currentGradeBook
   )
 }
 
-/** Qué partes tienen una observación viva, como se leen: "Calificaciones, Juicios". */
+/** Qué partes tienen una observación viva, como se leen: "Notas de las evaluaciones, Juicios". */
 export function observedLabels(row: Pick<EndorsementRow, 'blockingSections'>): string {
   return row.blockingSections.map((section) => ENDORSEMENT_SECTION_LABELS[section]).join(', ')
 }

@@ -19,7 +19,24 @@ export function formatClosureStamp(iso: string | null | undefined, withTime = tr
 }
 
 /**
- * Texto del ícono Info. (estilo SIGED): cerrado / habilitado / no habilitado.
+ * El estado del período en pocas palabras, para la columna «Estado» del cierre: antes era un ícono
+ * cuyo color había que adivinar. Va por las fechas y no por si se puede editar, así lo lee igual
+ * quien sólo consulta la libreta.
+ */
+export function periodStatusText(period: PeriodInfoInput, todayYmd: string): string {
+  if (period.status === 'CLOSED') {
+    return period.closedAt ? `Cerrado el ${formatClosureStamp(period.closedAt, false)}` : 'Cerrado'
+  }
+  if (period.status === 'REOPENED') return 'Reabierto para corregir'
+  if (period.startsOn && period.startsOn.slice(0, 10) > todayYmd) {
+    return `Se habilita el ${formatClosureStamp(period.startsOn.slice(0, 10), false)}`
+  }
+  const until = period.closesOn ?? period.endsOn
+  return until ? `Abierto hasta el ${formatClosureStamp(until.slice(0, 10), false)}` : 'Abierto'
+}
+
+/**
+ * Texto largo del estado (estilo SIGED): cerrado / habilitado / no habilitado.
  */
 export function periodInfoMessage(period: PeriodInfoInput): string {
   if (period.status === 'CLOSED') {

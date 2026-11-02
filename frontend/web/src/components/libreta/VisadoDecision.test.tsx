@@ -69,7 +69,8 @@ describe('<VisadoDecision />', () => {
     const onChanged = vi.fn()
     render(<VisadoDecision row={READY} abilities={DIRECCION} onChanged={onChanged} />)
 
-    expect(screen.getByText('Para revisar')).toBeInTheDocument()
+    // En qué etapa está lo dice la línea de etapas de la revisión: acá va sólo la decisión.
+    expect(screen.getByRole('heading', { name: '2. Tu decisión' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Visar 1.ª Entrega' }))
 
     await waitFor(() => expect(onChanged).toHaveBeenCalledWith(expect.stringContaining('Se visó 1.ª Entrega')))
@@ -82,8 +83,8 @@ describe('<VisadoDecision />', () => {
     render(<VisadoDecision row={row()} abilities={DIRECCION} onChanged={vi.fn()} />)
     const visar = screen.getByRole('button', { name: 'Visar 1.ª Entrega' })
     expect(visar).toBeDisabled()
-    expect(visar).toHaveAttribute('title', 'Falta corregir: Cierre')
-    expect(screen.getByText('Observada: espera al docente')).toBeInTheDocument()
+    expect(visar).toHaveAttribute('title', 'Falta corregir: C y R del cierre')
+    expect(screen.getByText('Para visarla, lo observado tiene que quedar corregido.')).toBeInTheDocument()
     const live = screen.getByRole('list', { name: 'Observaciones sin corregir' })
     expect(within(live).getByText('Falta cerrar a Benítez.')).toBeInTheDocument()
   })
@@ -106,7 +107,7 @@ describe('<VisadoDecision />', () => {
     fireEvent.change(screen.getByLabelText(/Qué hay que corregir/), { target: { value: 'Falta la nota del escrito de abril.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar observación' }))
 
-    await waitFor(() => expect(onChanged).toHaveBeenCalledWith(expect.stringContaining('Se observó Calificaciones')))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledWith(expect.stringContaining('Se observó Notas de las evaluaciones')))
     expect(posted()).toEqual([
       [
         '/admin/gradebook/endorsements',
@@ -120,7 +121,7 @@ describe('<VisadoDecision />', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Hacer una observación' }))
     const options = within(screen.getByLabelText('¿Sobre qué?')).getAllByRole('option').map((o) => o.textContent)
     expect(options).not.toContain('Juicios')
-    expect(options).toContain('Calificaciones')
+    expect(options).toContain('Notas de las evaluaciones')
   })
 
   it('lo observado se da por corregido desde su aviso', async () => {
@@ -128,7 +129,7 @@ describe('<VisadoDecision />', () => {
     render(<VisadoDecision row={row({ reclosedAfterObservation: true })} abilities={ADSCRIPCION} onChanged={onChanged} />)
 
     expect(screen.getByText(/volvió a cerrar: mirá si corrigió/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Ya está corregido: Cierre' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ya está corregido: C y R del cierre' }))
 
     await waitFor(() => expect(onChanged).toHaveBeenCalled())
     expect(posted()).toEqual([
@@ -170,7 +171,7 @@ describe('<VisadoDecision />', () => {
     expect(screen.queryByRole('button', { name: /Visar|Hacer una observación|Reabrir|Ya está corregido/ })).toBeNull()
   })
 
-  it('visada, lo dice con su fecha', () => {
+  it('visada: no ofrece visar de nuevo (la fecha la dice la línea de etapas)', () => {
     render(
       <VisadoDecision
         row={row({
@@ -183,7 +184,6 @@ describe('<VisadoDecision />', () => {
         onChanged={vi.fn()}
       />,
     )
-    expect(screen.getByText(/Visada el 10\/06\/2026/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Visar/ })).toBeNull()
   })
 
@@ -197,7 +197,7 @@ describe('<VisadoDecision />', () => {
     mockedApi.mockRejectedValue(new Error('El período no está cerrado.'))
     render(<VisadoDecision row={row()} abilities={ADSCRIPCION} onChanged={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ya está corregido: Cierre' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ya está corregido: C y R del cierre' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('El período no está cerrado.')
   })

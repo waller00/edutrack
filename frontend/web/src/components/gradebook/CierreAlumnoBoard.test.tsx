@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import CierreAlumnoBoard from './CierreAlumnoBoard'
 import type { GradeBookDetail } from '@/lib/gradebook/types'
@@ -42,6 +42,11 @@ function detail(): GradeBookDetail {
   }
 }
 
+/** La carta de un alumno: el cierre abre en "Todo el grupo". */
+function openStudentView() {
+  fireEvent.click(screen.getByRole('button', { name: 'Alumno por alumno' }))
+}
+
 describe('<CierreAlumnoBoard />', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -75,6 +80,7 @@ describe('<CierreAlumnoBoard />', () => {
 
   it('muestra la tabla con C (conducta) y R (rendimiento, combo 1-10)', async () => {
     render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    openStudentView()
 
     await waitFor(() => expect(screen.getByText(/Calificaciones y juicios/i)).toBeInTheDocument())
     expect(screen.getAllByText(/Marzo – Abril/).length).toBeGreaterThan(0)
@@ -90,6 +96,7 @@ describe('<CierreAlumnoBoard />', () => {
   it('guarda el borrador al confirmar', async () => {
     const user = userEvent.setup()
     render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    openStudentView()
     await waitFor(() => expect(screen.getByLabelText('R (rendimiento) de Marzo – Abril')).toBeInTheDocument())
 
     await user.selectOptions(screen.getByLabelText('R (rendimiento) de Marzo – Abril'), '8')
@@ -109,6 +116,7 @@ describe('<CierreAlumnoBoard />', () => {
   it('guardar sólo la R manda sólo la R: no pisa la C ni el juicio', async () => {
     const user = userEvent.setup()
     render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    openStudentView()
     await waitFor(() => expect(screen.getByLabelText('R (rendimiento) de Marzo – Abril')).toBeInTheDocument())
 
     await user.selectOptions(screen.getByLabelText('R (rendimiento) de Marzo – Abril'), '9')
@@ -156,6 +164,7 @@ describe('<CierreAlumnoBoard />', () => {
     })
     const user = userEvent.setup()
     render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    openStudentView()
     await waitFor(() => expect(screen.getByLabelText('R (rendimiento) de 1.ª Entrega')).toHaveValue('11'))
     expect(screen.getAllByRole('option', { name: '12' }).length).toBeGreaterThan(0)
 
@@ -185,6 +194,7 @@ describe('<CierreAlumnoBoard />', () => {
     const confirm = vi.spyOn(globalThis, 'confirm').mockReturnValue(false)
     const user = userEvent.setup()
     render(<CierreAlumnoBoard gradeBookId="gb-1" detail={twoStudents} />)
+    openStudentView()
     await waitFor(() => expect(screen.getByLabelText('R (rendimiento) de Marzo – Abril')).toBeInTheDocument())
 
     await user.selectOptions(screen.getByLabelText('R (rendimiento) de Marzo – Abril'), '9')
@@ -235,6 +245,7 @@ describe('<CierreAlumnoBoard />', () => {
     })
     const user = userEvent.setup()
     render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    openStudentView()
     await waitFor(() => expect(screen.getByLabelText('C (conducta) de 1.ª Entrega')).toBeInTheDocument())
 
     await user.selectOptions(screen.getByLabelText('C (conducta) de 1.ª Entrega'), '3')
@@ -248,6 +259,40 @@ describe('<CierreAlumnoBoard />', () => {
         entries: [{ periodId: 'p-1', conductValueHundredths: 300 }],
       })
     })
+  })
+
+  it('abre en todo el grupo, con las dos vistas a la vista', () => {
+    render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    expect(screen.getByRole('button', { name: 'Todo el grupo' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Alumno por alumno' })).toHaveAttribute('aria-pressed', 'false')
+    // El buscador de alumnos es de la carta: en la vista del grupo no aparece.
+    expect(screen.queryByRole('combobox', { name: 'Alumno' })).toBeNull()
+  })
+
+  it('un nombre de lo que falta en el panel abre la carta de ese alumno', async () => {
+    const base = apiMock.getMockImplementation()!
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === '/gradebook/gb-1/periods') {
+        return { data: [{ periodId: 'p-1', name: '1.ª Entrega', kind: 'ENTREGA', isMeeting: true, status: 'OPEN' }] }
+      }
+      if (path === '/gradebook/gb-1/endorsements') return { data: [] }
+      if (path === '/gradebook/gb-1/periods/p-1') {
+        return {
+          period: { id: 'p-1', name: '1.ª Entrega', judgementLabel: 'Informe de actuación' },
+          state: { status: 'OPEN', closedAt: null, closedLate: false, reopenReason: null },
+          blockers: [{ code: 'MISSING_GRADES', studentIds: ['s1'] }],
+          students: [{ studentId: 's1', lastName: 'Cabrera', firstName: 'Camila' }],
+        }
+      }
+      return base(path, init)
+    })
+    render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+
+    const missing = await screen.findByText('Falta para cerrar')
+    fireEvent.click(within(missing.closest('div')!).getByRole('button', { name: 'Cabrera, Camila' }))
+
+    expect(screen.getByRole('button', { name: 'Alumno por alumno' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByLabelText('R (rendimiento) de Marzo – Abril')).toBeInTheDocument()
   })
 
   it('no muestra combo ni textarea en períodos no habilitados', async () => {
@@ -280,11 +325,13 @@ describe('<CierreAlumnoBoard />', () => {
     })
 
     render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    openStudentView()
     await waitFor(() => expect(screen.getByLabelText('C (conducta) de APE Febrero')).toBeInTheDocument())
     expect(screen.getByLabelText('C (conducta) de APE Febrero').tagName).toBe('SPAN')
     expect(screen.getByLabelText('R (rendimiento) de APE Febrero').tagName).toBe('SPAN')
     expect(screen.queryByRole('textbox', { name: /de APE Febrero/i })).not.toBeInTheDocument()
     expect(screen.getByLabelText('C (conducta) de APE Febrero')).toHaveTextContent('—')
-    expect(screen.getByRole('button', { name: /Info de APE Febrero: Período no habilitado/i })).toBeInTheDocument()
+    // El estado en palabras, no un ícono de color.
+    expect(screen.getByText('Se habilita el 01/02/2099')).toBeInTheDocument()
   })
 })

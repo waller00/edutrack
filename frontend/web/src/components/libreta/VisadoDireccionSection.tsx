@@ -23,6 +23,21 @@ import {
 import type { GroupFilter } from '@/lib/gradebook/group-filter'
 import { sectionHref } from '@/lib/libreta/menu'
 import VisadoDecision, { type DecisionRow } from './VisadoDecision'
+import MeetingStepper from '@/components/gradebook/MeetingStepper'
+import { meetingStage } from '@/lib/gradebook/meeting-stage'
+
+/** En qué etapa está la reunión elegida (Cargar → Cerrar → Revisión → Visada), para quien revisa. */
+function ReviewStage({ row }: { row: DecisionRow }) {
+  const stage = meetingStage(
+    { periodStatus: row.periodStatus, missing: null, reopenReason: row.reopenReason, endorsement: row },
+    'reviewer',
+  )
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+      <MeetingStepper stage={stage.stage} hint={stage.hint} />
+    </div>
+  )
+}
 
 type Planning = { formative: string | null; replanning: string | null; updatedAt: string | null }
 type Development = {
@@ -376,6 +391,8 @@ export default function VisadoDireccionSection() {
           )}
 
           <section className="space-y-3" aria-labelledby="visado-revision" data-tour="visado.review">
+            {/* Las mismas etapas que ve el docente en su cierre, con las palabras de quien revisa. */}
+            <ReviewStage row={selected} />
             <div>
               <h3 id="visado-revision" className="text-sm font-semibold text-gray-900">
                 1. Lo que cerró el docente · {selected.period.name}

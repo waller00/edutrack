@@ -318,9 +318,17 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 
 > **El menú de la libreta depende de quién mira** (`sectionsFor`, `lib/libreta/menu.ts`). Quien
 > supervisa tiene "Revisión y visado"; visar no es del docente. La libreta **no tiene sección de
-> mensajes**: lo que el visado le observó al docente lo ve arriba de "Cierre de períodos"
-> (`ObservacionesDireccion`), y la supervisión le escribe por la mensajería 1 a 1 ("Escribirle al
-> docente" en la revisión). `/libreta/:id/mensajes` sólo redirige, por los avisos viejos de la campana.
+> mensajes**: lo que el visado le observó al docente lo ve en "Cierre de períodos", en el panel de
+> esa reunión (`MeetingClosePanel`), y la supervisión le escribe por la mensajería 1 a 1 ("Escribirle
+> al docente" en la revisión). `/libreta/:id/mensajes` sólo redirige, por los avisos viejos de la campana.
+
+> **Una reunión pasa por cuatro etapas, dichas igual para todos: Cargar → Cerrar → Revisión →
+> Visada** (`lib/gradebook/meeting-stage.ts`, dibujadas por `MeetingStepper`). El docente las ve en
+> el panel de cada reunión de "Cierre de períodos" y quien revisa, arriba de "Revisión y visado";
+> del lado de la supervisión las frases son las de `reviewState`, las mismas de la lista de Control.
+> El docente cierra desde ese panel: dice qué falta y de quién (los `blockers` de la planilla, la
+> misma cuenta que hace el cierre), cada nombre abre la carta del alumno, y el botón «Cerrar»
+> aparece cuando no falta nada. "Cierre de períodos" abre en «Todo el grupo».
 
 > **El suplente tiene un acceso provisorio y ve sólo lo suyo** (`services/gradebook/access.ts`).
 > Entra desde su primera clase cubierta hasta `SUBSTITUTE_ACCESS_DAYS_AFTER` (7) días después de la

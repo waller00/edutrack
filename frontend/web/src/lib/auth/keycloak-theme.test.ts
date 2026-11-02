@@ -111,11 +111,13 @@ describe('pantalla de ingreso', () => {
     expect(forgotLink()?.href).toBe(`${FRONT}/forgot`)
   })
 
-  it('le dice a quien se registró con Google cómo entrar', () => {
+  it('le dice a quien se registró con Google cómo entrar, una sola vez y arriba del botón', () => {
     runTheme(LOGIN_PAGE, `/realms/edutrack/protocol/openid-connect/auth${AUTH_QUERY}`)
 
-    const hint = document.querySelector('.et-login-hint')
-    expect(hint?.textContent).toBe('¿Te registraste con Google? Usá «Continuar con Google».')
+    const band = document.querySelector('.pf-v5-c-login__main-footer-band-item')
+    expect(band?.textContent).toBe('¿Te registraste con Google? Entrá desde acá')
+    // Antes había además un aviso debajo del formulario que decía lo mismo.
+    expect(document.body.textContent?.match(/Te registraste con Google/g)).toHaveLength(1)
     expect(document.querySelector('.et-register-link a')?.getAttribute('href')).toBe(`${FRONT}/register`)
   })
 })
@@ -137,11 +139,10 @@ describe('primer ingreso con Google de quien ya tiene cuenta', () => {
     expect(link?.disabled).toBe(false)
   })
 
-  it('ni "Crear usuario" ni el aviso de Google: ya tiene cuenta', () => {
+  it('sin "Crear usuario": ya tiene cuenta', () => {
     runTheme(CONFIRM_LINK_PAGE, BROKER_URL)
 
     expect(document.querySelector('.et-register-link')).toBeNull()
-    expect(document.querySelector('.et-login-hint')).toBeNull()
   })
 
   it('reconoce "La cuenta ya existe" por el botón de vincular aunque la URL sea otra', () => {
@@ -155,7 +156,6 @@ describe('primer ingreso con Google de quien ya tiene cuenta', () => {
     runTheme(`<div class="pf-v5-c-login__main-body">${LOGIN_FORM}</div><div class="pf-v5-c-login__main-footer"></div>`, BROKER_URL)
 
     expect(forgotLink()?.href).toBe(`${FRONT}/forgot`)
-    expect(document.querySelector('.et-login-hint')).toBeNull()
     expect(document.querySelector('.et-register-link')).toBeNull()
   })
 })
