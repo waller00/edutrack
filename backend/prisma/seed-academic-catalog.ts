@@ -15,6 +15,7 @@ import {
   SCHOOL_YEAR_OFFERS,
   collectAllSubjectNames,
   type CoursePlan,
+  type SchoolYearOfferConfig,
 } from './data/academic-catalog-dges.js'
 
 type Db = PrismaClient & {
@@ -343,8 +344,8 @@ async function seedYearOffer(
   courseIds: Map<string, string>,
   subjectIds: Map<string, { id: string }>,
   orientationIds: Map<string, string>,
+  offer: SchoolYearOfferConfig | undefined = SCHOOL_YEAR_OFFERS[yearCode],
 ) {
-  const offer = SCHOOL_YEAR_OFFERS[yearCode]
   if (!offer) return
 
   const schoolYear = await prisma.schoolYear.findUnique({ where: { code: yearCode } })
@@ -388,7 +389,11 @@ async function seedYearOffer(
   }
 }
 
-export async function seedAcademicCatalog(opts?: { years?: number[] }) {
+/**
+ * `offers` reemplaza la oferta de `SCHOOL_YEAR_OFFERS` para esos ciclos (un dataset que dicta otra
+ * cosa, o un ciclo que no está ahí). El ciclo tiene que existir antes.
+ */
+export async function seedAcademicCatalog(opts?: { years?: number[]; offers?: Readonly<Record<number, SchoolYearOfferConfig>> }) {
   const years = opts?.years ?? Object.keys(SCHOOL_YEAR_OFFERS).map(Number)
 
   console.log('[seed:academic] Ciclos lectivos…')
@@ -404,7 +409,7 @@ export async function seedAcademicCatalog(opts?: { years?: number[] }) {
 
   for (const yearCode of years) {
     console.log(`[seed:academic] Oferta ciclo ${yearCode}…`)
-    await seedYearOffer(yearCode, courseIds, subjectIds, orientationIds)
+    await seedYearOffer(yearCode, courseIds, subjectIds, orientationIds, opts?.offers?.[yearCode] ?? SCHOOL_YEAR_OFFERS[yearCode])
   }
 
   const offered = SCHOOL_YEAR_OFFERS[2026]?.courses ?? {}

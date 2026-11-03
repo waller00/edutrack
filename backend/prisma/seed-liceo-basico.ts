@@ -1,6 +1,8 @@
 /**
- * Dataset "liceo de ciclo básico": borra los datos operativos y siembra un liceo realista con el
- * ciclo 2025 completo (cerrado, con APE y pase de año) y el 2026 hasta el momento en que corre.
+ * Dataset "liceo de ciclo básico": borra los datos operativos y siembra un liceo realista que usa
+ * EduTrack desde 2023: los ciclos 2023, 2024 y 2025 completos (cerrados, con APE, pase de año y
+ * egresos de 9.º) y el 2026 hasta el momento en que corre. Los alumnos son los mismos de un año a
+ * otro: pasan de grado, repiten, se cambian de liceo y egresan.
  *
  *   npx tsx prisma/seed-liceo-basico.ts --dry-run          # muestra qué borraría, no toca nada
  *   SEED_CONFIRM=borrar-todo npx tsx prisma/seed-liceo-basico.ts
@@ -9,11 +11,15 @@
  *   SEED_NOW            instante de corte (ISO). Por defecto, ahora.
  *   SEED_PASSWORD       clave de las cuentas sembradas en Keycloak (default "Liceo2026").
  *   SEED_KEEP_EMAILS    emails extra a conservar, separados por coma.
+ *   SEED_ADOPT          docentes reales que toman el lugar de uno del dataset, con su cuenta:
+ *                       "COMP=ana@ejemplo.com,CIU=…" (clave de `D.STAFF`). Se conservan como KEEP.
  *   SEED_SKIP_KEYCLOAK  "1" para no tocar Keycloak (pruebas locales).
  *
  * Qué conserva: los usuarios ADMIN aprobados (y SEED_KEEP_EMAILS), roles y permisos, la configuración del
- * sistema, el catálogo académico (cursos, asignaturas, escalas, tipos de actividad) y las reglas de
- * alerta por defecto. Todo lo demás se borra: estudiantes, personal, horarios, asistencias, libretas.
+ * sistema, el catálogo académico (cursos, asignaturas, escalas, tipos de actividad), las reglas de
+ * alerta por defecto y los relojes biométricos con los vínculos de quienes se conservan (son equipos
+ * reales, no datos de prueba). Todo lo demás se borra: estudiantes, personal, horarios, asistencias,
+ * libretas.
  *
  * Sólo se ofertan los cursos de ciclo básico (7.º, 8.º y 9.º EBI). Es determinista: la misma fecha de
  * corte produce siempre los mismos datos.
@@ -34,7 +40,9 @@ import { seedAcademicConfig } from './seed-academic-config.js'
 import { ensureBootstrapAdmin } from './seed-bootstrap.js'
 import * as D from './data/liceo-basico.js'
 
-type Year = 2025 | 2026
+type Year = D.SeedYear
+/** El ciclo en curso (el último). */
+const CURRENT_YEAR = D.SEED_YEARS[D.SEED_YEARS.length - 1]
 type CourseCode = D.CourseCode
 
 const TZ = getAppTimezone()
@@ -43,8 +51,16 @@ const TODAY = uruguayYmdOfInstant(NOW)
 const PASSWORD = process.env.SEED_PASSWORD || 'Liceo2026'
 const SKIP_KEYCLOAK = process.env.SEED_SKIP_KEYCLOAK === '1'
 const DRY_RUN = process.argv.includes('--dry-run')
+/** Clave de `D.STAFF` → email de la persona real que da esas clases. */
+const ADOPT = new Map(
+  (process.env.SEED_ADOPT ?? '')
+    .split(',')
+    .map((pair) => pair.split('=').map((part) => part.trim()))
+    .filter((pair): pair is [string, string] => Boolean(pair[0] && pair[1]))
+    .map(([key, email]) => [key, email.toLowerCase()] as const),
+)
 const KEEP_EMAILS = new Set(
-  ['ci.performance@edutrack.local', ...(process.env.SEED_KEEP_EMAILS ?? '').split(',')]
+  ['ci.performance@edutrack.local', ...(process.env.SEED_KEEP_EMAILS ?? '').split(','), ...ADOPT.values()]
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean),
 )
@@ -142,10 +158,14 @@ function log(message: string) {
 
 // ─── Borrado ────────────────────────────────────────────────────────────────
 
-/** Tablas operativas. Se referencian sólo entre ellas, así que un TRUNCATE las vacía de una vez. */
+/**
+ * Tablas operativas. Se referencian sólo entre ellas, así que un TRUNCATE las vacía de una vez. Los
+ * relojes (`BiometricDevice`) y sus vínculos no: son equipos reales; los vínculos de los usuarios
+ * que se borran se van con ellos (cascada).
+ */
 const WIPE_TABLES = [
   'AuditLog', 'InAppNotification', 'AttendanceJustification', 'AttendanceIncident', 'BiometricPunch',
-  'BiometricLinkRequest', 'BiometricUserMapping', 'BiometricDevice', 'Attendance', 'Substitution',
+  'Attendance', 'Substitution',
   'StudentAttendanceJustification', 'StudentAbsenceJustificationRange', 'StudentAttendanceEntry',
   'StudentAttendanceSession', 'StudentAlert', 'Endorsement', 'PeriodGradeRevision', 'PeriodGrade',
   'GradeBookPeriod', 'GradeRevision', 'AssessmentGrade', 'Assessment', 'GradeBookMessage',
@@ -280,10 +300,24 @@ async function createStaff() {
   const usedFirst = new Set<string>()
   const usedLast = new Set<string>()
   const createKeycloak = SKIP_KEYCLOAK ? null : await import('../src/auth/keycloak.js')
-  const linkAccount = SKIP_KEYCLOAK ? null : (await import('../src/auth/keycloak-provisioning.js')).linkKeycloakAccount
+  const provisioning = SKIP_KEYCLOAK ? null : await import('../src/auth/keycloak-provisioning.js')
+  const linkAccount = provisioning?.linkKeycloakAccount ?? null
+  const isAppKeycloakAccount = provisioning?.isAppKeycloakAccount ?? null
   let kcCreated = 0
 
   for (const spec of D.STAFF) {
+    // Un perfil retirado (Inspección) ya no existe: esa persona no se crea.
+    if (!roleId.has(spec.role)) {
+      log(`Sin el perfil ${spec.role}: no se crea ${spec.title}`)
+      continue
+    }
+    const adopted = ADOPT.get(spec.key)
+    if (adopted) {
+      const p = await adoptStaff(spec, adopted)
+      usedFirst.add(p.firstName)
+      for (const part of p.lastName.split(' ')) usedLast.add(part)
+      continue
+    }
     let firstName = ''
     let lastName = ''
     do {
@@ -297,7 +331,9 @@ async function createStaff() {
     const username = await generateUniqueUsername(firstName, lastName, async (c) => usedUsernames.has(c))
     usedUsernames.add(username)
     const email = `${username}@liceo.test`
-    const created = spec.joined2026 ? '2026-02-16' : '2025-02-17'
+    // Las cuentas existen desde que el liceo usa EduTrack (febrero de 2023) o desde que entró.
+    const created = spec.since ? `${spec.since}-02-16` : '2023-02-20'
+    const active = spec.until === undefined
     const user = await prisma.user.create({
       data: {
         email,
@@ -312,15 +348,15 @@ async function createStaff() {
         emailVerifiedAt: wall(created, 10, 0),
         isApproved: true,
         approvedAt: wall(created, 10, 0),
-        isActive: !spec.leftAfter2025,
+        isActive: active,
         createdAt: wall(created, 9, rng.int(0, 59)),
         ...(spec.role === 'TEACHER'
           ? {
               teacherProfile: {
                 create: {
                   displayName: `${firstName} ${lastName}`,
-                  isActive: !spec.leftAfter2025,
-                  notes: spec.leftAfter2025 ? `${spec.title}. Se trasladó a otro centro al terminar 2025.` : spec.title,
+                  isActive: active,
+                  notes: active ? spec.title : `${spec.title}. ${spec.leftNote ?? `Dejó el liceo al terminar ${spec.until}.`}`,
                 },
               },
             }
@@ -331,15 +367,20 @@ async function createStaff() {
 
     if (createKeycloak && linkAccount) {
       try {
-        const kcId = await createKeycloak.createKeycloakUser({
-          email,
-          username,
-          firstName,
-          lastName,
-          password: PASSWORD,
-          role: spec.role,
-          emailVerified: true,
-        })
+        // Lo que quedó en Keycloak con ese correo no es de nadie (las cuentas sembradas se borraron
+        // antes): `isAppAccount` deja reemplazarlo en vez de fallar con "correo en uso".
+        const kcId = await createKeycloak.createKeycloakUser(
+          {
+            email,
+            username,
+            firstName,
+            lastName,
+            password: PASSWORD,
+            role: spec.role,
+            emailVerified: true,
+          },
+          { isAppAccount: isAppKeycloakAccount! },
+        )
         await linkAccount(user.id, kcId)
         kcCreated += 1
       } catch (error) {
@@ -348,6 +389,30 @@ async function createStaff() {
     }
   }
   log(`Personal creado: ${people.size} (cuentas de Keycloak: ${SKIP_KEYCLOAK ? 'omitidas' : kcCreated})`)
+}
+
+/** Una persona real (`SEED_ADOPT`) da las clases de `spec`: se usa su cuenta, sin crear otra. */
+async function adoptStaff(spec: D.StaffSpec, email: string): Promise<Person> {
+  const user = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true, email: true, username: true, firstName: true, lastName: true, name: true, orgRole: { select: { code: true } } },
+  })
+  if (!user) throw new Error(`[liceo] SEED_ADOPT: no existe la cuenta ${email}`)
+  if (user.orgRole.code !== spec.role) throw new Error(`[liceo] SEED_ADOPT: ${email} es ${user.orgRole.code}, no ${spec.role}`)
+  const firstName = user.firstName ?? ''
+  const lastName = user.lastName ?? ''
+  const name = user.name || `${firstName} ${lastName}`.trim()
+  if (spec.role === 'TEACHER') {
+    await prisma.teacherProfile.upsert({
+      where: { userId: user.id },
+      create: { userId: user.id, displayName: name, notes: spec.title },
+      update: {},
+    })
+  }
+  const p: Person = { key: spec.key, id: user.id, spec, firstName, lastName, name, username: user.username ?? email, email: user.email }
+  people.set(spec.key, p)
+  log(`${name} da las clases de ${spec.title} (${spec.key})`)
+  return p
 }
 
 // ─── Estudiantes ────────────────────────────────────────────────────────────
@@ -364,6 +429,10 @@ type StudentRec = {
   affinity: Map<string, number>
   /** Familia: los hermanos comparten apellidos, teléfono del tutor y domicilio. */
   family: { lastName: string; tutorPhone: string; address: string } | null
+  /** Adecuación que tiene todos los años que cursa (índice en `ACCOMMODATIONS`), o null. */
+  accommodation: number | null
+  /** Veces que repitió en el liceo. */
+  repeats: number
 }
 
 type EnrollmentRec = {
@@ -378,6 +447,10 @@ type EnrollmentRec = {
   createdAt: Date
   academicResult?: 'PROMOTED' | 'PROMOTED_WITH_PENDING' | 'REPEATED' | null
   apeReferred?: boolean
+  /** Materias que todavía debe al cerrar el año. */
+  pendingCount?: number
+  /** Ya era alumno del liceo: se reinscribió (paga la reinscripción en diciembre). */
+  continuing: boolean
 }
 
 const students: StudentRec[] = []
@@ -404,10 +477,14 @@ function makeStudent(cohort: string, index: number, birthYear: number, admittedF
   for (const course of D.COURSE_CODES) for (const [subject] of D.WEEKLY_HOURS[course]) affinity.set(subject, rng.normal(0, 0.65))
 
   const id = uuid()
-  const documentId = uniqueCi(rng, 5_350_000, 6_450_000)
+  // La cédula sigue el orden de nacimiento: los más chicos tienen números más altos.
+  const ciFrom = 5_150_000 + (birthYear - 2008) * 95_000
+  const documentId = uniqueCi(rng, ciFrom, ciFrom + 160_000)
   const address = family?.address ?? `${rng.pick(D.STREETS)} ${rng.int(1000, 4899)}${rng.chance(0.4) ? ` ap. ${rng.int(1, 9)}0${rng.int(1, 4)}` : ''}`
   const tutorPhone = family?.tutorPhone ?? phone(rng)
-  const rec: StudentRec = { id, firstName, lastName, documentId, ability, conduct, absenceRate, lateRate, affinity, family: { lastName, tutorPhone, address } }
+  const adec = rngFor(`adec-${cohort}-${index}`)
+  const accommodation = adec.chance(0.06) ? adec.int(0, ACCOMMODATIONS.length - 1) : null
+  const rec: StudentRec = { id, firstName, lastName, documentId, ability, conduct, absenceRate, lateRate, affinity, family: { lastName, tutorPhone, address }, accommodation, repeats: 0 }
   students.push(rec)
 
   const notesRng = rngFor(`student-notes-${id}`)
@@ -431,7 +508,8 @@ function makeStudent(cohort: string, index: number, birthYear: number, admittedF
     address,
     birthDate: noon(`${birthYear}-${String(rng.int(1, 12)).padStart(2, '0')}-${String(rng.int(1, 28)).padStart(2, '0')}`),
     admittedFrom,
-    healthCardExpiresAt: noon(`${rng.pick([2025, 2026, 2026, 2027])}-${String(rng.int(1, 12)).padStart(2, '0')}-15`),
+    // El carné de salud se renueva cada dos o tres años: a algunos ya se les venció.
+    healthCardExpiresAt: noon(`${Number(createdYmd.slice(0, 4)) + rng.pick([2, 3, 3, 4])}-${String(rng.int(1, 12)).padStart(2, '0')}-15`),
     liceoAccessNotes: accessNote,
     createdAt: wall(createdYmd, rng.int(9, 15), rng.int(0, 59)),
   })
@@ -462,15 +540,25 @@ type YearCtx = {
 }
 
 async function setupYears(): Promise<Map<Year, YearCtx>> {
-  await seedAcademicCatalog({ years: [2025, 2026] })
-  await prisma.schoolYear.deleteMany({ where: { code: { notIn: [2025, 2026] } } })
+  // El catálogo sólo arranca sus ciclos de bootstrap: los más viejos del dataset se crean acá.
+  for (const year of D.SEED_YEARS) {
+    await prisma.schoolYear.upsert({
+      where: { code: year },
+      create: { code: year, label: `Ciclo lectivo ${year}`, status: D.YEAR_CALENDARS[year].status, startsOn: noon(`${year}-03-01`), endsOn: noon(`${year}-12-15`) },
+      update: {},
+    })
+  }
+  // Sólo ciclo básico, todos los años: bachillerato queda en el catálogo, sin ofertarse.
+  const offer = { courses: Object.fromEntries(D.COURSE_CODES.map((code) => [code, true])) }
+  await seedAcademicCatalog({ years: [...D.SEED_YEARS], offers: Object.fromEntries(D.SEED_YEARS.map((year) => [year, offer])) })
+  await prisma.schoolYear.deleteMany({ where: { code: { notIn: [...D.SEED_YEARS] } } })
 
   const subjects = await prisma.subject.findMany({ select: { id: true, name: true } })
   const subjectIdByName = new Map(subjects.map((s) => [s.name, s.id]))
   const courses = await prisma.course.findMany({ select: { id: true, code: true, level: true } })
   const out = new Map<Year, YearCtx>()
 
-  for (const year of [2025, 2026] as const) {
+  for (const year of D.SEED_YEARS) {
     const cal = D.YEAR_CALENDARS[year]
     const sy = await prisma.schoolYear.update({
       where: { code: year },
@@ -520,7 +608,7 @@ async function setupYears(): Promise<Map<Year, YearCtx>> {
 
   // Períodos, escalas y tipos de actividad de los dos ciclos.
   await seedAcademicConfig(prisma)
-  log('Ciclos 2025 (cerrado) y 2026 (activo) con oferta de ciclo básico')
+  log(`Ciclos ${D.SEED_YEARS.join(', ')} (el último, activo) con oferta de ciclo básico`)
   return out
 }
 
@@ -647,7 +735,7 @@ async function createClassEvents(ctx: YearCtx): Promise<EventRec[]> {
       title: `${e.subject} - ${COURSE_LABEL[e.course]} EBI`,
       description: `Clase de ${e.subject} de ${COURSE_LABEL[e.course]} año (ciclo básico).`,
       type: 'CLASE' as const,
-      status: ctx.year === 2025 ? ('COMPLETED' as const) : ('SCHEDULED' as const),
+      status: ctx.cal.status === 'CLOSED' ? ('COMPLETED' as const) : ('SCHEDULED' as const),
       startDate: dayStart(ctx.cal.start),
       endDate: dayStart(ctx.cal.end),
       startTime: wall(ctx.cal.start, e.start[0], e.start[1]),
@@ -671,7 +759,7 @@ async function createClassEvents(ctx: YearCtx): Promise<EventRec[]> {
 /** Jornada laboral del personal no docente y algunas actividades institucionales sueltas. */
 async function createInstitutionalEvents(ctx: YearCtx) {
   const director = person('DIR')
-  const shifts = D.STAFF.filter((s) => s.shift)
+  const shifts = D.STAFF.filter((s) => s.shift && D.staffActiveIn(s, ctx.year))
   await prisma.event.createMany({
     data: shifts.map((spec) => {
       const [h1, m1, h2, m2] = spec.shift!
@@ -680,7 +768,7 @@ async function createInstitutionalEvents(ctx: YearCtx) {
         title: `Jornada laboral - ${person(spec.key).name}`,
         description: `${spec.title}: lunes a viernes.`,
         type: 'JORNADA_LABORAL' as const,
-        status: ctx.year === 2025 ? ('COMPLETED' as const) : ('SCHEDULED' as const),
+        status: ctx.cal.status === 'CLOSED' ? ('COMPLETED' as const) : ('SCHEDULED' as const),
         startDate: dayStart(ctx.cal.start),
         endDate: dayStart(ctx.cal.end),
         startTime: wall(ctx.cal.start, h1, m1),
@@ -698,20 +786,16 @@ async function createInstitutionalEvents(ctx: YearCtx) {
     }),
   })
 
-  const y = ctx.year
-  const oneOffs: Array<[string, string, 'REUNION' | 'EVENTO' | 'CAPACITACION', number, number, number, number, string]> = [
-    [`${y}-03-${y === 2025 ? '14' : '13'}`, 'Reunión de padres de 7.º', 'REUNION', 18, 0, 19, 30, 'Salón de actos'],
-    [`${y}-04-${y === 2025 ? '08' : '09'}`, 'Reunión de profesores: diagnóstico (trayectorias)', 'REUNION', 14, 0, 17, 0, 'Sala de profesores'],
-    [`${y}-05-${y === 2025 ? '16' : '15'}`, 'Acto: Batalla de Las Piedras', 'EVENTO', 10, 50, 11, 35, 'Patio central'],
-    [`${y}-05-${y === 2025 ? '21' : '20'}`, 'Reunión de profesores: 1.ª entrega', 'REUNION', 14, 0, 17, 30, 'Sala de profesores'],
-    [`${y}-06-${y === 2025 ? '18' : '17'}`, 'Acto: Natalicio de Artigas', 'EVENTO', 10, 50, 11, 35, 'Patio central'],
-    [`${y}-08-${y === 2025 ? '20' : '19'}`, 'Reunión de profesores: 2.ª entrega', 'REUNION', 14, 0, 17, 30, 'Sala de profesores'],
-    [`${y}-08-${y === 2025 ? '22' : '24'}`, 'Acto: Declaratoria de la Independencia', 'EVENTO', 10, 50, 11, 35, 'Patio central'],
-    [`${y}-09-${y === 2025 ? '12' : '11'}`, 'Taller de convivencia digital (Plan Ceibal)', 'CAPACITACION', 9, 10, 10, 40, 'Sala de Informática'],
-    [`${y}-10-${y === 2025 ? '21' : '21'}`, 'Reunión de profesores: 3.ª entrega', 'REUNION', 14, 0, 17, 30, 'Sala de profesores'],
-    [`${y}-11-${y === 2025 ? '14' : '13'}`, 'Muestra anual de Comunicación Visual y Música', 'EVENTO', 18, 0, 20, 0, 'Salón de actos'],
-    [`${y}-12-${y === 2025 ? '10' : '09'}`, 'Reunión de profesores: 4.ª entrega y fallos', 'REUNION', 14, 0, 18, 0, 'Sala de profesores'],
-  ]
+  // Cada actividad cae en el último día hábil hasta su fecha de referencia: ni fin de semana, ni
+  // feriado, ni vacaciones.
+  const workingDayOnOrBefore = (ymd: string) => {
+    let day = ymd
+    while (weekday(day) === 0 || weekday(day) === 6 || ctx.nonWorking.has(day)) day = addDays(day, -1)
+    return day
+  }
+  const oneOffs = D.INSTITUTIONAL_EVENTS.map(([monthDay, title, type, [h1, m1], [h2, m2], location]) => {
+    return [workingDayOnOrBefore(`${ctx.year}-${monthDay}`), title, type, h1, m1, h2, m2, location] as const
+  })
   await prisma.event.createMany({
     data: oneOffs.map(([ymd, title, type, h1, m1, h2, m2, location]) => {
       const end = wall(ymd, h2, m2)
@@ -837,6 +921,8 @@ function expandOccurrences(ctx: YearCtx, events: EventRec[], leaves: LeaveRec[])
   for (const td of teacherDays) {
     const [key, ymd] = td.split('|') as [string, string]
     if (leaveOn(leaves, key, ymd)) continue
+    // A una persona real (SEED_ADOPT) no se le inventan faltas.
+    if (ADOPT.has(key)) continue
     if (rngFor(`absent-${ctx.year}-${td}`).chance(0.016)) absentDays.add(td)
   }
 
@@ -854,7 +940,7 @@ function expandOccurrences(ctx: YearCtx, events: EventRec[], leaves: LeaveRec[])
     !leaveOn(leaves, key, o.ymd) &&
     !(busy.get(`${key}|${o.ymd}`) ?? []).some(([s, e]) => s < o.endAt.getTime() && o.startAt.getTime() < e)
 
-  const pool = D.STAFF.filter((s) => s.role === 'TEACHER' && !(ctx.year === 2026 && s.leftAfter2025) && !(ctx.year === 2025 && s.joined2026))
+  const pool = D.STAFF.filter((s) => s.role === 'TEACHER' && D.staffActiveIn(s, ctx.year))
   for (const o of occs) {
     const key = o.event.teacherKey
     if (o.leave) {
@@ -934,6 +1020,8 @@ async function createSubstitutions(ctx: YearCtx, occs: Occ[]) {
 type Biometric = { deviceId: string; deviceUserIdByUser: Map<string, string>; mappingIdByUser: Map<string, string> }
 
 async function createBiometricDevice(): Promise<Biometric> {
+  // Los relojes reales se conservan; el simulado de portería se rehace (con sus vínculos y fichadas).
+  await prisma.biometricDevice.deleteMany({ where: { code: 'ZK-PORTERIA' } })
   const device = await prisma.biometricDevice.create({
     data: {
       code: 'ZK-PORTERIA',
@@ -952,10 +1040,11 @@ async function createBiometricDevice(): Promise<Biometric> {
   let n = 101
   const rows: Prisma.BiometricUserMappingCreateManyInput[] = []
   for (const p of people.values()) {
-    if (p.spec.role === 'INSPECCION') continue
+    // El reloj se instaló en febrero de 2025: quien ya no estaba no tiene huella cargada.
+    if (p.spec.role === 'INSPECCION' || (p.spec.until !== undefined && p.spec.until < 2025)) continue
     const id = uuid()
     const deviceUserId = String(n++)
-    rows.push({ id, deviceId: device.id, userId: p.id, deviceUserId, isActive: !p.spec.leftAfter2025, createdAt: wall(p.spec.joined2026 ? '2026-02-23' : '2025-02-24', 9, 0) })
+    rows.push({ id, deviceId: device.id, userId: p.id, deviceUserId, isActive: p.spec.until === undefined, createdAt: wall(p.spec.since && p.spec.since > 2025 ? `${p.spec.since}-02-23` : '2025-02-24', 9, 0) })
     deviceUserIdByUser.set(p.id, deviceUserId)
     mappingIdByUser.set(p.id, id)
   }
@@ -969,7 +1058,11 @@ class AttendanceWriter {
   justifications: Prisma.AttendanceJustificationCreateManyInput[] = []
   incidents: Prisma.AttendanceIncidentCreateManyInput[] = []
   private punchKeys = new Set<string>()
-  constructor(private bio: Biometric, private schoolYearId: string) {}
+  /**
+   * `biometric`: el reloj se instaló en febrero de 2025. Antes, la entrada y la salida se
+   * registraban a mano (planilla de firmas): hay marcas, pero no fichadas del reloj.
+   */
+  constructor(private bio: Biometric, private schoolYearId: string, private biometric: boolean) {}
 
   pair(userId: string, eventId: string, ymd: string, inAt: Date, outAt: Date, inStatus: AttendanceStatus, outStatus: AttendanceStatus, inNote: string, outNote: string) {
     for (const [type, at, status, note] of [
@@ -979,8 +1072,8 @@ class AttendanceWriter {
       // Turno en curso al momento del corte: hay entrada, la salida todavía no.
       if (at.getTime() > NOW.getTime()) continue
       const id = uuid()
-      this.attendance.push({ id, userId, eventId, type, status, date: dayStart(ymd), time: at, schoolYearId: this.schoolYearId, notes: note, createdAt: at })
-      this.punch(userId, id, type, at)
+      this.attendance.push({ id, userId, eventId, type, status, date: dayStart(ymd), time: at, schoolYearId: this.schoolYearId, notes: this.biometric ? note : `${note} (planilla de firmas)`, createdAt: at })
+      if (this.biometric) this.punch(userId, id, type, at)
     }
   }
 
@@ -1047,22 +1140,20 @@ function teacherAttendance(ctx: YearCtx, occs: Occ[], writer: AttendanceWriter) 
             createdAt: minDate(officeTime(addDays(o.ymd, rng.int(1, 3)), rng, 8, 13), NOW),
           })
         }
-        if (ctx.year === 2026) {
-          const recent = NOW.getTime() - o.startAt.getTime() < 3 * 86_400_000
-          writer.incidents.push({
-            type: 'TEACHER_NO_SHOW',
-            status: recent ? 'OPEN' : 'RESOLVED',
-            title: 'Docente sin marca de entrada',
-            description: `${person(o.event.teacherKey).name} no registró entrada a ${o.event.subject} (${COURSE_LABEL[o.event.course]}).`,
-            severity: 'HIGH',
-            userId: titularId,
-            eventId: o.event.id,
-            detectedAt: plusMinutes(o.startAt, 15),
-            resolvedAt: recent ? null : plusMinutes(o.startAt, 60 * 24),
-            resolvedBy: recent ? null : person('SUBDIR').id,
-            createdAt: plusMinutes(o.startAt, 15),
-          })
-        }
+        const recent = NOW.getTime() - o.startAt.getTime() < 3 * 86_400_000
+        writer.incidents.push({
+          type: 'TEACHER_NO_SHOW',
+          status: recent ? 'OPEN' : 'RESOLVED',
+          title: 'Docente sin marca de entrada',
+          description: `${person(o.event.teacherKey).name} no registró entrada a ${o.event.subject} (${COURSE_LABEL[o.event.course]}).`,
+          severity: 'HIGH',
+          userId: titularId,
+          eventId: o.event.id,
+          detectedAt: plusMinutes(o.startAt, 15),
+          resolvedAt: recent ? null : plusMinutes(o.startAt, 60 * 24),
+          resolvedBy: recent ? null : person('SUBDIR').id,
+          createdAt: plusMinutes(o.startAt, 15),
+        })
       }
     }
     if (o.mode === 'UNCOVERED') continue
@@ -1086,7 +1177,7 @@ function teacherAttendance(ctx: YearCtx, occs: Occ[], writer: AttendanceWriter) 
 
 function staffAttendance(ctx: YearCtx, leaves: LeaveRec[], writer: AttendanceWriter) {
   for (const spec of D.STAFF) {
-    if (!spec.shift) continue
+    if (!spec.shift || !D.staffActiveIn(spec, ctx.year)) continue
     const p = person(spec.key)
     const eventId = shiftEventId(ctx.year, spec.key)
     const [h1, m1, h2, m2] = spec.shift
@@ -1286,7 +1377,7 @@ async function createRollCalls(ctx: YearCtx, yearEnrollments: EnrollmentRec[], o
   for (const o of occs) {
     if (!o.past) continue
     const rng = rngFor(`roll-${o.event.id}-${o.ymd}`)
-    const pendingChance = ctx.year === 2026 ? (o.ymd >= recentCut ? 0.09 : 0.004) : 0.002
+    const pendingChance = ctx.cal.status === 'ACTIVE' ? (o.ymd >= recentCut ? 0.09 : 0.004) : 0.002
     if (rng.chance(pendingChance)) continue
 
     const takenBy = o.mode === 'UNCOVERED' ? adscriptoFor(o.event.course, o.ymd, leaves).id : o.teacherId
@@ -1534,15 +1625,22 @@ const emptyOutput = (): BookOutput => ({ assessments: [], grades: [], revisions:
 
 type EntregaState = 'CLOSED' | 'PARTIAL' | 'EMPTY' | 'FUTURE'
 
-/** Estado de una entrega según la fecha de corte; la que está en curso queda a medio cargar. */
+/**
+ * Estado de una entrega según la fecha de corte; la que está en curso queda a medio cargar. Pasado
+ * su plazo, siempre está cerrada (a lo sumo fuera de plazo): como en un liceo que funcionó hasta hoy.
+ */
 function entregaState(p: PeriodRec, book: BookRec, rng: Rng, leaves: LeaveRec[]): { state: EntregaState; closedAt: Date | null; late: boolean } {
   const end = p.endYmd!
   const closes = p.closesYmd!
   const target = rng.chance(0.12) ? addDays(closes, rng.int(1, 6)) : addDays(end, rng.int(-3, Math.max(0, dayDiff(end, closes))))
-  const closedAt = wall(target, rng.int(17, 22), rng.int(0, 59))
-  if (closedAt.getTime() <= NOW.getTime()) {
+  const planned = wall(target, rng.int(17, 22), rng.int(0, 59))
+  const overdue = closes < TODAY
+  if (overdue || planned.getTime() <= NOW.getTime()) {
     const onLeave = leaveOn(leaves, book.titularKey, target)
-    if (!onLeave || dayDiff(target, TODAY) > 10) return { state: 'CLOSED', closedAt, late: target > closes }
+    if (overdue || !onLeave || dayDiff(target, TODAY) > 10) {
+      const closedAt = minDate(planned, plusMinutes(NOW, -60))
+      return { state: 'CLOSED', closedAt, late: uruguayYmdOfInstant(closedAt) > closes }
+    }
   }
   if (TODAY < addDays(end, -12)) return { state: 'FUTURE', closedAt: null, late: false }
   return { state: rng.chance(0.6) ? 'PARTIAL' : 'EMPTY', closedAt: null, late: false }
@@ -1584,7 +1682,7 @@ function buildBook(
     out.plannings.push({
       gradeBookId: book.id,
       formative: `Planificación anual de ${book.subject} para ${COURSE_LABEL[book.course]} año.\n\nUnidades previstas:\n${units}\n\nMetodología: trabajo en equipos, uso de la plataforma CREA y actividades prácticas. Evaluación continua con escritos, trabajos y una prueba por semestre.`,
-      replanning: ctx.year === 2025 || TODAY > `${ctx.year}-08-10` ? (rngBook.chance(0.45) ? 'Se reorganizó el segundo semestre para recuperar las clases perdidas por paros y licencias; se priorizan las unidades 4 y 5.' : null) : null,
+      replanning: ctx.cal.status === 'CLOSED' || TODAY > `${ctx.year}-08-10` ? (rngBook.chance(0.45) ? 'Se reorganizó el segundo semestre para recuperar las clases perdidas por paros y licencias; se priorizan las unidades 4 y 5.' : null) : null,
       attachments: rngBook.chance(0.3) ? 'Planificación en Drive del departamento.' : null,
       updatedByUserId: titular.id,
       createdAt: planAt,
@@ -1749,8 +1847,12 @@ function buildBook(
       createdAt: loadedAt,
       updatedAt: loadedAt,
     })
+    const tramoGbpIds = new Map<string, string>()
     for (const tramo of tramos) {
+      const id = uuid()
+      tramoGbpIds.set(tramo.id, id)
       out.periods.push({
+        id,
         gradeBookId: book.id,
         periodId: tramo.id,
         status: state === 'CLOSED' ? 'CLOSED' : 'OPEN',
@@ -1761,6 +1863,31 @@ function buildBook(
       })
     }
     if (state === 'EMPTY') continue
+
+    // C y R de cada tramo, como en la planilla: R sale de sus notas y del nivel del alumno, C de su
+    // conducta. No se exigen para cerrar, pero un tramo cerrado los tiene.
+    for (const tramo of tramos) {
+      for (const enr of activeAt(tramo.endYmd ?? entrega.endYmd!)) {
+        const s = enr.student
+        const r = rngFor(`tramo-${book.id}-${tramo.id}-${s.id}`)
+        if (state === 'PARTIAL' && r.chance(0.35)) continue
+        const values = keeper.values.get(`${book.id}|${tramo.id}|${s.id}`) ?? []
+        const level = s.ability + (s.affinity.get(book.subject) ?? 0)
+        const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : level
+        out.periodGrades.push({
+          gradeBookPeriodId: tramoGbpIds.get(tramo.id)!,
+          studentId: s.id,
+          studentLastName: s.lastName,
+          studentFirstName: s.firstName,
+          studentDocumentId: s.documentId,
+          meetingValueHundredths: clamp(Math.round(0.4 * level + 0.6 * mean + r.normal(0, 0.15)), 1, 10) * 100,
+          conductValueHundredths: clamp(Math.round(s.conduct + r.normal(0, 0.6)), 1, 10) * 100,
+          updatedByUserId: titular.id,
+          createdAt: loadedAt,
+          updatedAt: loadedAt,
+        })
+      }
+    }
 
     const entregaIndex = periods.filter((p) => p.kind === 'ENTREGA' && p.sortOrder < entrega.sortOrder).length
     for (const enr of roster) {
@@ -1810,7 +1937,7 @@ function buildBook(
         }
       }
     }
-    if (state !== 'CLOSED' && ctx.year === 2026) {
+    if (state !== 'CLOSED' && ctx.cal.status === 'ACTIVE') {
       out.notifications.push({ userId: titular.id, type: 'GRADEBOOK_PERIOD_CLOSING', title: `${entrega.name}: cierra el ${dt(entrega.closesYmd!).toFormat('dd/MM')}`, body: `La libreta de ${book.subject} (${COURSE_LABEL[book.course]}) todavía tiene pendientes.`, actionUrl: `/libreta/${book.id}`, createdAt: minDate(wall(addDays(entrega.closesYmd!, -7), 8, 0), NOW) })
     }
   }
@@ -1885,9 +2012,18 @@ async function createMeetingsAndConduct(ctx: YearCtx, periods: PeriodRec[], year
   await inChunks(conduct, 3000, (c) => prisma.studentConductRecord.createMany({ data: c }))
 }
 
-// ─── Cierre de 2025: APE, materias pendientes y pase de año ─────────────────
+/// ─── Cierre del año: APE, materias pendientes y fallo ───────────────────────
 
-async function closeYear2025(ctx: YearCtx, books: BookRec[], periods: PeriodRec[], yearEnrollments: EnrollmentRec[], keeper: GradeKeeper) {
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/**
+ * Cierra un ciclo: APE de diciembre y de febrero, las materias que quedan debiendo y el fallo de
+ * cada alumno (en 7.º se promueve siempre; en 8.º y 9.º, con tres o más pendientes, repite). Lo que
+ * no salva en febrero se puede aprobar como previa en el período de julio siguiente; el resto lo
+ * arrastra. En 9.º, quien promueve egresa: el liceo sólo tiene ciclo básico.
+ */
+async function closeYear(ctx: YearCtx, books: BookRec[], periods: PeriodRec[], yearEnrollments: EnrollmentRec[], keeper: GradeKeeper) {
+  const y = ctx.year
   const apeDec = periods.find((p) => p.code === 'APE_DICIEMBRE')
   const apeFeb = periods.find((p) => p.code === 'APE_FEBRERO')
   const pendingRows: Prisma.StudentPendingSubjectCreateManyInput[] = []
@@ -1895,6 +2031,7 @@ async function closeYear2025(ctx: YearCtx, books: BookRec[], periods: PeriodRec[
   const gradeRows: Prisma.PeriodGradeCreateManyInput[] = []
   const decGbp = new Map<string, string>()
   const febGbp = new Map<string, string>()
+  const julyExams = wall(`${y + 1}-07-24`, 12, 0)
 
   for (const enr of yearEnrollments) {
     if (enr.status !== 'ACTIVE') {
@@ -1902,7 +2039,7 @@ async function closeYear2025(ctx: YearCtx, books: BookRec[], periods: PeriodRec[
       continue
     }
     const s = enr.student
-    const rng = rngFor(`ape-${s.id}`)
+    const rng = rngFor(`ape-${y}-${s.id}`)
     const failing = books.filter((b) => b.course === enr.course && (keeper.r.get(`${b.id}|ENTREGA_4|${s.id}`) ?? 10) < 5)
     let remaining = 0
     for (const book of failing) {
@@ -1913,29 +2050,34 @@ async function closeYear2025(ctx: YearCtx, books: BookRec[], periods: PeriodRec[
         const gbp = decGbp.get(book.id) ?? uuid()
         if (!decGbp.has(book.id)) {
           decGbp.set(book.id, gbp)
-          const at = wall('2025-12-19', 19, rng.int(0, 59))
-          periodRows.push({ id: gbp, gradeBookId: book.id, periodId: apeDec.id, status: 'CLOSED', closedByUserId: person(book.titularKey).id, closedAt: at, createdAt: wall('2025-12-01', 9, 0), updatedAt: at })
+          const at = wall(`${y}-12-19`, 19, rng.int(0, 59))
+          periodRows.push({ id: gbp, gradeBookId: book.id, periodId: apeDec.id, status: 'CLOSED', closedByUserId: person(book.titularKey).id, closedAt: at, createdAt: wall(`${y}-12-01`, 9, 0), updatedAt: at })
         }
-        if (decTaken) gradeRows.push({ gradeBookPeriodId: gbp, studentId: s.id, studentLastName: s.lastName, studentFirstName: s.firstName, studentDocumentId: s.documentId, meetingValueHundredths: (passDec ? rng.int(5, 7) : rng.int(2, 4)) * 100, updatedByUserId: person(book.titularKey).id, createdAt: wall('2025-12-18', 12, 0), updatedAt: wall('2025-12-18', 12, 0) })
+        if (decTaken) gradeRows.push({ gradeBookPeriodId: gbp, studentId: s.id, studentLastName: s.lastName, studentFirstName: s.firstName, studentDocumentId: s.documentId, meetingValueHundredths: (passDec ? rng.int(5, 7) : rng.int(2, 4)) * 100, updatedByUserId: person(book.titularKey).id, createdAt: wall(`${y}-12-18`, 12, 0), updatedAt: wall(`${y}-12-18`, 12, 0) })
       }
       const passedDec = decTaken && passDec
       if (!passedDec && apeFeb) {
         const roll = rng.next()
         febResult = roll < 0.5 ? 'PASSED' : roll < 0.85 ? 'FAILED' : 'NOT_TAKEN'
-        const febAt = wall('2026-02-26', 19, rng.int(0, 59))
+        const febAt = wall(`${y + 1}-02-26`, 19, rng.int(0, 59))
         if (febAt.getTime() <= NOW.getTime()) {
           const gbp = febGbp.get(book.id) ?? uuid()
           if (!febGbp.has(book.id)) {
             febGbp.set(book.id, gbp)
-            periodRows.push({ id: gbp, gradeBookId: book.id, periodId: apeFeb.id, status: 'CLOSED', closedByUserId: person(book.titularKey).id, closedAt: febAt, createdAt: wall('2026-02-02', 9, 0), updatedAt: febAt })
+            periodRows.push({ id: gbp, gradeBookId: book.id, periodId: apeFeb.id, status: 'CLOSED', closedByUserId: person(book.titularKey).id, closedAt: febAt, createdAt: wall(`${y + 1}-02-02`, 9, 0), updatedAt: febAt })
           }
           if (febResult !== 'NOT_TAKEN') gradeRows.push({ gradeBookPeriodId: gbp, studentId: s.id, studentLastName: s.lastName, studentFirstName: s.firstName, studentDocumentId: s.documentId, meetingValueHundredths: (febResult === 'PASSED' ? rng.int(5, 6) : rng.int(2, 4)) * 100, conceptualJudgement: febResult === 'PASSED' ? 'Aprobó la instancia de APE de febrero.' : 'No alcanzó los logros mínimos en la APE de febrero.', updatedByUserId: person(book.titularKey).id, createdAt: febAt, updatedAt: febAt })
         } else {
           febResult = null
         }
       }
-      const resolved = passedDec || febResult === 'PASSED'
-      if (!resolved) remaining += 1
+      const resolvedInApe = passedDec || febResult === 'PASSED'
+      // Lo que no salvó en las APE lo puede aprobar como previa en el período de julio siguiente.
+      const passedInJuly = !resolvedInApe && julyExams.getTime() <= NOW.getTime() && rng.chance(0.5)
+      if (!resolvedInApe) remaining += 1
+      let notes: string | null = null
+      if (passedInJuly) notes = `Aprobada como previa en el período de julio de ${y + 1}.`
+      else if (!resolvedInApe) notes = enr.course === '9-EBI' ? 'Egresó debiéndola: la rinde como previa.' : 'La arrastra al año siguiente.'
       pendingRows.push({
         studentId: s.id,
         schoolYearId: ctx.schoolYearId,
@@ -1943,36 +2085,43 @@ async function closeYear2025(ctx: YearCtx, books: BookRec[], periods: PeriodRec[
         origin: 'FAILED_THIS_YEAR',
         apeDecember: decTaken ? (passDec ? 'PASSED' : 'FAILED') : 'NOT_TAKEN',
         apeFebruary: passedDec ? null : febResult,
-        resolvedAt: passedDec ? wall('2025-12-19', 12, 0) : febResult === 'PASSED' ? wall('2026-02-26', 12, 0) : null,
-        notes: resolved ? null : 'La arrastra al año siguiente.',
+        resolvedAt: passedDec ? wall(`${y}-12-19`, 12, 0) : febResult === 'PASSED' ? wall(`${y + 1}-02-26`, 12, 0) : passedInJuly ? julyExams : null,
+        notes,
         createdByUserId: person(enr.course === '9-EBI' ? 'ADS2' : 'ADS1').id,
-        createdAt: wall('2025-12-12', 11, 0),
+        createdAt: wall(`${y}-12-12`, 11, 0),
       })
     }
     enr.apeReferred = failing.length > 0
+    enr.pendingCount = remaining
+    // Con cuatro o más pendientes repite; con tres, según lo que resuelva la reunión.
+    const repeats = remaining >= 4 || (remaining === 3 && rng.chance(0.5))
     if (enr.course === '7-EBI') enr.academicResult = remaining > 0 ? 'PROMOTED_WITH_PENDING' : 'PROMOTED'
-    else enr.academicResult = remaining >= 3 ? 'REPEATED' : remaining > 0 ? 'PROMOTED_WITH_PENDING' : 'PROMOTED'
+    else enr.academicResult = repeats ? 'REPEATED' : remaining > 0 ? 'PROMOTED_WITH_PENDING' : 'PROMOTED'
   }
-  await prisma.gradeBookPeriod.createMany({ data: periodRows })
-  await prisma.periodGrade.createMany({ data: gradeRows })
-  await prisma.studentPendingSubject.createMany({ data: pendingRows })
+  await inChunks(periodRows, 2000, (c) => prisma.gradeBookPeriod.createMany({ data: c }))
+  await inChunks(gradeRows, 5000, (c) => prisma.periodGrade.createMany({ data: c }))
+  await inChunks(pendingRows, 2000, (c) => prisma.studentPendingSubject.createMany({ data: c }))
   for (const enr of yearEnrollments) {
     if (enr.academicResult === undefined) continue
-    const egresa = enr.course === '9-EBI' && enr.academicResult && enr.academicResult !== 'REPEATED'
     await prisma.studentEnrollment.update({
       where: { id: enr.id },
-      data: {
-        academicResult: enr.academicResult,
-        apeReferred: enr.apeReferred ?? false,
-        notes: egresa ? `${enr.notes} · Egresó de Educación Media Básica; continúa bachillerato en otro centro.` : enr.notes,
-      },
+      data: { academicResult: enr.academicResult, apeReferred: enr.apeReferred ?? false, notes: closingNote(enr) },
     })
   }
   await prisma.gradeBook.updateMany({ where: { schoolYearId: ctx.schoolYearId }, data: { status: 'ARCHIVED' } })
-  return { pending: pendingRows.length }
+  const graduates = yearEnrollments.filter((e) => e.course === '9-EBI' && e.academicResult && e.academicResult !== 'REPEATED').length
+  return { pending: pendingRows.length, graduates }
 }
 
-// ─── Matrículas ─────────────────────────────────────────────────────────────
+/** La nota de la matrícula al cerrar el año: el egreso de 9.º, con sus previas. */
+function closingNote(enr: EnrollmentRec): string {
+  if (enr.course !== '9-EBI' || !enr.academicResult || enr.academicResult === 'REPEATED') return enr.notes
+  const pending = enr.pendingCount ?? 0
+  const previas = pending === 0 ? '' : pending === 1 ? ' Egresó con una materia previa.' : ` Egresó con ${pending} materias previas.`
+  return `${enr.notes} · Egresó de Educación Media Básica; continúa bachillerato en otro centro.${previas}`
+}
+
+// ─── Matrículas y pase de año ───────────────────────────────────────────────
 
 async function writeEnrollments(ctx: YearCtx, list: EnrollmentRec[]) {
   await prisma.studentEnrollment.createMany({
@@ -1998,41 +2147,125 @@ function leaving(list: EnrollmentRec[], course: CourseCode, index: number, statu
   target.notes = note
 }
 
+/** Quien entra ese año: el 7.º nuevo y los pases de otros liceos a 8.º y 9.º. */
+type Newcomer = { course: CourseCode; student: StudentRec; createdAt: Date; note: string }
+
+/**
+ * Pase de año: 7.º → 8.º, 8.º → 9.º salvo los que repiten, y de 9.º se egresa. Algunos no se
+ * reinscriben (se mudan o se pasan a otro centro); su última matrícula lo dice.
+ */
+async function promote(previous: EnrollmentRec[], year: Year, newcomers: Newcomer[]): Promise<EnrollmentRec[]> {
+  const next: EnrollmentRec[] = []
+  const passAt = wall(`${year}-02-27`, 10, 0)
+  for (const prev of previous) {
+    if (prev.status !== 'ACTIVE') continue
+    const repeats = prev.academicResult === 'REPEATED'
+    let course: CourseCode | null = null
+    if (prev.course === '7-EBI') course = '8-EBI'
+    else if (prev.course === '8-EBI') course = repeats ? '8-EBI' : '9-EBI'
+    else if (repeats) course = '9-EBI'
+    if (!course) continue
+    // Quien repite por segunda vez no sigue en el liceo: pasa a un programa para extraedad.
+    if (repeats && prev.student.repeats >= 1) {
+      await prisma.studentEnrollment.update({ where: { id: prev.id }, data: { notes: `${prev.notes} · Repitió por segunda vez: para ${year} se lo derivó a un programa de culminación para extraedad.` } })
+      continue
+    }
+    if (repeats) prev.student.repeats += 1
+    const rng = rngFor(`reenroll-${year}-${prev.student.id}`)
+    if (rng.chance(repeats ? 0.12 : 0.025)) {
+      const where = rng.pick(['un liceo público de la zona', 'otro colegio', 'un liceo del interior por una mudanza'])
+      await prisma.studentEnrollment.update({ where: { id: prev.id }, data: { notes: `${closingNote(prev)} · No se reinscribió para ${year}: pasó a ${where}.` } })
+      continue
+    }
+    next.push({ id: uuid(), student: prev.student, year, course, status: 'ACTIVE', untilYmd: null, notes: repeats ? 'Repite en el nuevo ciclo' : 'Promovido al nuevo ciclo', createdAt: passAt, continuing: true })
+  }
+  for (const n of newcomers) next.push({ id: uuid(), student: n.student, year, course: n.course, status: 'ACTIVE', untilYmd: null, notes: n.note, createdAt: n.createdAt, continuing: false })
+  return next
+}
+
 // ─── Cuotas ─────────────────────────────────────────────────────────────────
 
+/** Redondeado a pesos enteros. */
+const pesos = (cents: number) => Math.round(cents / 100) * 100
+
+/**
+ * Matrícula y mensualidades (marzo a diciembre, vencen el día 10). Quien sigue paga la
+ * reinscripción en diciembre; quien entra, al inscribirse. Becas del 50 % y descuento al hermano
+ * menor (no se suman). Pagar después del 10 lleva recargo. En un año cerrado las deudas casi
+ * siempre se regularizaron; en el actual siguen pendientes. Cada cuota se emite al empezar su mes.
+ */
 async function createTuition(ctx: YearCtx, list: EnrollmentRec[]) {
+  const { annual, monthly } = D.TUITION[ctx.year]
+  const grade = (course: CourseCode) => Number(course.split('-')[0])
+  // Hermanos en el liceo ese año: el más grande paga entera; los demás, con descuento.
+  const byFamily = new Map<string, EnrollmentRec[]>()
+  for (const enr of list) {
+    const key = enr.student.family?.tutorPhone ?? enr.student.id
+    byFamily.set(key, [...(byFamily.get(key) ?? []), enr])
+  }
+  const withSiblingDiscount = new Set<string>()
+  for (const group of byFamily.values()) {
+    if (group.length < 2) continue
+    group.sort((a, b) => grade(b.course) - grade(a.course))
+    for (const enr of group.slice(1)) withSiblingDiscount.add(enr.id)
+  }
+
   const years: Prisma.StudentTuitionYearCreateManyInput[] = []
   const months: Prisma.StudentTuitionMonthCreateManyInput[] = []
-  const annual = ctx.year === 2025 ? 980_000 : 1_050_000
-  const monthly = ctx.year === 2025 ? 845_000 : 910_000
   for (const enr of list) {
-    const rng = rngFor(`tuition-${ctx.year}-${enr.student.id}`)
-    const scholarship = rngFor(`beca-${enr.student.id}`).chance(0.08)
+    const s = enr.student
+    const rng = rngFor(`tuition-${ctx.year}-${s.id}`)
+    const scholarship = rngFor(`beca-${s.id}`).chance(0.08)
+    const discount = scholarship ? 0.5 : withSiblingDiscount.has(enr.id) ? D.SIBLING_DISCOUNT : 0
+    const discountNote = scholarship ? 'Beca del 50 %.' : discount > 0 ? 'Descuento por hermano (15 %).' : null
     const profile = rng.next()
-    const debtor = profile > 0.93
-    const late = profile > 0.75
-    const yearPaid = !debtor || rng.chance(0.5)
-    const yearPaidAt = wall(`${ctx.year}-02-${String(rng.int(10, 27)).padStart(2, '0')}`, rng.int(9, 17), rng.int(0, 59))
-    years.push({ studentId: enr.student.id, schoolYearId: ctx.schoolYearId, year: ctx.year, paid: yearPaid, paidAt: yearPaid ? yearPaidAt : null, amountCents: scholarship ? annual / 2 : annual, notes: scholarship ? 'Beca del 50 %.' : yearPaid ? 'Matrícula abonada.' : 'Plan de pagos acordado con tesorería.', createdAt: wall(`${ctx.year}-02-01`, 9, 0) })
+    const debtor = profile > 0.92
+    const late = profile > 0.72
+
+    const yearPaid = !debtor || rng.chance(0.6)
+    const yearPaidAt = enr.continuing
+      ? wall(`${ctx.year - 1}-12-${pad2(rng.int(1, 18))}`, rng.int(9, 17), rng.int(0, 59))
+      : plusMinutes(enr.createdAt, rng.int(0, 3) * 24 * 60 + rng.int(0, 120))
+    const paidYear = yearPaid && yearPaidAt.getTime() <= NOW.getTime()
+    years.push({
+      studentId: s.id,
+      schoolYearId: ctx.schoolYearId,
+      year: ctx.year,
+      paid: paidYear,
+      paidAt: paidYear ? yearPaidAt : null,
+      amountCents: pesos(annual * (1 - discount)),
+      notes: [enr.continuing ? 'Reinscripción.' : 'Matrícula de ingreso.', discountNote, yearPaid ? null : 'Plan de pagos acordado con tesorería.'].filter(Boolean).join(' '),
+      createdAt: enr.continuing ? wall(`${ctx.year - 1}-11-20`, 9, 0) : enr.createdAt,
+    })
+
+    const base = pesos(monthly * (1 - discount))
+    const withFee = pesos(base * (1 + D.LATE_FEE))
     const skipped = new Set(debtor ? rng.shuffle([4, 5, 6, 7, 8, 9]).slice(0, rng.int(2, 4)) : [])
     for (let month = 3; month <= 12; month += 1) {
-      const first = `${ctx.year}-${String(month).padStart(2, '0')}-01`
+      const first = `${ctx.year}-${pad2(month)}-01`
+      if (first > TODAY) break
       if (enr.untilYmd && first > enr.untilYmd) break
-      const due = first
-      const day = late ? rng.int(11, 27) : rng.int(1, 10)
-      const paidAt = wall(`${due.slice(0, 8)}${String(day).padStart(2, '0')}`, rng.int(9, 18), rng.int(0, 59))
-      const paid = !skipped.has(month) && paidAt.getTime() <= NOW.getTime()
-      months.push({
-        studentId: enr.student.id,
-        schoolYearId: ctx.schoolYearId,
-        year: ctx.year,
-        month,
-        paid,
-        paidAt: paid ? paidAt : null,
-        amountCents: scholarship ? monthly / 2 : monthly,
-        notes: paid ? (late ? 'Pago fuera de fecha.' : null) : first > TODAY ? null : skipped.has(month) ? 'Adeudada: tesorería se comunicó con la familia.' : 'Pendiente.',
-        createdAt: wall(`${ctx.year}-02-01`, 9, 0),
-      })
+      const row = { studentId: s.id, schoolYearId: ctx.schoolYearId, year: ctx.year, month, createdAt: wall(first, 8, 0) }
+      if (skipped.has(month)) {
+        // En un año cerrado casi todos regularizaron más adelante, con recargo; quien se fue, no.
+        const regularized = ctx.cal.status === 'CLOSED' && !enr.untilYmd && rng.chance(0.85)
+        if (regularized) {
+          const at = wall(`${ctx.year}-${pad2(rng.int(Math.min(12, month + 2), 12))}-${pad2(rng.int(1, 20))}`, rng.int(9, 18), rng.int(0, 59))
+          months.push({ ...row, paid: true, paidAt: at, amountCents: withFee, notes: 'Regularizó la deuda con un plan de pagos (con recargo).' })
+        } else {
+          months.push({ ...row, paid: false, paidAt: null, amountCents: base, notes: enr.untilYmd ? 'Adeudada: el estudiante se retiró del liceo.' : 'Adeudada: tesorería se comunicó con la familia.' })
+        }
+        continue
+      }
+      const day = late && rng.chance(0.7) ? rng.int(11, 27) : rng.int(1, 10)
+      const paidAt = wall(`${first.slice(0, 8)}${pad2(day)}`, rng.int(9, 18), rng.int(0, 59))
+      if (paidAt.getTime() <= NOW.getTime()) {
+        months.push({ ...row, paid: true, paidAt, amountCents: day > 10 ? withFee : base, notes: day > 10 ? 'Pago fuera de fecha: recargo del 10 %.' : null })
+      } else {
+        // La del mes en curso todavía no venció si estamos antes del 10.
+        const due = `${first.slice(0, 8)}10`
+        months.push({ ...row, paid: false, paidAt: null, amountCents: base, notes: TODAY <= due ? null : 'Vencida: pendiente de pago.' })
+      }
     }
   }
   await prisma.studentTuitionYear.createMany({ data: years })
@@ -2041,36 +2274,44 @@ async function createTuition(ctx: YearCtx, list: EnrollmentRec[]) {
 
 // ─── Adecuaciones, alertas y avisos ─────────────────────────────────────────
 
-async function createAccommodations(list: EnrollmentRec[]) {
-  const ads = person('ADS1')
-  const picks = rngFor('accommodations').shuffle(list.filter((e) => e.status === 'ACTIVE')).slice(0, 7)
-  const summaries: Array<['CURRICULAR' | 'EVALUATION' | 'ACCESSIBILITY' | 'OTHER', string]> = [
-    ['EVALUATION', 'Más tiempo en escritos y pruebas; consignas segmentadas y leídas en voz alta.'],
-    ['EVALUATION', 'Evaluar preferentemente de forma oral; no penalizar la ortografía.'],
-    ['ACCESSIBILITY', 'Ubicarlo cerca del pizarrón y con buena iluminación; materiales con letra ampliada.'],
-    ['CURRICULAR', 'Contenidos priorizados en Matemática según el plan acordado con el equipo multidisciplinario.'],
-    ['ACCESSIBILITY', 'Puede salir del aula unos minutos si lo necesita; avisar a adscripción.'],
-    ['EVALUATION', 'Permitir el uso de calculadora y tablas en todas las evaluaciones.'],
-    ['OTHER', 'Acompañamiento de una tutora externa los martes en la primera hora.'],
-  ]
+/** Adecuaciones posibles; cada alumno que tiene una la conserva todos los años que cursa. */
+const ACCOMMODATIONS: ReadonlyArray<readonly ['CURRICULAR' | 'EVALUATION' | 'ACCESSIBILITY' | 'OTHER', string]> = [
+  ['EVALUATION', 'Más tiempo en escritos y pruebas; consignas segmentadas y leídas en voz alta.'],
+  ['EVALUATION', 'Evaluar preferentemente de forma oral; no penalizar la ortografía.'],
+  ['ACCESSIBILITY', 'Ubicarlo cerca del pizarrón y con buena iluminación; materiales con letra ampliada.'],
+  ['CURRICULAR', 'Contenidos priorizados en Matemática según el plan acordado con el equipo multidisciplinario.'],
+  ['ACCESSIBILITY', 'Puede salir del aula unos minutos si lo necesita; avisar a adscripción.'],
+  ['EVALUATION', 'Permitir el uso de calculadora y tablas en todas las evaluaciones.'],
+  ['OTHER', 'Acompañamiento de una tutora externa los martes en la primera hora.'],
+]
+
+/** La adecuación de cada año, vigente del 20 de marzo al 15 de diciembre. */
+async function createAccommodations(ctx: YearCtx, list: EnrollmentRec[]) {
+  const ads = person(ctx.year === CURRENT_YEAR ? 'ADS1' : 'ADS2')
+  const at = minDate(wall(`${ctx.year}-03-20`, 11, 0), NOW)
   await prisma.studentAccommodation.createMany({
-    data: picks.map((e, i) => ({
-      studentId: e.student.id,
-      kind: summaries[i]![0],
-      summary: summaries[i]![1],
-      externalUrl: null,
-      validFrom: noon(`${e.year}-03-20`),
-      validUntil: noon(`${e.year}-12-15`),
-      createdByUserId: ads.id,
-      updatedByUserId: ads.id,
-      createdAt: wall(`${e.year}-03-20`, 11, 0),
-    })),
+    data: list
+      .filter((e) => e.status === 'ACTIVE' && e.student.accommodation !== null)
+      .map((e) => {
+        const [kind, summary] = ACCOMMODATIONS[e.student.accommodation!]!
+        return {
+          studentId: e.student.id,
+          kind,
+          summary,
+          externalUrl: null,
+          validFrom: noon(`${ctx.year}-03-20`),
+          validUntil: noon(`${ctx.year}-12-15`),
+          createdByUserId: ads.id,
+          updatedByUserId: ads.id,
+          createdAt: at,
+        }
+      }),
   })
 }
 
 async function createStudentAlerts(ctx: YearCtx) {
   const candidates = await collectAlertCandidates(ctx.schoolYearId)
-  const fallback = ctx.year === 2025 ? wall('2025-11-28', 12, 0) : minDate(NOW, NOW)
+  const fallback = ctx.cal.status === 'CLOSED' ? wall(`${ctx.year}-11-28`, 12, 0) : NOW
   await prisma.studentAlert.createMany({
     data: candidates.map((c) => ({ schoolYearId: ctx.schoolYearId, studentId: c.studentId, type: c.type, key: c.key, payload: c.payload as Prisma.InputJsonValue, createdAt: fallback })),
     skipDuplicates: true,
@@ -2110,7 +2351,8 @@ async function createLoginAudit() {
   const rows: Prisma.AuditLogCreateManyInput[] = []
   const days = eachYmd(addDays(TODAY, -21), TODAY).filter((d) => weekday(d) >= 1 && weekday(d) <= 5)
   for (const p of people.values()) {
-    if (p.spec.leftAfter2025) continue
+    // Los ingresos de una persona real son los suyos, no unos inventados.
+    if (p.spec.until !== undefined || ADOPT.has(p.key)) continue
     for (const ymd of days) {
       const rng = rngFor(`login-${p.key}-${ymd}`)
       if (!rng.chance(p.spec.role === 'TEACHER' ? 0.55 : 0.85)) continue
@@ -2133,7 +2375,7 @@ async function seedYear(ctx: YearCtx, yearEnrollments: EnrollmentRec[], bio: Bio
   const subs = await createSubstitutions(ctx, occs)
   log(`Horario: ${events.length} series de clase, ${occs.length} clases en el año, ${leaves.length} licencias, ${subs} suplencias`)
 
-  const writer = new AttendanceWriter(bio, ctx.schoolYearId)
+  const writer = new AttendanceWriter(bio, ctx.schoolYearId, ctx.year >= 2025)
   teacherAttendance(ctx, occs, writer)
   staffAttendance(ctx, leaves, writer)
   await writer.flush()
@@ -2181,70 +2423,77 @@ async function main() {
   if ((await prisma.user.count({ where: { orgRole: { code: 'ADMIN' } } })) === 0) await ensureBootstrapAdmin()
 
   const years = await setupYears()
-  const y25 = years.get(2025)!
-  const y26 = years.get(2026)!
   await createStaff()
   const bio = await createBiometricDevice()
 
-  // Estudiantes de 2025: tres grupos, con algunos hermanos repartidos entre cursos.
+  // ─ Estudiantes ─
+  // El liceo empezó a usar EduTrack en 2023 con sus tres grupos (los de 8.º y 9.º ya venían de
+  // antes). Después, cada año entra un 7.º nuevo y algún pase de otro liceo. Algunos hermanos van
+  // en grupos distintos o entran años después: comparten apellidos, tutor y domicilio.
+  const first = D.SEED_YEARS[0]
   const families: StudentRec['family'][] = []
-  const e2025: EnrollmentRec[] = []
-  const cohorts2025: Array<[CourseCode, number, number]> = [['7-EBI', 31, 2012], ['8-EBI', 29, 2011], ['9-EBI', 27, 2010]]
-  for (const [course, count, birthYear] of cohorts2025) {
+  const initial: EnrollmentRec[] = []
+  const initialCohorts: Array<[CourseCode, number]> = [['7-EBI', 31], ['8-EBI', 29], ['9-EBI', 27]]
+  for (const [course, count] of initialCohorts) {
+    const grade = Number(course.split('-')[0])
     for (let i = 0; i < count; i += 1) {
       const sibling = course !== '7-EBI' && i % 9 === 4 && families.length > 0 ? families.shift() : undefined
-      const s = makeStudent(`2025-${course}`, i, rngFor(`by-${course}-${i}`).chance(0.12) ? birthYear - 1 : birthYear, rngFor(`school-${course}-${i}`).pick(D.PRIMARY_SCHOOLS), `2025-02-${String(10 + (i % 15)).padStart(2, '0')}`, sibling ?? undefined)
+      const birthYear = first - (grade + 6) - (rngFor(`by-${first}-${course}-${i}`).chance(0.12) ? 1 : 0)
+      const s = makeStudent(`${first}-${course}`, i, birthYear, rngFor(`school-${first}-${course}-${i}`).pick(D.PRIMARY_SCHOOLS), `${first}-02-${String(10 + (i % 15)).padStart(2, '0')}`, sibling ?? undefined)
       if (course === '7-EBI' && i % 8 === 2) families.push(s.family)
-      e2025.push({ id: uuid(), student: s, year: 2025, course, status: 'ACTIVE', untilYmd: null, notes: 'Matrícula activa.', createdAt: wall('2025-02-26', 10, 0) })
+      initial.push({ id: uuid(), student: s, year: first, course, status: 'ACTIVE', untilYmd: null, notes: course === '7-EBI' ? 'Ingreso a 7.º.' : 'Matrícula activa.', createdAt: wall(`${first}-02-24`, 10, 0), continuing: course !== '7-EBI' })
     }
   }
-  leaving(e2025, '8-EBI', 6, 'TRANSFERRED', '2025-05-09', 'Pase al Liceo N.º 41 por mudanza de la familia.')
-  leaving(e2025, '9-EBI', 11, 'WITHDRAWN', '2025-08-29', 'Dejó de concurrir. Adscripción hizo el seguimiento con la familia.')
-  leaving(e2025, '7-EBI', 19, 'TRANSFERRED', '2025-10-03', 'Pase a un liceo de Canelones.')
-
-  // Ingresos de 2026 (7.º y pases de otros liceos): los registros existen desde febrero de 2026.
-  const new2026: Array<[CourseCode, StudentRec]> = []
-  for (let i = 0; i < 32; i += 1) {
-    const sibling = i % 10 === 3 && families.length > 0 ? families.shift() : undefined
-    new2026.push(['7-EBI', makeStudent('2026-7-EBI', i, rngFor(`by26-${i}`).chance(0.1) ? 2012 : 2013, rngFor(`school26-${i}`).pick(D.PRIMARY_SCHOOLS), `2026-02-${String(9 + (i % 16)).padStart(2, '0')}`, sibling ?? undefined)])
-  }
-  for (const [course, n, birthYear] of [['8-EBI', 2, 2012], ['9-EBI', 2, 2011]] as const) {
-    for (let i = 0; i < n; i += 1) new2026.push([course, makeStudent(`2026-pase-${course}`, i, birthYear, rngFor(`pase-${course}-${i}`).pick(D.OTHER_LICEOS), '2026-02-23')])
+  const newcomers = new Map<Year, Newcomer[]>()
+  const pases: Record<Year, readonly [number, number]> = { 2023: [0, 0], 2024: [1, 2], 2025: [2, 1], 2026: [2, 2] }
+  for (const year of D.SEED_YEARS.slice(1)) {
+    const list: Newcomer[] = []
+    const count = year === CURRENT_YEAR ? 32 : 31
+    for (let i = 0; i < count; i += 1) {
+      const sibling = i % 10 === 3 && families.length > 0 ? families.shift() : undefined
+      const birthYear = year - 13 - (rngFor(`by-${year}-7-${i}`).chance(0.1) ? 1 : 0)
+      const createdYmd = `${year}-02-${String(9 + (i % 16)).padStart(2, '0')}`
+      const s = makeStudent(`${year}-7-EBI`, i, birthYear, rngFor(`school-${year}-${i}`).pick(D.PRIMARY_SCHOOLS), createdYmd, sibling ?? undefined)
+      if (i % 8 === 2) families.push(s.family)
+      list.push({ course: '7-EBI', student: s, createdAt: wall(createdYmd, 11, 0), note: 'Ingreso a 7.º.' })
+    }
+    const [to8, to9] = pases[year]
+    for (const [course, n, age] of [['8-EBI', to8, 14], ['9-EBI', to9, 15]] as const) {
+      for (let i = 0; i < n; i += 1) {
+        const s = makeStudent(`${year}-pase-${course}`, i, year - age, rngFor(`pase-${year}-${course}-${i}`).pick(D.OTHER_LICEOS), `${year}-02-23`)
+        list.push({ course, student: s, createdAt: wall(`${year}-02-23`, 11, 0), note: 'Pase desde otro liceo.' })
+      }
+    }
+    newcomers.set(year, list)
   }
   await createStudentsAndUsernames()
   log(`Estudiantes: ${students.length}`)
 
-  await writeEnrollments(y25, e2025)
-  const r2025 = await seedYear(y25, e2025, bio)
-  const closing = await closeYear2025(y25, r2025.books, r2025.periods, e2025, r2025.keeper)
-  await createTuition(y25, e2025)
-  const alerts25 = await createStudentAlerts(y25)
-  log(`Cierre 2025: ${closing.pending} materias a APE; alertas: ${alerts25}`)
-
-  // Pase de año: 7.º → 8.º, 8.º → 9.º salvo los que repiten; 9.º egresa.
-  const e2026: EnrollmentRec[] = []
-  const passAt = wall('2026-02-27', 10, 0)
-  for (const prev of e2025) {
-    if (prev.status !== 'ACTIVE') continue
-    const repeats = prev.academicResult === 'REPEATED'
-    let course: CourseCode | null = null
-    if (prev.course === '7-EBI') course = '8-EBI'
-    else if (prev.course === '8-EBI') course = repeats ? '8-EBI' : '9-EBI'
-    else if (repeats) course = '9-EBI'
-    if (!course) continue
-    e2026.push({ id: uuid(), student: prev.student, year: 2026, course, status: 'ACTIVE', untilYmd: null, notes: repeats ? 'Repite en el nuevo ciclo' : 'Promovido al nuevo ciclo', createdAt: passAt })
+  // ─ Un ciclo tras otro: cada pase de año sale del fallo del anterior ─
+  let previous: EnrollmentRec[] = []
+  let current: { occs: Occ[] } | null = null
+  let currentAlerts = 0
+  for (const year of D.SEED_YEARS) {
+    const ctx = years.get(year)!
+    const enrollments = year === first ? initial : await promote(previous, year, newcomers.get(year) ?? [])
+    for (const [course, index, status, until, note] of D.DEPARTURES[year]) leaving(enrollments, course, index, status, until, note)
+    await writeEnrollments(ctx, enrollments)
+    const seeded = await seedYear(ctx, enrollments, bio)
+    if (ctx.cal.status === 'CLOSED') {
+      const closing = await closeYear(ctx, seeded.books, seeded.periods, enrollments, seeded.keeper)
+      log(`Cierre ${year}: ${closing.pending} materias a APE, ${closing.graduates} egresados de 9.º`)
+    }
+    await createTuition(ctx, enrollments)
+    await createAccommodations(ctx, enrollments)
+    const alerts = await createStudentAlerts(ctx)
+    log(`Matrículas ${year}: ${enrollments.length}; alertas: ${alerts}`)
+    if (year === CURRENT_YEAR) {
+      current = seeded
+      currentAlerts = alerts
+    }
+    previous = enrollments
   }
-  for (const [course, s] of new2026) {
-    e2026.push({ id: uuid(), student: s, year: 2026, course, status: 'ACTIVE', untilYmd: null, notes: course === '7-EBI' ? 'Ingreso a 7.º.' : 'Pase desde otro liceo.', createdAt: wall('2026-02-25', 11, 0) })
-  }
-  leaving(e2026, '7-EBI', 27, 'TRANSFERRED', '2026-04-24', 'Pase a un colegio de Ciudad de la Costa.')
-  leaving(e2026, '8-EBI', 14, 'WITHDRAWN', '2026-08-21', 'Dejó de concurrir; se dio aviso a la familia y al programa de seguimiento.')
-  await writeEnrollments(y26, e2026)
-  const r2026 = await seedYear(y26, e2026, bio)
-  await createTuition(y26, e2026)
-  await createAccommodations(e2026)
-  const alerts26 = await createStudentAlerts(y26)
-  await createRecentNotifications(r2026.occs, alerts26)
+  if (current) await createRecentNotifications(current.occs, currentAlerts)
   await createLoginAudit()
 
   const counts = {
@@ -2257,9 +2506,9 @@ async function main() {
     asistenciasPersonal: await prisma.attendance.count(),
   }
   log(`Listo. ${JSON.stringify(counts)}`)
-  log(`Alertas 2026: ${alerts26}. Clave de todas las cuentas sembradas: ${SKIP_KEYCLOAK ? '(Keycloak omitido)' : PASSWORD}`)
+  log(`Alertas ${CURRENT_YEAR}: ${currentAlerts}. Clave de todas las cuentas sembradas: ${SKIP_KEYCLOAK ? '(Keycloak omitido)' : PASSWORD}`)
   console.log('')
-  for (const p of people.values()) console.log(`   ${p.spec.role.padEnd(10)} ${p.username.padEnd(28)} ${p.name} — ${p.spec.title}${p.spec.leftAfter2025 ? ' (de baja)' : ''}`)
+  for (const p of people.values()) console.log(`   ${p.spec.role.padEnd(10)} ${p.username.padEnd(28)} ${p.name} — ${p.spec.title}${p.spec.until !== undefined ? ' (de baja)' : ''}`)
 }
 
 main()

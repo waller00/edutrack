@@ -93,6 +93,10 @@ export const OTHER_LICEOS = ['Liceo N.º 22', 'Liceo N.º 41', 'Liceo N.º 58', 
 
 // ─── Calendario ─────────────────────────────────────────────────────────────
 
+/** Ciclos del dataset: el liceo usa EduTrack desde 2023; 2026 es el ciclo en curso. */
+export const SEED_YEARS = [2023, 2024, 2025, 2026] as const
+export type SeedYear = (typeof SEED_YEARS)[number]
+
 export type YearCalendar = {
   /** Primer y último día de clases. */
   start: string
@@ -100,7 +104,14 @@ export type YearCalendar = {
   status: 'ACTIVE' | 'CLOSED'
 }
 
-export const YEAR_CALENDARS: Record<2025 | 2026, YearCalendar> = {
+/**
+ * Calendario de Educación Media Básica de ANEP. 2023 y 2024 salen de los calendarios publicados
+ * (inicio el 6/3/2023 y el 4/3/2024; fin el 2/12/2023 y el 30/11/2024, sábados, así que el último
+ * día de clase es el viernes anterior).
+ */
+export const YEAR_CALENDARS: Record<SeedYear, YearCalendar> = {
+  2023: { start: '2023-03-06', end: '2023-12-01', status: 'CLOSED' },
+  2024: { start: '2024-03-04', end: '2024-11-29', status: 'CLOSED' },
   // Carnaval 2025 cayó 3 y 4 de marzo: las clases empezaron el miércoles 5.
   2025: { start: '2025-03-05', end: '2025-12-05', status: 'CLOSED' },
   2026: { start: '2026-03-02', end: '2026-12-04', status: 'ACTIVE' },
@@ -108,8 +119,35 @@ export const YEAR_CALENDARS: Record<2025 | 2026, YearCalendar> = {
 
 export type NonWorkingSeed = { from: string; to?: string; type: 'HOLIDAY' | 'NON_WORKING_DAY'; reason: string; notes?: string }
 
-/** Feriados, recesos, paros y jornadas sin clase. Los rangos se expanden a días hábiles. */
-export const NON_WORKING: Record<2025 | 2026, readonly NonWorkingSeed[]> = {
+/**
+ * Feriados, recesos, paros y jornadas sin clase. Los rangos se expanden a días hábiles. Los
+ * feriados que se corren (19 de abril, 18 de mayo, 12 de octubre) van en el lunes que tocó.
+ */
+export const NON_WORKING: Record<SeedYear, readonly NonWorkingSeed[]> = {
+  2023: [
+    { from: '2023-04-03', to: '2023-04-07', type: 'NON_WORKING_DAY', reason: 'Semana de Turismo', notes: 'Receso de clases' },
+    { from: '2023-04-17', type: 'HOLIDAY', reason: 'Desembarco de los Treinta y Tres Orientales', notes: 'Se corrió del miércoles 19 al lunes' },
+    { from: '2023-05-01', type: 'HOLIDAY', reason: 'Día de los Trabajadores' },
+    { from: '2023-05-22', type: 'HOLIDAY', reason: 'Batalla de Las Piedras', notes: 'Se corrió del jueves 18 al lunes' },
+    { from: '2023-06-14', type: 'NON_WORKING_DAY', reason: 'Paro nacional de 24 horas (FENAPES)', notes: 'Adhesión total del cuerpo docente' },
+    { from: '2023-06-19', type: 'HOLIDAY', reason: 'Natalicio de José Artigas' },
+    { from: '2023-07-10', to: '2023-07-21', type: 'NON_WORKING_DAY', reason: 'Vacaciones de invierno' },
+    { from: '2023-08-25', type: 'HOLIDAY', reason: 'Declaratoria de la Independencia' },
+    { from: '2023-09-20', to: '2023-09-22', type: 'NON_WORKING_DAY', reason: 'Vacaciones de primavera' },
+    { from: '2023-10-06', type: 'NON_WORKING_DAY', reason: 'Jornada de coordinación institucional', notes: 'Sin clases para estudiantes' },
+    { from: '2023-10-16', type: 'HOLIDAY', reason: 'Día de la Diversidad Cultural', notes: 'Se corrió del jueves 12 al lunes' },
+  ],
+  2024: [
+    { from: '2024-03-25', to: '2024-03-29', type: 'NON_WORKING_DAY', reason: 'Semana de Turismo', notes: 'Receso de clases' },
+    { from: '2024-04-22', type: 'HOLIDAY', reason: 'Desembarco de los Treinta y Tres Orientales', notes: 'Se corrió del viernes 19 al lunes' },
+    { from: '2024-05-01', type: 'HOLIDAY', reason: 'Día de los Trabajadores' },
+    { from: '2024-05-31', type: 'NON_WORKING_DAY', reason: 'Jornada de coordinación institucional', notes: 'Sin clases para estudiantes' },
+    { from: '2024-06-19', type: 'HOLIDAY', reason: 'Natalicio de José Artigas' },
+    { from: '2024-07-01', to: '2024-07-12', type: 'NON_WORKING_DAY', reason: 'Vacaciones de invierno' },
+    { from: '2024-07-18', type: 'HOLIDAY', reason: 'Jura de la Constitución' },
+    { from: '2024-08-28', type: 'NON_WORKING_DAY', reason: 'Paro nacional de 24 horas (FENAPES)', notes: 'Adhesión total del cuerpo docente' },
+    { from: '2024-09-18', to: '2024-09-20', type: 'NON_WORKING_DAY', reason: 'Vacaciones de primavera' },
+  ],
   2025: [
     { from: '2025-03-03', to: '2025-03-04', type: 'HOLIDAY', reason: 'Carnaval' },
     { from: '2025-04-14', to: '2025-04-18', type: 'NON_WORKING_DAY', reason: 'Semana de Turismo', notes: 'Receso de clases' },
@@ -203,12 +241,18 @@ export type StaffSpec = {
   title: string
   /** Asignaturas que puede dictar como suplente. */
   canCover?: readonly string[]
-  /** Se fue al terminar 2025: queda dado de baja. */
-  leftAfter2025?: boolean
-  /** Entró en 2026. */
-  joined2026?: boolean
+  /** Primer ciclo en el liceo; sin él, desde que el liceo usa EduTrack (2023). */
+  since?: SeedYear
+  /** Último ciclo en el liceo: después queda dado de baja, con `leftNote`. */
+  until?: SeedYear
+  leftNote?: string
   /** Turno (jornada laboral) para el personal no docente. */
   shift?: readonly [number, number, number, number]
+}
+
+/** ¿Trabajó en el liceo ese ciclo? */
+export function staffActiveIn(spec: StaffSpec, year: SeedYear): boolean {
+  return (spec.since ?? SEED_YEARS[0]) <= year && year <= (spec.until ?? SEED_YEARS[SEED_YEARS.length - 1])
 }
 
 export const STAFF: readonly StaffSpec[] = [
@@ -224,11 +268,12 @@ export const STAFF: readonly StaffSpec[] = [
   { key: 'ING', role: 'TEACHER', gender: 'F', title: 'Profesora de Inglés', canCover: ['Inglés'] },
   { key: 'MAT1', role: 'TEACHER', gender: 'M', title: 'Profesor de Matemática', canCover: ['Matemática'] },
   { key: 'MAT2', role: 'TEACHER', gender: 'F', title: 'Profesora de Matemática', canCover: ['Matemática'] },
-  { key: 'MAT3', role: 'TEACHER', gender: 'M', title: 'Profesor de Matemática', canCover: ['Matemática'], joined2026: true },
+  { key: 'MAT3', role: 'TEACHER', gender: 'M', title: 'Profesor de Matemática', canCover: ['Matemática'], since: 2026 },
   { key: 'BIO', role: 'TEACHER', gender: 'F', title: 'Profesora de Biología', canCover: ['Biología', 'Ciencias Físico-Química'] },
-  { key: 'GEO', role: 'TEACHER', gender: 'M', title: 'Profesor de Geografía', canCover: ['Geografía', 'Historia'], leftAfter2025: true },
-  { key: 'GEO2', role: 'TEACHER', gender: 'F', title: 'Profesora de Geografía', canCover: ['Geografía', 'Historia'], joined2026: true },
-  { key: 'HIS', role: 'TEACHER', gender: 'M', title: 'Profesor de Historia', canCover: ['Historia', 'Formación para la Ciudadanía'] },
+  { key: 'GEO', role: 'TEACHER', gender: 'M', title: 'Profesor de Geografía', canCover: ['Geografía', 'Historia'], until: 2025, leftNote: 'Se trasladó a otro centro al terminar 2025.' },
+  { key: 'GEO2', role: 'TEACHER', gender: 'F', title: 'Profesora de Geografía', canCover: ['Geografía', 'Historia'], since: 2026 },
+  { key: 'HIS0', role: 'TEACHER', gender: 'M', title: 'Profesor de Historia', canCover: ['Historia', 'Geografía'], until: 2023, leftNote: 'Se jubiló al terminar 2023.' },
+  { key: 'HIS', role: 'TEACHER', gender: 'M', title: 'Profesor de Historia', canCover: ['Historia', 'Formación para la Ciudadanía'], since: 2024 },
   { key: 'CIU', role: 'TEACHER', gender: 'F', title: 'Profesora de Formación para la Ciudadanía', canCover: ['Formación para la Ciudadanía', 'Historia'] },
   { key: 'CV', role: 'TEACHER', gender: 'F', title: 'Profesora de Comunicación Visual', canCover: ['Comunicación Visual'] },
   { key: 'EF', role: 'TEACHER', gender: 'M', title: 'Profesor de Educación Física', canCover: ['Educación Física y Recreación'] },
@@ -244,7 +289,7 @@ export const STAFF: readonly StaffSpec[] = [
 ]
 
 /** Titular de cada asignatura por curso y año. */
-export function titularFor(year: 2025 | 2026, course: CourseCode, subject: string): string {
+export function titularFor(year: SeedYear, course: CourseCode, subject: string): string {
   switch (subject) {
     case 'Idioma Español':
       return course === '9-EBI' ? 'ESP2' : 'ESP1'
@@ -254,13 +299,13 @@ export function titularFor(year: 2025 | 2026, course: CourseCode, subject: strin
       return 'ING'
     case 'Matemática':
       if (course !== '9-EBI') return 'MAT1'
-      return year === 2025 ? 'MAT2' : 'MAT3'
+      return year === 2026 ? 'MAT3' : 'MAT2'
     case 'Biología':
       return 'BIO'
     case 'Geografía':
-      return year === 2025 ? 'GEO' : 'GEO2'
+      return year === 2026 ? 'GEO2' : 'GEO'
     case 'Historia':
-      return 'HIS'
+      return year === 2023 ? 'HIS0' : 'HIS'
     case 'Formación para la Ciudadanía':
       return 'CIU'
     case 'Comunicación Visual':
@@ -292,7 +337,20 @@ export type LeaveSeed = {
 }
 
 /** Licencias previstas. Las inasistencias sueltas se agregan al azar en el seed. */
-export const LEAVES: Record<2025 | 2026, readonly LeaveSeed[]> = {
+export const LEAVES: Record<SeedYear, readonly LeaveSeed[]> = {
+  2023: [
+    { staff: 'MAT2', from: '2023-05-08', to: '2023-05-12', type: 'MEDICAL_LEAVE', reason: 'Licencia médica', coveredBy: 'SUP_MAT' },
+    { staff: 'QUI', from: '2023-06-12', to: '2023-06-13', type: 'WORK_LEAVE', reason: 'Licencia por estudio (curso de actualización)' },
+    { staff: 'ESP1', from: '2023-08-28', to: '2023-09-08', type: 'MEDICAL_LEAVE', reason: 'Licencia médica', coveredBy: 'SUP_HUM' },
+    { staff: 'ADS2', from: '2023-10-02', to: '2023-10-04', type: 'OTHER', reason: 'Licencia por enfermedad de familiar' },
+  ],
+  2024: [
+    { staff: 'BIO', from: '2024-04-15', to: '2024-04-19', type: 'MEDICAL_LEAVE', reason: 'Licencia médica', coveredBy: 'SUP_CIE' },
+    { staff: 'ING', from: '2024-06-03', to: '2024-06-05', type: 'MEDICAL_LEAVE', reason: 'Licencia médica', coveredBy: 'SUP_ING' },
+    { staff: 'SEC', from: '2024-08-05', to: '2024-08-09', type: 'MEDICAL_LEAVE', reason: 'Licencia médica' },
+    { staff: 'MUS', from: '2024-09-09', to: '2024-09-11', type: 'OTHER', reason: 'Licencia por duelo' },
+    { staff: 'EF', from: '2024-10-21', to: '2024-11-01', type: 'MEDICAL_LEAVE', reason: 'Licencia médica' },
+  ],
   2025: [
     { staff: 'ADS1', from: '2025-04-28', to: '2025-04-30', type: 'MEDICAL_LEAVE', reason: 'Licencia médica' },
     { staff: 'MAT1', from: '2025-05-12', to: '2025-05-16', type: 'MEDICAL_LEAVE', reason: 'Licencia médica', coveredBy: 'SUP_MAT' },
@@ -310,6 +368,67 @@ export const LEAVES: Record<2025 | 2026, readonly LeaveSeed[]> = {
     { staff: 'MAT1', from: '2026-10-12', to: '2026-10-30', type: 'MEDICAL_LEAVE', reason: 'Licencia médica', coveredBy: 'SUP_MAT' },
   ],
 }
+
+// ─── Estudiantes por año ────────────────────────────────────────────────────
+
+/**
+ * Bajas durante el año: [curso, posición en la lista del grupo, tipo, último día que vino, nota].
+ * Las de fin de año (no se reinscribió) y los egresos de 9.º salen del pase de año.
+ */
+export const DEPARTURES: Record<SeedYear, ReadonlyArray<readonly [CourseCode, number, 'WITHDRAWN' | 'TRANSFERRED', string, string]>> = {
+  2023: [
+    ['8-EBI', 9, 'TRANSFERRED', '2023-06-09', 'Pase al Liceo N.º 58 por mudanza de la familia.'],
+    ['9-EBI', 4, 'WITHDRAWN', '2023-09-15', 'Dejó de concurrir. Adscripción hizo el seguimiento con la familia.'],
+  ],
+  2024: [
+    ['7-EBI', 22, 'TRANSFERRED', '2024-04-12', 'Pase a un colegio de la zona.'],
+    ['8-EBI', 3, 'TRANSFERRED', '2024-08-30', 'Pase a un liceo del interior por traslado laboral del padre.'],
+  ],
+  2025: [
+    ['8-EBI', 6, 'TRANSFERRED', '2025-05-09', 'Pase al Liceo N.º 41 por mudanza de la familia.'],
+    ['9-EBI', 11, 'WITHDRAWN', '2025-08-29', 'Dejó de concurrir. Adscripción hizo el seguimiento con la familia.'],
+    ['7-EBI', 19, 'TRANSFERRED', '2025-10-03', 'Pase a un liceo de Canelones.'],
+  ],
+  2026: [
+    ['7-EBI', 27, 'TRANSFERRED', '2026-04-24', 'Pase a un colegio de Ciudad de la Costa.'],
+    ['8-EBI', 14, 'WITHDRAWN', '2026-08-21', 'Dejó de concurrir; se dio aviso a la familia y al programa de seguimiento.'],
+  ],
+}
+
+// ─── Cuotas ─────────────────────────────────────────────────────────────────
+
+/** Matrícula (reinscripción) y mensualidad de cada año, en centésimos. Suben con la inflación. */
+export const TUITION: Record<SeedYear, { annual: number; monthly: number }> = {
+  2023: { annual: 860_000, monthly: 745_000 },
+  2024: { annual: 920_000, monthly: 795_000 },
+  2025: { annual: 980_000, monthly: 845_000 },
+  2026: { annual: 1_050_000, monthly: 910_000 },
+}
+
+/** Recargo por pagar después del día 10. */
+export const LATE_FEE = 0.1
+/** Descuento al segundo hermano que cursa en el liceo (no se suma a una beca). */
+export const SIBLING_DISCOUNT = 0.15
+
+// ─── Actividades institucionales ────────────────────────────────────────────
+
+/**
+ * Actividades sueltas de cada año: [mes-día de referencia, título, tipo, hora inicio, hora fin, lugar].
+ * Caen en el último día hábil hasta esa fecha (no en un fin de semana, un feriado ni en vacaciones).
+ */
+export const INSTITUTIONAL_EVENTS: ReadonlyArray<readonly [string, string, 'REUNION' | 'EVENTO' | 'CAPACITACION', readonly [number, number], readonly [number, number], string]> = [
+  ['03-14', 'Reunión de padres de 7.º', 'REUNION', [18, 0], [19, 30], 'Salón de actos'],
+  ['04-09', 'Reunión de profesores: diagnóstico (trayectorias)', 'REUNION', [14, 0], [17, 0], 'Sala de profesores'],
+  ['05-16', 'Acto: Batalla de Las Piedras', 'EVENTO', [10, 50], [11, 35], 'Patio central'],
+  ['05-21', 'Reunión de profesores: 1.ª entrega', 'REUNION', [14, 0], [17, 30], 'Sala de profesores'],
+  ['06-18', 'Acto: Natalicio de Artigas', 'EVENTO', [10, 50], [11, 35], 'Patio central'],
+  ['08-20', 'Reunión de profesores: 2.ª entrega', 'REUNION', [14, 0], [17, 30], 'Sala de profesores'],
+  ['08-24', 'Acto: Declaratoria de la Independencia', 'EVENTO', [10, 50], [11, 35], 'Patio central'],
+  ['09-12', 'Taller de convivencia digital (Plan Ceibal)', 'CAPACITACION', [9, 10], [10, 40], 'Sala de Informática'],
+  ['10-21', 'Reunión de profesores: 3.ª entrega', 'REUNION', [14, 0], [17, 30], 'Sala de profesores'],
+  ['11-14', 'Muestra anual de Comunicación Visual y Música', 'EVENTO', [18, 0], [20, 0], 'Salón de actos'],
+  ['12-09', 'Reunión de profesores: 4.ª entrega y fallos', 'REUNION', [14, 0], [18, 0], 'Sala de profesores'],
+]
 
 // ─── Evaluaciones ───────────────────────────────────────────────────────────
 
