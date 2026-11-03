@@ -13,6 +13,7 @@ vi.mock('@/contexts/AuthContext', () => ({
   useOptionalAuth: () => ({ me: { id: 'u1', permissions: state.permissions } }),
 }))
 vi.mock('@/components/admin/student-reports/GradeFollowUp', () => ({ default: () => <p>seguimiento de notas</p> }))
+vi.mock('@/components/admin/student-attendance/AttendanceOverview', () => ({ default: () => <p>panorama de asistencia</p> }))
 // El tablero real pide datos: acá sólo importa con qué opciones se arma.
 vi.mock('./AcademicDashboard', async () => {
   const actual = await vi.importActual<typeof import('./AcademicDashboard')>('./AcademicDashboard')
@@ -59,6 +60,24 @@ describe('<AcademicIntelligence />', () => {
     state.permissions = [ANALYTICS]
     state.view = 'seguimiento'
     render(<AcademicIntelligence />)
+    expect(screen.getByText('tablero followUp=false vista=resumen')).toBeInTheDocument()
+  })
+
+  it('adscripción accede a la asistencia desde el mismo lugar sin pedir indicadores académicos', () => {
+    state.permissions = [REPORTS]
+    render(<AcademicIntelligence />)
+    fireEvent.click(screen.getByRole('button', { name: 'Asistencia' }))
+    expect(screen.getByText('panorama de asistencia')).toBeInTheDocument()
+    expect(screen.queryByText('seguimiento de notas')).not.toBeInTheDocument()
+  })
+
+  it('el enlace de asistencia respeta los permisos de reportes', () => {
+    state.permissions = [ANALYTICS, REPORTS]
+    state.view = 'asistencia'
+    const { rerender } = render(<AcademicIntelligence />)
+    expect(screen.getByText('tablero followUp=true vista=attendance')).toBeInTheDocument()
+    state.permissions = [ANALYTICS]
+    rerender(<AcademicIntelligence />)
     expect(screen.getByText('tablero followUp=false vista=resumen')).toBeInTheDocument()
   })
 })

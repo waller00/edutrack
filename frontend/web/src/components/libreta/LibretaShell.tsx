@@ -110,9 +110,12 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
   return (
     <div className="libreta-workspace space-y-5">
       <header className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-        <Link href="/libreta" className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 transition-colors hover:text-emerald-700">
-          <ArrowLeft className="h-3.5 w-3.5" aria-hidden />Todas las libretas
-        </Link>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <Link href="/libreta" className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 transition-colors hover:text-emerald-700">
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden />Todas las libretas
+          </Link>
+          <GroupSwitcher gradeBookId={gradeBookId} section={openSection} />
+        </div>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3 sm:gap-4">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 sm:h-14 sm:w-14">
@@ -124,12 +127,11 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
               <p className="mt-1 text-sm text-slate-500">{detail.teacher?.name ?? 'Sin titular asignado'}</p>
             </div>
           </div>
-          <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+          <div className="flex shrink-0 items-center gap-3">
             <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${readOnly ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-800'}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${readOnly ? 'bg-slate-400' : 'bg-emerald-500'}`} aria-hidden />
               {readOnly ? 'Histórico' : 'En curso'}
             </span>
-            <GroupSwitcher gradeBookId={gradeBookId} section={openSection} />
           </div>
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-4 text-xs text-slate-600 sm:text-sm">

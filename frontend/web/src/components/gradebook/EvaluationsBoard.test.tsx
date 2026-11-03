@@ -77,6 +77,59 @@ function callBody(method: string, suffix: string) {
   return call ? JSON.parse(String((call[1] as RequestInit).body)) : null
 }
 
+describe('<EvaluationsBoard /> navegación entre estudiantes', () => {
+  it('recorre las cartas, respeta los extremos y conserva el período seleccionado', async () => {
+    respond()
+    const user = userEvent.setup()
+    const book = detail()
+    book.students.push({ studentId: 's2', studentEnrollmentId: 'e2', firstName: 'Luis', lastName: 'Pérez', documentId: null })
+    book.studentCount = book.students.length
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={book} />)
+
+    const nav = await screen.findByRole('navigation', { name: 'Navegar entre estudiantes' })
+    const previous = within(nav).getByRole('button', { name: 'Alumno anterior' })
+    const next = within(nav).getByRole('button', { name: 'Alumno siguiente' })
+    const period = screen.getByRole('combobox', { name: 'Filtrar por período' })
+    await user.selectOptions(period, 'p1')
+
+    await user.click(next)
+    expect(nav).toHaveTextContent('Estudiante 1 de 2')
+    expect(previous).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Agregar calificación a Benítez, Ana' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Agregar calificación a Pérez, Luis' })).not.toBeInTheDocument()
+
+    await user.click(next)
+    expect(nav).toHaveTextContent('Estudiante 2 de 2')
+    expect(next).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Agregar calificación a Pérez, Luis' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Agregar calificación a Benítez, Ana' })).not.toBeInTheDocument()
+    expect(period).toHaveValue('p1')
+
+    await user.click(previous)
+    expect(nav).toHaveTextContent('Estudiante 1 de 2')
+    expect(previous).toBeDisabled()
+    expect(next).toBeEnabled()
+    expect(period).toHaveValue('p1')
+
+    await user.click(screen.getByRole('combobox', { name: 'Alumno' }))
+    await user.click(screen.getByRole('option', { name: 'Todos los alumnos' }))
+    expect(nav).toHaveTextContent('2 estudiantes')
+    expect(screen.getByRole('button', { name: 'Agregar calificación a Benítez, Ana' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Agregar calificación a Pérez, Luis' })).toBeInTheDocument()
+  })
+
+  it('deshabilita ambas direcciones cuando no hay estudiantes', async () => {
+    respond()
+    const book = { ...detail(), students: [], studentCount: 0 }
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={book} />)
+
+    const nav = await screen.findByRole('navigation', { name: 'Navegar entre estudiantes' })
+    expect(within(nav).getByRole('button', { name: 'Alumno anterior' })).toBeDisabled()
+    expect(within(nav).getByRole('button', { name: 'Alumno siguiente' })).toBeDisabled()
+    expect(screen.getByText('No hay estudiantes para mostrar.')).toBeInTheDocument()
+  })
+})
+
 describe('<EvaluationsBoard />', () => {
   beforeEach(() => {
     vi.clearAllMocks()

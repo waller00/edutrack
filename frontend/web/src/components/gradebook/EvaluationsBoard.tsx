@@ -1507,7 +1507,7 @@ export default function EvaluationsBoard({
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
       )}
 
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm sm:flex sm:flex-wrap">
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm">
         {/* "Todos los alumnos" es una opción más del buscador, no un filtro aparte. */}
         <StudentCombobox
           students={students}
@@ -1516,7 +1516,7 @@ export default function EvaluationsBoard({
           numbered
           label="Alumno"
           disabled={students.length === 0}
-          className="col-span-2 w-full min-w-0 flex-1 sm:min-w-[12rem] [&_input]:min-h-11 [&_input]:rounded-lg [&_input]:border-slate-200 [&_input]:bg-slate-50 [&_label]:mb-1.5"
+          className="w-full min-w-0 basis-full sm:flex-1 sm:basis-auto sm:min-w-[12rem] [&_input]:min-h-11 [&_input]:rounded-lg [&_input]:border-slate-200 [&_input]:bg-slate-50 [&_label]:mb-1.5"
           onChange={(studentId) => {
             if (studentId === null) {
               setShowAll(true)
@@ -1538,36 +1538,6 @@ export default function EvaluationsBoard({
             {periods.filter((period) => !detail.access.ownWorkOnly || periodKind(period) === 'TRAMO').map((period) => <option key={period.id} value={period.id}>{period.name}</option>)}
           </select>
         </label>
-
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            disabled={students.length === 0 || (!showAll && focusIndex === 0)}
-            onClick={() => {
-              if (!showAll) setFocusIndex((i) => Math.max(0, i - 1))
-              setShowAll(false)
-            }}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-            aria-label="Alumno anterior"
-            title="Alumno anterior"
-          >
-            <ChevronLeft className="h-4 w-4" aria-hidden />
-          </button>
-          <button
-            type="button"
-            disabled={students.length === 0 || (!showAll && focusIndex >= students.length - 1)}
-            onClick={() => {
-              // Desde "todos", el primero; si no, el que sigue.
-              if (!showAll) setFocusIndex((i) => Math.min(students.length - 1, i + 1))
-              setShowAll(false)
-            }}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-            aria-label="Alumno siguiente"
-            title="Alumno siguiente"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
       </div>
 
       {/* Un escrito o una prueba se carga para todo el grupo en una planilla; la carta queda para
@@ -1596,9 +1566,38 @@ export default function EvaluationsBoard({
       </details>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-slate-500">
-          {showAll ? `${students.length} estudiantes` : students.length > 0 ? `Estudiante ${focusIndex + 1} de ${students.length}` : 'Sin estudiantes'}
-        </p>
+        <nav aria-label="Navegar entre estudiantes" className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-1.5 sm:w-auto sm:gap-4">
+          <button
+            type="button"
+            disabled={students.length === 0 || (!showAll && focusIndex === 0)}
+            onClick={() => {
+              if (!showAll) setFocusIndex((i) => Math.max(0, i - 1))
+              setShowAll(false)
+            }}
+            className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-40 sm:px-3"
+            aria-label="Alumno anterior"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+            Anterior
+          </button>
+          <p aria-live="polite" aria-atomic="true" className="text-center text-xs text-slate-500">
+            {showAll ? `${students.length} estudiantes` : students.length > 0 ? `Estudiante ${focusIndex + 1} de ${students.length}` : 'Sin estudiantes'}
+          </p>
+          <button
+            type="button"
+            disabled={students.length === 0 || (!showAll && focusIndex >= students.length - 1)}
+            onClick={() => {
+              // Desde "todos", el primero; si no, el que sigue.
+              if (!showAll) setFocusIndex((i) => Math.min(students.length - 1, i + 1))
+              setShowAll(false)
+            }}
+            className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-40 sm:px-3"
+            aria-label="Alumno siguiente"
+          >
+            Siguiente
+            <ChevronRight className="h-4 w-4" aria-hidden />
+          </button>
+        </nav>
         <button
           type="button"
           onClick={toggleDetailAll}

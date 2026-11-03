@@ -344,7 +344,7 @@ export const APP_MODULES: readonly AppModule[] = [
     id: 'student-attendance-indicators',
     label: 'Indicadores de asistencia de estudiantes',
     href: '/admin/student-attendance/indicadores',
-    description: 'Alertas de faltas seguidas y estudiantes que llegan a 18 o 25 faltas en el ciclo.',
+    description: 'Gráficas por curso, rachas activas y seguimiento de estudiantes con 18 o 25 faltas.',
     group: 'students',
     icon: BarChart3,
     permission: 'student-reports.read',
@@ -427,7 +427,7 @@ export const APP_MODULES: readonly AppModule[] = [
     id: 'academic-performance',
     label: 'Rendimiento académico',
     href: '/libreta/indicadores',
-    description: 'Notas, promedios y alertas de los estudiantes por grupo, asignatura y período.',
+    description: 'Rendimiento, evolución, cobertura de evaluaciones y alertas de asistencia de estudiantes.',
     group: 'gradebooks',
     icon: TrendingUp,
     // Con sólo los reportes de estudiantes (adscripción) se ve el seguimiento de notas.

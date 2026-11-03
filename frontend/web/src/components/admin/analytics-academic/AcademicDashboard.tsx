@@ -13,7 +13,9 @@ import {
 } from 'recharts'
 import SettingsDetails from '@/components/admin/settings/SettingsDetails'
 import GradeFollowUp from '@/components/admin/student-reports/GradeFollowUp'
-import { Loader2 } from 'lucide-react'
+import AttendanceOverview from '@/components/admin/student-attendance/AttendanceOverview'
+import StudentOverview from './StudentOverview'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
@@ -38,9 +40,7 @@ export const LEVEL_LABELS: Record<Level, string> = {
 
 /** Niveles que tienen reuniones en el ciclo; sin datos, los dos. */
 export function availableLevels(periods: readonly Period[]): Level[] {
-  const found = (['EBI', 'EMS'] as const).filter((level) =>
-    periods.some((p) => p.level === level),
-  )
+  const found = (['EBI', 'EMS'] as const).filter((level) => periods.some((p) => p.level === level))
   return found.length > 0 ? [...found] : ['EBI', 'EMS']
 }
 
@@ -100,15 +100,7 @@ const BAR_COLORS: Record<string, string> = {
   blue: '#3b82f6',
 }
 
-function Stat({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: string | number
-  hint?: string
-}) {
+function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white px-3 py-2">
       <p className="text-xs uppercase tracking-wide text-gray-500">{label}</p>
@@ -118,7 +110,7 @@ function Stat({
   )
 }
 
-export type DashboardView = 'summary' | 'performance' | 'management' | 'followup'
+export type DashboardView = 'summary' | 'performance' | 'management' | 'followup' | 'attendance'
 
 /** Las vistas del tablero; "Seguimiento" sólo para quien ve los reportes de estudiantes. */
 function ViewSwitcher({
@@ -133,6 +125,7 @@ function ViewSwitcher({
   const options: (readonly [DashboardView, string])[] = [
     ['summary', 'Resumen'],
     ['performance', 'Rendimiento'],
+    ...(followUp ? ([['attendance', 'Asistencia']] as const) : []),
     ['management', 'Gestión'],
     ...(followUp ? ([['followup', 'Seguimiento']] as const) : []),
   ]
@@ -141,7 +134,7 @@ function ViewSwitcher({
       role="group"
       aria-label="Vistas de indicadores académicos"
       data-tour="academic.views"
-      className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1"
+      className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:grid-cols-3 lg:flex lg:flex-wrap"
     >
       {options.map(([id, label]) => (
         <button
@@ -149,7 +142,7 @@ function ViewSwitcher({
           type="button"
           aria-pressed={view === id}
           onClick={() => onChange(id)}
-          className={`min-h-10 flex-1 rounded-lg px-3 py-2 text-sm ${view === id ? 'bg-emerald-50 font-medium text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}
+          className={`min-h-10 flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm ${view === id ? 'bg-emerald-50 font-medium text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}
         >
           {label}
         </button>
@@ -171,13 +164,14 @@ export default function AcademicDashboard({
   const yearLoading = schoolYear?.loading ?? false
   const requestId = useRef(0)
   const [view, setView] = useState<DashboardView>(
-    initialView === 'followup' && !followUp ? 'summary' : (initialView ?? 'summary'),
+    (initialView === 'followup' || initialView === 'attendance') && !followUp
+      ? 'summary'
+      : (initialView ?? 'summary'),
   )
   const [data, setData] = useState<Dashboard | null>(null)
   const [comparison, setComparison] = useState<ComparisonRow[]>([])
-  const [dimension, setDimension] = useState<'SUBJECT' | 'COURSE' | 'YEAR'>(
-    'SUBJECT',
-  )
+  const [comparisonError, setComparisonError] = useState<string | null>(null)
+  const [dimension, setDimension] = useState<'SUBJECT' | 'COURSE' | 'YEAR'>('SUBJECT')
   const [periods, setPeriods] = useState<Period[]>([])
   const [level, setLevel] = useState<Level | null>(null)
   const [periodId, setPeriodId] = useState('')
@@ -211,34 +205,31 @@ export default function AcademicDashboard({
     setLoading(true)
     if (yearLoading) return
     setError(null)
+    setComparisonError(null)
     try {
       const filters = dashboardQuery(activeLevel, periodId)
-      const years =
-        dimension === 'YEAR' && yearIds ? `&schoolYearIds=${yearIds}` : ''
+      const years = dimension === 'YEAR' && yearIds ? `&schoolYearIds=${yearIds}` : ''
       const [dashboard, comp] = await Promise.all([
-        api<Dashboard>(
-          withSchoolYear(
-            `/admin/academic-analytics/dashboard?${filters}`,
-            query,
-          ),
-        ),
+        api<Dashboard>(withSchoolYear(`/admin/academic-analytics/dashboard?${filters}`, query)),
         api<{ data: ComparisonRow[] }>(
           withSchoolYear(
             `/admin/academic-analytics/comparison?dimension=${dimension}&${filters}${years}`,
             query,
           ),
-        ),
+        ).catch(() => {
+          if (current === requestId.current)
+            setComparisonError(
+              'No se pudo cargar la comparativa. El resto de los indicadores está disponible.',
+            )
+          return { data: [] }
+        }),
       ])
       if (current !== requestId.current) return
       setData(dashboard)
       setComparison(comp.data)
     } catch (err) {
       if (current !== requestId.current) return
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'No se pudieron cargar los indicadores',
-      )
+      setError(err instanceof Error ? err.message : 'No se pudieron cargar los indicadores')
     } finally {
       if (current === requestId.current) setLoading(false)
     }
@@ -254,51 +245,51 @@ export default function AcademicDashboard({
   }, [load, cancelPendingLoad])
 
   // El seguimiento tiene su propio selector de boletín: no depende de que cargue el tablero.
-  if (view === 'followup') {
+  if (view === 'followup' || view === 'attendance') {
     return (
       <div className="space-y-6">
         <ViewSwitcher view={view} onChange={setView} followUp={followUp} />
-        <GradeFollowUp />
+        {view === 'attendance' ? <AttendanceOverview /> : <GradeFollowUp />}
       </div>
     )
   }
 
-  if (loading) {
+  if (loading && !data) {
     return (
-      <p className="flex items-center gap-2 py-8 text-sm text-gray-500">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-        Calculando indicadores…
-      </p>
+      <div className="space-y-5">
+        <ViewSwitcher view={view} onChange={setView} followUp={followUp} />
+        <p className="flex items-center gap-2 py-8 text-sm text-gray-500">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          Calculando indicadores…
+        </p>
+      </div>
     )
   }
 
   if (error || !data) {
     return (
-      <div
-        role="alert"
-        className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800"
-      >
-        <p>{error ?? 'No se pudieron cargar los indicadores'}</p>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="mt-2 font-medium underline"
-        >
-          Reintentar
-        </button>
+      <div className="space-y-5">
+        <ViewSwitcher view={view} onChange={setView} followUp={followUp} />
+        <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+          <p>{error ?? 'No se pudieron cargar los indicadores'}</p>
+          <button type="button" onClick={() => void load()} className="mt-2 font-medium underline">
+            Reintentar
+          </button>
+        </div>
       </div>
     )
   }
 
   const { students, performance, management } = data
-  const levelPeriods = periods.filter(
-    (p) => !p.level || p.level === activeLevel,
-  )
+  const levelPeriods = periods.filter((p) => !p.level || p.level === activeLevel)
   const reference = data.referencePeriod?.name
 
   return (
     <div className="space-y-6">
-      <div data-tour="academic.filters" className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+      <div
+        data-tour="academic.filters"
+        className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3"
+      >
         <div
           role="radiogroup"
           aria-label="Nivel"
@@ -336,53 +327,45 @@ export default function AcademicDashboard({
           </select>
         </label>
         <p className="text-xs text-gray-600">
-          {reference
-            ? `Notas de reunión (R) de ${reference}`
-            : 'Todavía no hay notas de reunión'}
+          {reference ? `Notas de reunión (R) de ${reference}` : 'Todavía no hay notas de reunión'}
           {data.scale?.name ? ` · ${data.scale.name}` : ''}
         </p>
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => void load()}
+          className="ml-auto inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
+          Actualizar indicadores
+        </button>
       </div>
 
       <ViewSwitcher view={view} onChange={setView} followUp={followUp} />
-      {view === 'summary' && (
-        <section>
-          <h2 className="mb-2 text-sm font-semibold text-gray-900">
-            Estudiantes
-          </h2>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat label="Total" value={students.total} />
-            <Stat label="Evaluados" value={students.evaluated} />
-            <Stat
-              label="Sin evaluaciones"
-              value={students.withoutAssessments}
-            />
-            <Stat label="En alerta" value={students.atRisk} />
-          </div>
-          <div className="mt-4">
-            <SettingsDetails title="Evolución de los estudiantes">
-              <div className="grid grid-cols-2 gap-3">
-                <Stat label="Con mejora" value={students.improved} />
-                <Stat label="En descenso" value={students.declined} />
-              </div>
-            </SettingsDetails>
-          </div>
-        </section>
+      {loading ? (
+        <p role="status" className="flex items-center gap-2 py-6 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          Actualizando indicadores…
+        </p>
+      ) : (
+        view === 'summary' && (
+          <StudentOverview
+            students={students}
+            onPerformance={() => setView('performance')}
+            onFollowUp={followUp ? () => setView('followup') : undefined}
+          />
+        )
       )}
 
-      {view === 'performance' && (
+      {!loading && view === 'performance' && (
         <section>
-          <h2 className="mb-2 text-sm font-semibold text-gray-900">
-            Rendimiento
-          </h2>
+          <h2 className="mb-2 text-sm font-semibold text-gray-900">Rendimiento</h2>
           <div className="grid gap-2 sm:grid-cols-3">
             <Stat
               label="Promedio general"
               value={formatHundredths(performance.averageHundredths, 1)}
             />
-            <Stat
-              label="Mediana"
-              value={formatHundredths(performance.medianHundredths, 1)}
-            />
+            <Stat label="Mediana" value={formatHundredths(performance.medianHundredths, 1)} />
             <Stat label="Resultados con nota" value={performance.gradedCount} />
           </div>
 
@@ -411,13 +394,11 @@ export default function AcademicDashboard({
                           'Resultados',
                         ]}
                       />
-                      <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                      <Bar dataKey="count" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                         {performance.distribution.map((bucket) => (
                           <Cell
                             key={bucket.levelId}
-                            fill={
-                              BAR_COLORS[bucket.colorToken ?? ''] ?? '#9ca3af'
-                            }
+                            fill={BAR_COLORS[bucket.colorToken ?? ''] ?? '#9ca3af'}
                           />
                         ))}
                       </Bar>
@@ -445,15 +426,11 @@ export default function AcademicDashboard({
                         <td className="py-1 text-gray-900">
                           {bucket.label}
                           {bucket.isAlert && (
-                            <span className="ml-1 text-xs text-red-700">
-                              ▲ alerta
-                            </span>
+                            <span className="ml-1 text-xs text-red-700">▲ alerta</span>
                           )}
                         </td>
                         <td className="py-1 text-gray-700">{bucket.count}</td>
-                        <td className="py-1 text-gray-700">
-                          {bucket.percentage}%
-                        </td>
+                        <td className="py-1 text-gray-700">{bucket.percentage}%</td>
                       </tr>
                     ))}
                   </tbody>
@@ -464,21 +441,13 @@ export default function AcademicDashboard({
         </section>
       )}
 
-      {view === 'management' && (
+      {!loading && view === 'management' && (
         <section>
-          <h2 className="mb-2 text-sm font-semibold text-gray-900">
-            Gestión de libretas
-          </h2>
+          <h2 className="mb-2 text-sm font-semibold text-gray-900">Gestión de libretas</h2>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Incompletas" value={management.incomplete} />
-            <Stat
-              label="Cierres pendientes"
-              value={management.pendingClosures}
-            />
-            <Stat
-              label="Visados pendientes"
-              value={management.pendingEndorsements}
-            />
+            <Stat label="Cierres pendientes" value={management.pendingClosures} />
+            <Stat label="Visados pendientes" value={management.pendingEndorsements} />
             <Stat
               label="Visadas"
               value={`${management.endorsedPercentage}%`}
@@ -486,6 +455,32 @@ export default function AcademicDashboard({
             />
           </div>
           <div className="mt-4">
+            <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+              <h3 className="text-sm font-semibold text-slate-900">Avance de las libretas</h3>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                {[
+                  { label: 'Con notas registradas', value: management.startedPercentage },
+                  { label: 'Con visado', value: management.endorsedPercentage },
+                ].map((item) => (
+                  <div key={item.label}>
+                    <div className="mb-2 flex items-center justify-between gap-3 text-xs text-slate-500">
+                      <span>{item.label}</span>
+                      <strong className="text-slate-800">{item.value}%</strong>
+                    </div>
+                    <div
+                      role="img"
+                      aria-label={`${item.label}: ${item.value}%`}
+                      className="h-2.5 overflow-hidden rounded-full bg-slate-100"
+                    >
+                      <div
+                        className="h-full rounded-full bg-emerald-500"
+                        style={{ width: `${Math.max(0, Math.min(100, item.value))}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
             <SettingsDetails title="Más cifras de libretas">
               <div className="grid grid-cols-2 gap-3">
                 <Stat label="Libretas" value={management.gradeBooks} />
@@ -496,7 +491,7 @@ export default function AcademicDashboard({
         </section>
       )}
 
-      {view === 'performance' && (
+      {!loading && view === 'performance' && (
         <section>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-semibold text-gray-900">Comparativa</h2>
@@ -512,40 +507,97 @@ export default function AcademicDashboard({
             </select>
           </div>
 
-          {comparison.length === 0 ? (
+          {comparisonError ? (
+            <div
+              role="alert"
+              className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+            >
+              {comparisonError}
+              <button
+                type="button"
+                onClick={() => void load()}
+                className="ml-2 font-semibold underline"
+              >
+                Reintentar comparativa
+              </button>
+            </div>
+          ) : comparison.length === 0 ? (
             <p className="rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm text-gray-500">
               No hay calificaciones cerradas para comparar.
             </p>
           ) : (
-            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {comparison.map((row) => (
-                <li
-                  key={row.key}
-                  className="space-y-3 rounded-xl border border-slate-200 bg-white p-4"
+            <>
+              <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Concentración de resultados en alerta
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Porcentaje de resultados en la banda de alerta de la escala. Ordenados de mayor a
+                  menor; consultá también cuántos resultados tiene cada grupo.
+                </p>
+                <div
+                  className="mt-4"
+                  style={{ height: Math.max(220, comparison.length * 42) }}
+                  role="img"
+                  aria-label="Comparación del porcentaje de resultados en alerta"
                 >
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    {row.label}
-                  </h3>
-                  <dl className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <dt className="text-xs text-slate-500">Promedio</dt>
-                      <dd>{formatHundredths(row.averageHundredths, 1)}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-slate-500">En alerta</dt>
-                      <dd>{row.alertPercentage}%</dd>
-                    </div>
-                  </dl>
-                  <SettingsDetails title={`Detalles de ${row.label}`}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={[...comparison].sort((a, b) => b.alertPercentage - a.alertPercentage)}
+                      layout="vertical"
+                      margin={{ left: 0, right: 20 }}
+                      accessibilityLayer
+                    >
+                      <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis
+                        type="number"
+                        domain={[0, 100]}
+                        tickFormatter={(value) => `${value}%`}
+                        tick={{ fontSize: 11 }}
+                      />
+                      <YAxis type="category" dataKey="label" width={110} tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(value) => [`${value}%`, 'Resultados en alerta']} />
+                      <Bar
+                        isAnimationActive={false}
+                        dataKey="alertPercentage"
+                        fill="#f59e0b"
+                        radius={[0, 4, 4, 0]}
+                        maxBarSize={22}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {comparison.map((row) => (
+                  <li
+                    key={row.key}
+                    className="space-y-3 rounded-xl border border-slate-200 bg-white p-4"
+                  >
+                    <h3 className="text-sm font-semibold text-slate-900">{row.label}</h3>
+                    <dl className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <dt className="text-xs text-slate-500">Promedio</dt>
+                        <dd>{formatHundredths(row.averageHundredths, 1)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-slate-500">En alerta</dt>
+                        <dd>{row.alertPercentage}%</dd>
+                      </div>
+                    </dl>
                     <p className="text-xs text-slate-500">
-                      Mediana: {formatHundredths(row.medianHundredths, 1)} ·{' '}
-                      {row.studentCount} estudiantes · {row.gradedCount}{' '}
-                      resultados con nota
+                      {row.studentCount} estudiantes · {row.gradedCount} resultados con nota
                     </p>
-                  </SettingsDetails>
-                </li>
-              ))}
-            </ul>
+                    <SettingsDetails title={`Detalles de ${row.label}`}>
+                      <p className="text-xs text-slate-500">
+                        Mediana: {formatHundredths(row.medianHundredths, 1)} · {row.studentCount}{' '}
+                        estudiantes · {row.gradedCount} resultados con nota
+                      </p>
+                    </SettingsDetails>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </section>
       )}

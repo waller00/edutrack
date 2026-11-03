@@ -39,7 +39,7 @@ describe('<GroupSwitcher />', () => {
     render(<GroupSwitcher gradeBookId="gb-1" section="evaluaciones" />)
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalled())
-    expect(screen.queryByLabelText('Cambiar de grupo')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Cambiar de libreta')).not.toBeInTheDocument()
   })
 
   it('lista los grupos del docente y marca el abierto', async () => {
@@ -47,7 +47,7 @@ describe('<GroupSwitcher />', () => {
 
     render(<GroupSwitcher gradeBookId="gb-2" section="evaluaciones" />)
 
-    const select = await screen.findByLabelText('Cambiar de grupo')
+    const select = await screen.findByLabelText('Cambiar de libreta')
     expect(select).toHaveValue('gb-2')
     expect(screen.getByRole('option', { name: '1-EMS · FÍSICA' })).toBeInTheDocument()
   })
@@ -57,7 +57,7 @@ describe('<GroupSwitcher />', () => {
     mockedApi.mockResolvedValue({ data: [book('gb-1', 'Física'), book('gb-2', 'Química')] })
 
     render(<GroupSwitcher gradeBookId="gb-1" section="evaluaciones" />)
-    fireEvent.change(await screen.findByLabelText('Cambiar de grupo'), { target: { value: 'gb-2' } })
+    fireEvent.change(await screen.findByLabelText('Cambiar de libreta'), { target: { value: 'gb-2' } })
 
     expect(push).toHaveBeenCalledWith('/libreta/gb-2/evaluaciones')
   })
@@ -66,7 +66,7 @@ describe('<GroupSwitcher />', () => {
     mockedApi.mockResolvedValue({ data: [book('gb-1', 'Física'), book('gb-2', 'Química')] })
 
     render(<GroupSwitcher gradeBookId="gb-1" section={null} />)
-    fireEvent.change(await screen.findByLabelText('Cambiar de grupo'), { target: { value: 'gb-2' } })
+    fireEvent.change(await screen.findByLabelText('Cambiar de libreta'), { target: { value: 'gb-2' } })
 
     expect(push).toHaveBeenCalledWith('/libreta/gb-2')
   })
@@ -77,6 +77,6 @@ describe('<GroupSwitcher />', () => {
     render(<GroupSwitcher gradeBookId="gb-1" section="cierre" />)
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalled())
-    expect(screen.queryByLabelText('Cambiar de grupo')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Cambiar de libreta')).not.toBeInTheDocument()
   })
 })

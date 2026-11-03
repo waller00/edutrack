@@ -17,6 +17,7 @@ vi.mock('./JustificationRangesPanel', () => ({ default: () => <p>panel justifica
 vi.mock('./StudentAttendanceWorkspace', () => ({ default: () => <p>fichas por estudiante</p> }))
 vi.mock('./PendingRollCallsPanel', () => ({ default: () => <p>panel listas sin pasar</p> }))
 vi.mock('@/components/admin/student-reports/ReportTabs', () => ({ StreaksTab: () => <p>panel faltas seguidas</p>, ThresholdsTab: () => <p>panel 18 y 25 faltas</p> }))
+vi.mock('./AttendanceOverview', () => ({ default: ({ initialView }: { initialView?: string }) => <p>panorama de asistencia: {initialView}</p> }))
 
 const READ = { id: 'student-attendance.read', scope: 'all' as const }
 const REPORTS = { id: 'student-reports.read', scope: 'all' as const }
@@ -75,8 +76,7 @@ describe('indicadores en su propia pantalla', () => {
   it('abre directamente el umbral solicitado por la notificación', () => {
     state.query = 'tab=faltas'
     render(<AttendanceIndicators />)
-    expect(screen.getByRole('tab', { name: '18 y 25 faltas' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByText('panel 18 y 25 faltas')).toBeInTheDocument()
+    expect(screen.getByText('panorama de asistencia: faltas')).toBeInTheDocument()
     expect(screen.queryByText('panel justificaciones')).not.toBeInTheDocument()
   })
   it('los enlaces de reportes antiguos conservan la alerta solicitada', () => {

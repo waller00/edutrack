@@ -114,9 +114,8 @@ it('separa el resumen, el rendimiento y la gestión sin perder cifras', async ()
     await screen.findByRole('heading', { name: 'Estudiantes' }),
   ).toBeInTheDocument()
   expect(screen.queryByText('Promedio general')).not.toBeInTheDocument()
-  expect(screen.getByText('Con mejora')).not.toBeVisible()
-  fireEvent.click(screen.getByText('Evolución de los estudiantes'))
-  expect(screen.getByText('Con mejora')).toBeVisible()
+  expect(screen.getByRole('region', { name: 'Evolución de los estudiantes' })).toBeVisible()
+  expect(screen.getByRole('region', { name: 'Cobertura de evaluaciones' })).toBeVisible()
   fireEvent.click(screen.getByRole('button', { name: 'Rendimiento' }))
   expect(screen.getByText('Promedio general')).toBeVisible()
   expect(
@@ -149,11 +148,13 @@ describe('vista Seguimiento', () => {
     render(<AcademicDashboard />)
     await screen.findByRole('heading', { name: 'Estudiantes' })
     expect(screen.queryByRole('button', { name: 'Seguimiento' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Asistencia' })).not.toBeInTheDocument()
   })
 
   it('muestra quiénes tienen notas bajas y quiénes bajaron, con su propio boletín', async () => {
     render(<AcademicDashboard followUp />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Seguimiento' }))
+    await screen.findByRole('heading', { name: 'Estudiantes' })
+    fireEvent.click(screen.getByRole('button', { name: 'Seguimiento' }))
 
     expect(screen.getByRole('button', { name: 'Seguimiento' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('heading', { name: 'Notas bajas por curso y materia' })).toBeInTheDocument()
@@ -166,4 +167,22 @@ describe('vista Seguimiento', () => {
     render(<AcademicDashboard followUp initialView="followup" />)
     expect(await screen.findByRole('heading', { name: 'Notas bajas por curso y materia' })).toBeInTheDocument()
   })
+})
+
+it('una falla de la comparativa permite seguir usando el resumen', async () => {
+  const original = mockedApi.getMockImplementation()!
+  mockedApi.mockImplementation((path: string) => String(path).includes('/comparison') ? Promise.reject(new Error('sin comparativa')) : original(path))
+  render(<AcademicDashboard />)
+  expect(await screen.findByRole('heading', { name: 'Estudiantes' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Rendimiento' }))
+  expect(screen.getByText('Promedio general')).toBeVisible()
+  expect(screen.getByRole('alert')).toHaveTextContent('No se pudo cargar la comparativa')
+})
+
+it('asistencia funciona aunque el tablero académico falle', async () => {
+  mockedApi.mockImplementation((path: string) => String(path).includes('/student-reports/') ? Promise.resolve({ data: [] } as never) : Promise.reject(new Error('Tablero no disponible')))
+  render(<AcademicDashboard followUp />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Asistencia' }))
+  expect(await screen.findByText('No se detectaron alertas actuales en las listas registradas.')).toBeInTheDocument()
+  expect(screen.queryByText('Tablero no disponible')).not.toBeInTheDocument()
 })
