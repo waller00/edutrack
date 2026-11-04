@@ -24,6 +24,25 @@ vi.mock('@/components/personal/MyAttendanceMarkingPanel', () => ({
 
 const mockedApi = vi.mocked(api)
 
+const ME = {
+  id: 'user-1',
+  role: 'TEACHER',
+  isActive: true,
+  isApproved: true,
+  permissions: [{ id: 'attendance.read', scope: 'own' }],
+}
+
+/** Responde por dirección: la pantalla pide el ciclo, los registros y el resumen en paralelo. */
+function respond({ records = [] as unknown[], summary = { person: null } as unknown, me = ME as unknown, schoolYear = null as unknown } = {}) {
+  mockedApi.mockImplementation(async (path: string) => {
+    if (path === '/auth/me') return me as never
+    if (path === '/attendance/my-school-year') return { data: schoolYear } as never
+    if (path.startsWith('/attendance/my-attendances')) return records as never
+    if (path.startsWith('/attendance/summary')) return summary as never
+    return { data: [] } as never
+  })
+}
+
 function mockLocation() {
   const location = { href: '' }
   Object.defineProperty(window, 'location', {
@@ -40,15 +59,8 @@ describe('MyAttendancePage', () => {
   })
 
   it('loads and renders attendance rows after the user is resolved', async () => {
-    mockedApi
-      .mockResolvedValueOnce({
-        id: 'user-1',
-        role: 'TEACHER',
-        isActive: true,
-        isApproved: true,
-        permissions: [{ id: 'attendance.read', scope: 'own' }],
-      } as never)
-      .mockResolvedValueOnce([
+    respond({
+      records: [
         {
           id: 'att-1',
           type: 'CHECK_IN',
@@ -65,12 +77,13 @@ describe('MyAttendancePage', () => {
           time: '2026-03-10T10:30:00.000Z',
           notes: 'Salida ok',
         },
-      ] as never)
+      ],
+    })
 
     renderPage(<MyAttendancePage role="TEACHER" />)
 
     await waitFor(() =>
-      expect(screen.getByText('Total: 2 registros')).toBeInTheDocument(),
+      expect(screen.getByText('1 entrada · 1 salida · 0 faltas y ausencias')).toBeInTheDocument(),
     )
     expect(
       screen.getByRole('heading', { name: 'Mis asistencias' }),
@@ -87,38 +100,20 @@ describe('MyAttendancePage', () => {
   })
 
   it('shows the empty state when there are no attendance records', async () => {
-    mockedApi
-      .mockResolvedValueOnce({
-        id: 'user-1',
-        role: 'TEACHER',
-        isActive: true,
-        isApproved: true,
-        permissions: [{ id: 'attendance.read', scope: 'own' }],
-      } as never)
-      .mockResolvedValueOnce([] as never)
+    respond()
 
     renderPage(<MyAttendancePage role="STAFF" />)
 
-    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     expect(
       await screen.findByText('No hay registros de asistencia'),
     ).toBeInTheDocument()
   })
 
   it('reloads with updated query params when filters change', async () => {
-    mockedApi
-      .mockResolvedValueOnce({
-        id: 'user-1',
-        role: 'TEACHER',
-        isActive: true,
-        isApproved: true,
-        permissions: [{ id: 'attendance.read', scope: 'own' }],
-      } as never)
-      .mockResolvedValueOnce([] as never)
-      .mockResolvedValueOnce([] as never)
+    respond()
 
     renderPage(<MyAttendancePage role="TEACHER" />)
-    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
+    await screen.findByText('No hay registros de asistencia')
     fireEvent.click(screen.getByRole('button', { name: /^Período/ }))
     fireEvent.change(screen.getByLabelText('Fecha inicio'), {
       target: { value: '01/03/2026' },
@@ -167,14 +162,15 @@ it('ofrece la marcación solo cuando el perfil tiene ambos permisos', async () =
 it('distingue las faltas derivadas de las marcaciones de entrada y salida', async () => {
   mockLocation()
   mockedApi.mockReset()
-  mockedApi.mockResolvedValueOnce({ id: 'u1', role: 'TEACHER', isActive: true, isApproved: true, permissions: [{ id: 'attendance.read', scope: 'own' }] } as never)
-    .mockResolvedValueOnce([
+  respond({
+    records: [
       { id: 'in', type: 'CHECK_IN', status: 'PRESENT', date: '2026-10-09', time: '2026-10-09T12:00:00Z', event: { title: 'Clase con entrada' } },
       { id: 'out', type: 'CHECK_OUT', status: 'EXIT', date: '2026-10-09', time: '2026-10-09T13:00:00Z', event: { title: 'Clase con salida' } },
       { id: 'absence:e1', type: 'CHECK_IN', status: 'ABSENT_NOT_JUSTIFIED', date: '2026-10-09', time: '2026-10-09T14:00:00Z', event: { title: 'Clase sin asistencia' } },
-    ] as never).mockResolvedValue({ person: null } as never)
+    ],
+  })
   renderPage(<MyAttendancePage />)
-  await screen.findByText('Total: 3 registros')
+  await screen.findByText('1 entrada · 1 salida · 1 falta o ausencia')
   expect(screen.getByText('Falta')).toBeVisible()
   fireEvent.change(screen.getByLabelText('Tipo de registro'), { target: { value: 'absences' } })
   expect(screen.getByText('Clase sin asistencia')).toBeVisible()
@@ -183,3 +179,27 @@ it('distingue las faltas derivadas de las marcaciones de entrada y salida', asyn
   expect(screen.getByText('Clase con entrada')).toBeVisible()
   expect(screen.queryByText('Clase sin asistencia')).not.toBeInTheDocument()
 })
+
+it('arranca en el ciclo lectivo, no el 1 de enero', async () => {
+  mockLocation()
+  mockedApi.mockReset()
+  respond({ schoolYear: { from: '2026-03-02', to: '2026-03-20' } })
+  renderPage(<MyAttendancePage />)
+  await waitFor(() => expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('startDate=2026-03-02')))
+})
+
+it('el resumen dice de cuántos sale cada número, sin contar lo que cubrió', async () => {
+  mockLocation()
+  mockedApi.mockReset()
+  const stats = {
+    esperadas: 40, presente: 30, tarde: 6, ausenteJustificado: 2, ausenteNoJustificado: 1, suplido: 1, cobertura: 3,
+    pctPuntualidad: 0, pctAsistencia: 0, pctAusentismo: 0, horasTrabajadas: 52.5, horasPlanificadas: 60, deltaHoras: 0,
+    minTardeAcumulados: 48, minTardePromedio: 8,
+  }
+  respond({ summary: { person: { userId: 'user-1', nombre: 'Ana', rol: 'Docente', email: '', rows: [], stats: { ...stats, esperadas: 43 }, ownStats: stats, coverage: { classes: 3, hours: 4.5 } } } })
+  renderPage(<MyAttendancePage />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Resumen' }))
+  expect(await screen.findByText('36 de 40 clases y turnos con entrada marcada.')).toBeInTheDocument()
+  expect(screen.getByText('Clases que cubriste')).toBeInTheDocument()
+})
+

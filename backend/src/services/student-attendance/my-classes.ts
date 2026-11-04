@@ -1,7 +1,7 @@
 import { prisma } from '../../db/prisma.js'
 import { getStudentRollCallSettings } from '../../config/system-settings.js'
 import { findNonWorkingDayForDate } from '../non-working-days.js'
-import { findApprovedLicenseCoveringEventTime } from '../medicalLeaveReconciliation.js'
+import { licenseWindow } from '../medical-leave-dates.js'
 import { classifyOccurrence, isOccurrenceOk } from './occurrence.js'
 import { resolveRollCallPermissions, type RollCallBlockReason } from './edit-window.js'
 import { occurrenceDateOf } from './roll-call.js'
@@ -172,11 +172,33 @@ function isMineToTake(row: DayClassRow, userId: string): boolean {
  */
 export async function loadRollCallReminders(params: { userId: string; ymd: string; now?: Date }): Promise<DayClassRow[]> {
   const rows = await loadClassesForDay({ userId: params.userId, scope: 'own', ymd: params.ymd, now: params.now })
-  const candidates = rows.filter((row) => isMineToTake(row, params.userId))
-  const onLicense = await Promise.all(
-    candidates.map((row) =>
-      row.isSubstitution ? null : findApprovedLicenseCoveringEventTime(params.userId, row.startAt, row.endAt),
-    ),
-  )
-  return candidates.filter((_, index) => !onLicense[index])
+  const candidates = await withLicenses(rows.filter((row) => isMineToTake(row, params.userId)), params.userId, params.ymd)
+  return candidates.filter((row) => !row.onLicense)
+}
+
+const DAY_MS = 86_400_000
+
+/**
+ * Marca las clases que el titular no da porque tiene licencia ese día. Una sola consulta de
+ * licencias por día (antes, una por clase). La que cubre como suplente es suya igual.
+ */
+export async function withLicenses<T extends DayClassRow>(rows: readonly T[], userId: string, ymd: string): Promise<(T & { onLicense: boolean })[]> {
+  if (rows.length === 0) return []
+  const day = new Date(`${ymd}T12:00:00.000Z`)
+  const leaves = await prisma.medicalLeave.findMany({
+    where: {
+      userId,
+      status: 'ACTIVE' as never,
+      startDate: { lte: new Date(day.getTime() + DAY_MS) },
+      endDate: { gte: new Date(day.getTime() - DAY_MS) },
+    },
+    select: { startDate: true, endDate: true },
+  })
+  const windows = leaves.map(licenseWindow)
+  return rows.map((row) => ({
+    ...row,
+    onLicense:
+      !row.isSubstitution &&
+      windows.some((w) => w.from.getTime() <= row.endAt.getTime() && row.startAt.getTime() <= w.to.getTime()),
+  }))
 }

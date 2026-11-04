@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeEditableUntil, resolveGradeEditPermissions } from './edit-window.js'
+import { assessmentWritePermissions, computeEditableUntil, resolveGradeEditPermissions } from './edit-window.js'
 
 const DATE = new Date('2026-05-10T12:00:00.000Z')
 
@@ -85,5 +85,19 @@ describe('ciclo archivado', () => {
   it('nadie escribe, ni siquiera con manage', () => {
     const res = call({ gradeBookStatus: 'ARCHIVED', canManage: true, gradeScope: 'all' })
     expect(res).toMatchObject({ canEdit: false, blockedReason: 'ARCHIVED' })
+  })
+})
+
+describe('assessmentWritePermissions', () => {
+  const base = { gradeScope: 'own' as const, canManage: false, isResponsible: true, assessmentDate: DATE, windowDays: 30, gradeBookStatus: 'ACTIVE' as const, now: new Date('2026-05-20T12:00:00.000Z') }
+
+  it('un período cerrado manda sobre la ventana, incluso para administración', () => {
+    expect(assessmentWritePermissions({ ...base, periodStatus: 'CLOSED' })).toMatchObject({ canEdit: false, blockedReason: 'PERIOD_CLOSED' })
+    expect(assessmentWritePermissions({ ...base, canManage: true, periodStatus: 'CLOSED' })).toMatchObject({ canEdit: false })
+  })
+
+  it('abierto o reabierto, decide la ventana', () => {
+    expect(assessmentWritePermissions({ ...base, periodStatus: 'REOPENED' })).toMatchObject({ canEdit: true, blockedReason: null })
+    expect(assessmentWritePermissions({ ...base, periodStatus: null, now: new Date('2026-07-01T12:00:00.000Z') })).toMatchObject({ canEdit: false, blockedReason: 'WINDOW_EXPIRED' })
   })
 })

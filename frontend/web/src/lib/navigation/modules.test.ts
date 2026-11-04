@@ -84,12 +84,11 @@ describe('catálogo de módulos', () => {
 })
 
 describe('qué ve cada uno', () => {
-  it('el docente tiene todo lo suyo en "Mi trabajo" y no ve la gestión del personal ni los cursos', () => {
-    // Como Personal, sólo abre lo suyo: Inicio, la Guía y su perfil siguen en el botón de la cuenta.
+  it('el docente tiene su Inicio («Mi día») y todo lo suyo en "Mi trabajo"; no ve la gestión del personal ni los cursos', () => {
     const groups = visibleNavGroups(teacher)
-    expect(groups.map((group) => group.title)).toEqual(['Mi trabajo'])
+    expect(groups.map((group) => group.title)).toEqual(['Inicio', 'Mi trabajo'])
     expect(canSeeModule(teacher, moduleById('courses'))).toBe(false)
-    expect(groups[0].modules.map((entry) => entry.label)).toEqual([
+    expect(groups[1].modules.map((entry) => entry.label)).toEqual([
       'Mi agenda',
       'Pase de lista',
       'Mis libretas',

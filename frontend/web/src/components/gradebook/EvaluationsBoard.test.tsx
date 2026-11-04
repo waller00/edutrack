@@ -397,3 +397,58 @@ describe('<EvaluationsBoard /> calificar a todo el grupo', () => {
     ])
   })
 })
+
+describe('<EvaluationsBoard /> no ofrece lo que después falla', () => {
+  beforeEach(() => {
+    apiMock.mockReset()
+  })
+
+  it('una nota de un período cerrado no se edita ni se borra: dice por qué', async () => {
+    respond({
+      assessments: [
+        {
+          id: 'escrito',
+          periodId: 'p1',
+          period: null,
+          date: '2026-04-10',
+          title: 'Escrito 1',
+          scope: 'GROUP',
+          activityType: null,
+          gradingScale: EMS_SCALE,
+          canEdit: false,
+          blockedReason: 'PERIOD_CLOSED',
+          editableUntil: '2026-05-10T12:00:00.000Z',
+        },
+      ],
+      grades: [
+        { assessmentId: 'escrito', studentId: 's1', valueHundredths: 800, isAbsent: false, comment: null, gradedAt: '2026-04-10T15:00:00.000Z', gradedByName: 'Jorge' },
+      ],
+    })
+    const user = userEvent.setup()
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={detail()} />)
+
+    await user.click(await screen.findByRole('button', { name: /Mostrar detalle/ }))
+    expect(screen.getByText('Período cerrado')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Editar calificación' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Borrar calificación' })).not.toBeInTheDocument()
+  })
+
+  it('sin tramos abiertos, la nota nueva no se puede guardar y lo dice', async () => {
+    const base = respond
+    base()
+    const plain = apiMock.getMockImplementation()!
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (String(path).includes('/grades-board')) {
+        return { assessments: [], grades: [], periodGrades: [], periodStates: [{ periodId: 'p1', status: 'CLOSED', canEdit: false }] }
+      }
+      return plain(path, init)
+    })
+    const user = userEvent.setup()
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={detail()} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Agregar calificación a Benítez, Ana' }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText(/No hay tramos abiertos/)).toBeInTheDocument()
+  })
+})
+

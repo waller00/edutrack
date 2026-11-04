@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api/client'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
+import { useOptionalLibreta } from '@/contexts/LibretaContext'
 import { libretaCode } from './MisLibretas'
 import type { GradeBookHeader } from '@/lib/gradebook/types'
 
@@ -28,6 +29,7 @@ export default function GroupSwitcher({
   section: string | null
 }) {
   const router = useRouter()
+  const libreta = useOptionalLibreta()
   const schoolYear = useOptionalAdminSchoolYear()
   const query = schoolYear?.schoolYearScopedQuery ?? ''
   const [books, setBooks] = useState<GradeBookHeader[]>([])
@@ -56,7 +58,11 @@ export default function GroupSwitcher({
         aria-label="Cambiar de libreta"
         className="min-h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 py-2 pl-3 pr-8 text-sm font-medium text-slate-700 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:max-w-xs"
         value={gradeBookId}
-        onChange={(e) => router.push(`/libreta/${e.target.value}${section ? `/${section}` : ''}`)}
+        onChange={(e) => {
+          // Con cambios sin guardar en el cierre se pregunta antes: el cambio de grupo los perdía.
+          if (libreta && !libreta.confirmLeave()) return
+          router.push(`/libreta/${e.target.value}${section ? `/${section}` : ''}`)
+        }}
       >
         {books.map((book) => (
           <option key={book.id} value={book.id}>

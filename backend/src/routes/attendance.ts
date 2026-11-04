@@ -10,7 +10,8 @@ import {
 import { findApprovedLicenseCoveringEventTime } from '../services/medicalLeaveReconciliation.js';
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js';
 import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance/attendance-school-year.js';
-import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
+import { getActiveSchoolYear, resolveSchoolYearIdForList } from '../services/school-year-service.js';
+import { schoolYearDays } from '../services/medical-leave-dates.js';
 import { findNonWorkingDayForInstant } from '../services/non-working-days.js';
 import { getAttendanceOperationalSettings } from '../config/system-settings.js';
 import { earlyEntryWindowMinutes } from '../services/attendance/coverage-spans.js';
@@ -1047,6 +1048,23 @@ function summaryRangeFromQuery(q: Record<string, unknown>) {
       : `${to.slice(0, 4)}-01-01`;
   return { from, to };
 }
+
+/**
+ * El ciclo lectivo activo, en días, para que "Mis asistencias" arranque en marzo y no el 1 de
+ * enero. Cualquiera que vea sus asistencias lo puede pedir: no expone nada más que las fechas.
+ */
+r.get('/my-school-year', authGuard, requirePermission('attendance.read'), async (_req, res) => {
+  try {
+    const year = await getActiveSchoolYear(prisma);
+    if (!year) return res.json({ data: null });
+    const days = schoolYearDays(year);
+    const today = queryDateToUruguayYmd(undefined, new Date());
+    return res.json({ data: { label: year.label, from: days.from, to: days.to < today ? days.to : today } });
+  } catch (error) {
+    console.error('Error obteniendo el ciclo para mis asistencias:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
 
 // Resumen de asistencia por persona (KPIs + filas por instancia). Reusa el motor del export de nómina.
 r.get('/summary', authGuard, requirePermission('attendance.read'), async (req, res) => {

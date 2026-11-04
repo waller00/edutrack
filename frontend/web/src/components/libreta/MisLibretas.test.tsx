@@ -10,6 +10,8 @@ vi.mock('@/contexts/AdminSchoolYearContext', () => ({
   useOptionalAdminSchoolYear: () => ({ schoolYearScopedQuery: scope.query }),
 }))
 const mockedApi = vi.mocked(api)
+const auth = vi.hoisted(() => ({ me: null as null | { id: string; permissions: { id: string; scope: 'own' | 'all' }[] } }))
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ me: auth.me }) }))
 
 function book(over: Partial<GradeBookHeader> = {}): GradeBookHeader {
   return {
@@ -101,7 +103,10 @@ describe('<MisLibretas />', () => {
 
   beforeEach(() => {
     mockedApi.mockReset()
+    // El estado de cada libreta se pide aparte; sin datos, las tarjetas se muestran igual.
+    mockedApi.mockImplementation(async () => ({ data: [] }) as never)
     scope.query = ''
+    auth.me = null
   })
 
   it('lista las libretas sin repetir asignaturas y con acceso directo', async () => {
@@ -133,15 +138,15 @@ describe('<MisLibretas />', () => {
     ] })
     render(<MisLibretas />)
     await screen.findByText('Mostrando 1–2 de 2 libretas')
-    fireEvent.click(screen.getByRole('button', { name: 'Cerradas' }))
-    expect(screen.getByRole('button', { name: 'Cerradas' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Histórico' }))
+    expect(screen.getByRole('button', { name: 'Histórico' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('link')).toHaveAttribute('href', '/libreta/closed')
     fireEvent.change(screen.getByLabelText('Curso'), { target: { value: 'c-1' } })
     expect(screen.getByText('Ninguna libreta coincide con el filtro.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Ver todas las libretas' }))
     expect(screen.getAllByRole('link')).toHaveLength(2)
     expect(screen.getByLabelText('Curso')).toHaveValue('')
-    fireEvent.click(screen.getByRole('button', { name: 'Activas' }))
+    fireEvent.click(screen.getByRole('button', { name: 'En curso' }))
     expect(screen.getByRole('link')).toHaveAttribute('href', '/libreta/gb-1')
     fireEvent.click(screen.getByRole('button', { name: 'Todas' }))
     expect(screen.getAllByRole('link')).toHaveLength(2)
@@ -198,7 +203,13 @@ describe('<MisLibretas />', () => {
   })
 
   it('muestra un error con reintento sin confundirlo con un ciclo sin libretas', async () => {
-    mockedApi.mockRejectedValueOnce(new Error('Sesión vencida')).mockResolvedValueOnce({ data: [book()] })
+    let attempts = 0
+    mockedApi.mockImplementation(async (path: string) => {
+      if (path === '/gradebook/mine/summary') return { data: [] } as never
+      attempts += 1
+      if (attempts === 1) throw new Error('Sesión vencida')
+      return { data: [book()] } as never
+    })
     render(<MisLibretas />)
     expect(await screen.findByRole('alert')).toHaveTextContent('Sesión vencida')
     expect(screen.queryByText(/No tenés libretas en este ciclo/)).not.toBeInTheDocument()
@@ -243,13 +254,13 @@ describe('<MisLibretas />', () => {
     mockedApi.mockResolvedValue({ data: [book()] })
     const view = render(<MisLibretas />)
     await screen.findByRole('heading', { name: 'Física' })
-    expect(mockedApi).toHaveBeenLastCalledWith('/gradebook/mine?schoolYearId=sy-1')
+    expect(mockedApi).toHaveBeenCalledWith('/gradebook/mine?schoolYearId=sy-1')
     fireEvent.change(screen.getByLabelText('Curso'), { target: { value: 'c-1' } })
     scope.query = 'schoolYearId=sy-2'
     mockedApi.mockResolvedValue({ data: [book({ id: 'new', course: { id: 'c2', name: 'Segundo', code: null, level: 'EMS' } })] })
     view.rerender(<MisLibretas />)
     await waitFor(() => expect(screen.getByRole('link')).toHaveAttribute('href', '/libreta/new'))
-    expect(mockedApi).toHaveBeenLastCalledWith('/gradebook/mine?schoolYearId=sy-2')
+    expect(mockedApi).toHaveBeenCalledWith('/gradebook/mine?schoolYearId=sy-2')
     expect(screen.getByLabelText('Curso')).toHaveValue('')
   })
 
@@ -264,4 +275,45 @@ describe('<MisLibretas />', () => {
     await act(async () => { resolveOld({ data: [book({ id: 'old' })] }) })
     expect(screen.getByRole('link')).toHaveAttribute('href', '/libreta/new')
   })
+
+  it('cada libreta dice la reunión que viene, su etapa y qué falta, sin repetir el nombre del docente', async () => {
+    const meeting = {
+      periodId: 'e2',
+      name: '2.ª Entrega',
+      kind: 'ENTREGA',
+      sortOrder: 30,
+      reportCard: true,
+      judgementLabel: null,
+      closesOn: '2099-11-14',
+      status: 'OPEN',
+      closedAt: null,
+      closedLate: false,
+      reopenReason: null,
+      missing: [{ code: 'MISSING_GRADES', studentIds: ['s1'] }],
+      review: null,
+    }
+    mockedApi.mockImplementation(async (path: string) => {
+      if (path === '/gradebook/mine/summary') {
+        return { data: [{ gradeBookId: 'gb-1', role: 'OWNER', meetings: [meeting], students: [{ studentId: 's1', lastName: 'Pérez', firstName: 'Ana' }] }] } as never
+      }
+      return { data: [book()] } as never
+    })
+    render(<MisLibretas />)
+    expect(await screen.findByText('· 1 sin R (rendimiento): Pérez, Ana')).toBeInTheDocument()
+    expect(screen.getByText('2.ª Entrega')).toBeInTheDocument()
+    expect(screen.getByText('cierra el 14/11')).toBeInTheDocument()
+    expect(screen.getByText('Abierta')).toBeInTheDocument()
+  })
+
+  it('el docente no ve su propio nombre en cada tarjeta ni el filtro por docente', async () => {
+    auth.me = { id: 'u-1', permissions: [{ id: 'gradebook.read', scope: 'own' }] }
+    mockedApi.mockImplementation(async (path: string) => ({ data: path === '/gradebook/mine/summary' ? [] : [book()] }) as never)
+    render(<MisLibretas />)
+    await screen.findByRole('heading', { name: 'Física' })
+    expect(screen.queryByText('Ana Benítez')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Más filtros y opciones' }))
+    expect(screen.getByLabelText('Asignatura')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Docente')).not.toBeInTheDocument()
+  })
 })
+

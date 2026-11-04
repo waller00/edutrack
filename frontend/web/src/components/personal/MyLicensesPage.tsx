@@ -18,6 +18,9 @@ import {
   PersonalPagination,
 } from './PersonalPageUi'
 import ModuleHeader from '@/components/common/ModuleHeader'
+import { CalendarCheck } from 'lucide-react'
+import { getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
+import { licenseDays, licenseTimingText, sortLicenses } from '@/lib/personal/licenses'
 
 type License = {
   id: string
@@ -93,7 +96,9 @@ function LicensesContent() {
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .trim()
-  const visible = licenses.filter(
+  const today = getTodayYmdInUruguay()
+  // La vigente primero: es la que la persona viene a mirar.
+  const filtered = licenses.filter(
     (license) =>
       (!status || license.status === status) &&
       (!startDate || license.endDate.slice(0, 10) >= startDate) &&
@@ -102,6 +107,7 @@ function LicensesContent() {
         `${getLicenseTypeLabel(license.type)} ${license.reason} ${license.notes || ''}`,
       ).includes(normalize(search)),
   )
+  const visible = sortLicenses(filtered, today)
   const safePage = Math.min(page, Math.max(1, Math.ceil(visible.length / 20)))
   return (
     <main className="responsive-page max-w-6xl space-y-5">
@@ -207,9 +213,20 @@ function LicensesContent() {
                         {getLicenseStatusLabel(license.status)}
                       </span>
                     </div>
-                    <p className="text-sm text-slate-700">
-                      {ymdToDmy(license.startDate.slice(0, 10))} –{' '}
-                      {ymdToDmy(license.endDate.slice(0, 10))}
+                    <p className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                      <span>
+                        {ymdToDmy(license.startDate.slice(0, 10))} –{' '}
+                        {ymdToDmy(license.endDate.slice(0, 10))}
+                      </span>
+                      <span className="text-slate-500">
+                        · {licenseDays(license)} {licenseDays(license) === 1 ? 'día' : 'días'}
+                      </span>
+                      {license.status === 'ACTIVE' && licenseTimingText(license, today) && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                          <CalendarCheck className="h-3.5 w-3.5" aria-hidden />
+                          {licenseTimingText(license, today)}
+                        </span>
+                      )}
                     </p>
                     <p className="text-sm text-slate-600">{license.reason}</p>
                     {license.notes && (

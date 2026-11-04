@@ -8,12 +8,20 @@ import {
   HomeUpcomingSchedule,
 } from '@/components/home/HomeRolePanels'
 import HomeQuickAccess from '@/components/home/HomeQuickAccess'
+import TeacherDay from '@/components/home/teacher/TeacherDay'
 import GuideWelcomeBanner from '@/components/guide/GuideWelcomeBanner'
 import { hasPermission } from '@/lib/auth/permissions'
 import { api } from '@/lib/api/client'
 import { getWelcomeMessage } from '@/lib/home/dashboard'
+import { homeVariant } from '@/lib/home/home-variant'
 import { useAuth } from '@/contexts/AuthContext'
 import { getRoleLabel } from '@/lib/roles/display'
+
+function homeSubtitle(team: boolean, teacher: boolean): string {
+  if (team) return 'Lo esencial del día y lo que necesita tu atención.'
+  if (teacher) return 'Tus clases de hoy, las listas que te quedaron y lo que tenés que cerrar.'
+  return 'Tu agenda y tus próximos pasos, en un solo lugar.'
+}
 
 export default function Home() {
   const { me, loading } = useAuth()
@@ -43,6 +51,8 @@ export default function Home() {
   const canRoleDashboard = me.isApproved && me.isActive && !needsProfile
   const canTeamDashboard = hasPermission(me, 'analytics.read', 'all')
   const canSchedule = hasPermission(me, 'events.read')
+  // El docente tiene «Mi día»; Personal, sus accesos y su agenda.
+  const teacherHome = homeVariant(me) === 'teacher'
 
   return (
     <main
@@ -146,9 +156,7 @@ export default function Home() {
             </h1>
             <p className="max-w-xl text-sm leading-relaxed text-slate-600">
               {canRoleDashboard
-                ? canTeamDashboard
-                  ? 'Lo esencial del día y lo que necesita tu atención.'
-                  : 'Tu agenda y tus próximos pasos, en un solo lugar.'
+                ? homeSubtitle(canTeamDashboard, teacherHome)
                 : getWelcomeMessage(inactiveAccount, pendingApproval)}
             </p>
           </div>
@@ -165,8 +173,11 @@ export default function Home() {
         <HomeAdminTimeline />
       )}
 
-      {canRoleDashboard && !canTeamDashboard && <HomeQuickAccess />}
-      {canRoleDashboard && !canTeamDashboard && canSchedule && me.id && <HomeUpcomingSchedule role={me.role} userId={me.id} />}
+      {canRoleDashboard && !canTeamDashboard && teacherHome && <TeacherDay />}
+      {canRoleDashboard && !canTeamDashboard && !teacherHome && <HomeQuickAccess />}
+      {canRoleDashboard && !canTeamDashboard && !teacherHome && canSchedule && me.id && (
+        <HomeUpcomingSchedule role={me.role} userId={me.id} />
+      )}
 
       <footer className="pb-2 pt-2 text-center text-[11px] text-slate-400">EduTrack</footer>
     </main>

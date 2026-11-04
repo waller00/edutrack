@@ -21,6 +21,7 @@ const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMo
     gradeBookAccessLog: { create: vi.fn() },
     assessmentGrade: { findMany: vi.fn(), findUnique: vi.fn(), delete: vi.fn(), count: vi.fn() },
     studentAttendanceEntry: { groupBy: vi.fn(), findMany: vi.fn() },
+    studentAttendanceSession: { count: vi.fn() },
     studentPhoto: { findMany: vi.fn(), findUnique: vi.fn() },
     inAppNotification: { createMany: vi.fn() },
     $transaction: vi.fn(),
@@ -168,6 +169,48 @@ describe('permisos', () => {
 
     expect(res.status).toBe(200)
     expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where.OR).toBeDefined()
+  })
+})
+
+describe('GET /gradebook/mine/summary', () => {
+  const MEETING = {
+    id: 'm1', name: '1.er semestre', kind: 'TRAMO', sortOrder: 10, level: 'EMS', schoolYearId: 'sy-1',
+    isMeeting: true, requiresGeneralGrade: true, requiresConceptualJudgement: true, closesOn: null, judgementLabel: null,
+  }
+
+  it('de sus libretas, las reuniones con lo que falta y los nombres de quienes faltan', async () => {
+    prismaMock.substitution.findMany.mockResolvedValue([])
+    prismaMock.gradeBook.findMany.mockResolvedValue([
+      { id: GB_ID, schoolYearId: 'sy-1', courseOfferingId: 'off-1', orientationId: null, courseOrientationId: null, courseOffering: { course: { level: 'EMS' } } },
+    ])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([MEETING])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([])
+    prismaMock.assessment.findMany.mockResolvedValue([])
+    rosterMock.mockResolvedValue([{ studentId: STUDENT_A, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'Benítez', documentId: null }])
+
+    const res = await request(app()).get('/gradebook/mine/summary').set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where).toMatchObject({ teacherUserId: 'teacher-1', status: 'ACTIVE' })
+    expect(res.body.data).toHaveLength(1)
+    expect(res.body.data[0]).toMatchObject({ gradeBookId: GB_ID, role: 'OWNER', students: [{ studentId: STUDENT_A, lastName: 'Benítez' }] })
+    expect(res.body.data[0].meetings[0].missing.map((b: any) => b.code)).toContain('MISSING_GRADES')
+  })
+
+  it('de una suplencia, sólo hasta cuándo: nada de lo que le falta al titular', async () => {
+    prismaMock.substitution.findMany.mockResolvedValue([
+      {
+        date: new Date(Date.now() - 3_600_000),
+        event: { schoolYearId: 'sy-1', courseOfferingId: 'off-1', subjectId: 'sub-1', orientationId: null, courseOrientationId: null },
+      },
+    ])
+    prismaMock.gradeBook.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'gb-sup', scopeKey: 'et-subject-offering-off-1-sub-1' }])
+
+    const res = await request(app()).get('/gradebook/mine/summary').set('Authorization', `Bearer ${tok('TEACHER', 'suplente-1')}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data).toEqual([{ gradeBookId: 'gb-sup', role: 'SUBSTITUTE', until: expect.any(String) }])
+    expect(prismaMock.academicPeriod.findMany).not.toHaveBeenCalled()
   })
 })
 
@@ -475,6 +518,8 @@ const ASSESSMENT = {
 function readyForAssessments() {
   prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
   prismaMock.assessment.findFirst.mockResolvedValue(ASSESSMENT)
+  // Período abierto: sin fila todavía.
+  prismaMock.gradeBookPeriod.findUnique.mockResolvedValue(null)
   prismaMock.academicPeriod.findUnique.mockResolvedValue({
     schoolYearId: 'sy-1',
     level: 'EMS',
@@ -510,6 +555,25 @@ describe('POST /:id/assessments', () => {
 
     expect(prismaMock.assessment.create.mock.calls[0][0].data.scope).toBe('GROUP')
     expect(prismaMock.assessment.create.mock.calls[1][0].data.scope).toBe('INDIVIDUAL')
+  })
+
+  it('no crea una evaluación en un período cerrado: después no se le podría poner nota', async () => {
+    prismaMock.gradeBookPeriod.findUnique.mockResolvedValue({ status: 'CLOSED' })
+    const res = await request(app()).post(`/gradebook/${GB_ID}/assessments`).set('Authorization', `Bearer ${tok()}`).send(body)
+    expect(res.status).toBe(403)
+    expect(res.body.code).toBe('PERIOD_CLOSED')
+    expect(prismaMock.assessment.create).not.toHaveBeenCalled()
+  })
+
+  it('ni con una fecha ya fuera del plazo de edición', async () => {
+    scopeMock.mockImplementation(async (_u: string, code: string) => (code === 'gradebook.manage' ? null : 'own'))
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/assessments`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ ...body, date: '2026-01-10' })
+    expect(res.status).toBe(403)
+    expect(res.body.code).toBe('WINDOW_EXPIRED')
+    expect(prismaMock.assessment.create).not.toHaveBeenCalled()
   })
 
   it('rechaza un período de otro ciclo lectivo', async () => {
@@ -2703,18 +2767,23 @@ describe('planilla del liceo: tramos y entregas', () => {
     expect(prismaMock.gradeBookPeriod.update).not.toHaveBeenCalled()
   })
 
+  const ENTREGA_SIBLINGS = [
+    { id: 'p-diag', code: 'MODULO_INTRODUCTORIO', kind: 'DIAGNOSTICO', sortOrder: 10 },
+    { id: 'p-marabr', code: 'MARZO_ABRIL', kind: 'TRAMO', sortOrder: 20 },
+    { id: PERIOD_ID, code: 'ENTREGA_1', kind: 'ENTREGA', sortOrder: 30 },
+    { id: 'p-mayjun', code: 'MAYO_JUNIO', kind: 'TRAMO', sortOrder: 40 },
+  ]
+  const groupTest = (grades: any[]) => ({ scope: 'GROUP', periodId: 'p-marabr', grades, gradingScale: null })
+  const graded = { studentId: STUDENT_A, valueHundredths: 700, scaleLevelId: null, isAbsent: false }
+
   it('cerrar la entrega cierra también los tramos que informa', async () => {
     readyForClosure({ saved: COMPLETE })
     prismaMock.academicPeriod.findFirst.mockResolvedValue(ENTREGA)
     prismaMock.gradeBookPeriod.findUnique
       .mockResolvedValueOnce(OPEN_STATE)
       .mockResolvedValueOnce({ id: 'gbp-marabr', status: 'OPEN' })
-    prismaMock.academicPeriod.findMany.mockResolvedValue([
-      { id: 'p-diag', code: 'MODULO_INTRODUCTORIO', kind: 'DIAGNOSTICO', sortOrder: 10 },
-      { id: 'p-marabr', code: 'MARZO_ABRIL', kind: 'TRAMO', sortOrder: 20 },
-      { id: PERIOD_ID, code: 'ENTREGA_1', kind: 'ENTREGA', sortOrder: 30 },
-      { id: 'p-mayjun', code: 'MAYO_JUNIO', kind: 'TRAMO', sortOrder: 40 },
-    ])
+    prismaMock.academicPeriod.findMany.mockResolvedValue(ENTREGA_SIBLINGS)
+    prismaMock.assessment.findMany.mockResolvedValue([groupTest([graded])])
     prismaMock.gradeBookPeriod.update.mockResolvedValue({})
 
     const res = await request(app())
@@ -2727,6 +2796,40 @@ describe('planilla del liceo: tramos y entregas', () => {
     expect(prismaMock.gradeBookPeriod.updateMany.mock.calls[0][0].where.id).toBe('gbp-e1')
     const closedTramos = prismaMock.gradeBookPeriod.update.mock.calls.map((call: any) => call[0].where.id)
     expect(closedTramos).toEqual(['gbp-marabr'])
+    // Las evaluaciones que se miran son las de los tramos que informa, no las de la entrega.
+    expect(prismaMock.assessment.findMany.mock.calls[0][0].where.periodId).toEqual({ in: ['p-marabr'] })
+  })
+
+  it('no se cierra la entrega con una evaluación del grupo sin nota: lo mismo que pide el control', async () => {
+    readyForClosure({ saved: COMPLETE })
+    prismaMock.academicPeriod.findFirst.mockResolvedValue(ENTREGA)
+    prismaMock.gradeBookPeriod.findUnique.mockResolvedValue(OPEN_STATE)
+    prismaMock.academicPeriod.findMany.mockResolvedValue(ENTREGA_SIBLINGS)
+    prismaMock.assessment.findMany.mockResolvedValue([groupTest([graded]), groupTest([])])
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/close`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('MISSING_ASSESSMENT_GRADES')
+    expect(res.body.message).toContain('No rindió')
+    expect(res.body.detail.blockers).toEqual([{ code: 'MISSING_ASSESSMENT_GRADES', studentIds: [STUDENT_A], slots: 1 }])
+    expect(prismaMock.gradeBookPeriod.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('una entrega sin ninguna evaluación en sus tramos no se puede cerrar', async () => {
+    readyForClosure({ saved: COMPLETE })
+    prismaMock.academicPeriod.findFirst.mockResolvedValue(ENTREGA)
+    prismaMock.gradeBookPeriod.findUnique.mockResolvedValue(OPEN_STATE)
+    prismaMock.academicPeriod.findMany.mockResolvedValue(ENTREGA_SIBLINGS)
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/periods/${PERIOD_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.blockers.map((b: any) => b.code)).toEqual(['NO_ASSESSMENTS'])
   })
 
   it('guardar sólo R no borra la C que ya estaba', async () => {
@@ -2788,6 +2891,96 @@ describe('planilla del liceo: tramos y entregas', () => {
       { periodId: 'p-open', status: 'OPEN', canEdit: true },
       { periodId: 'p-closed', status: 'CLOSED', canEdit: false },
     ])
+  })
+
+  it('cada evaluación dice si se puede editar y hasta cuándo, antes de intentarlo', async () => {
+    scopeMock.mockImplementation(async (_u: string, code: string) => (code === 'gradebook.manage' ? null : 'own'))
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    const test = (id: string, periodId: string, date: string) => ({
+      id,
+      periodId,
+      date: new Date(`${date}T12:00:00.000Z`),
+      title: id,
+      scope: 'GROUP',
+      activityType: null,
+      gradingScale: null,
+      period: null,
+      createdBy: null,
+    })
+    prismaMock.assessment.findMany.mockResolvedValue([
+      test('reciente', 'p-open', '2026-05-15'),
+      test('vieja', 'p-open', '2026-03-10'),
+      test('cerrada', 'p-closed', '2026-05-15'),
+    ])
+    prismaMock.assessmentGrade.findMany.mockResolvedValue([])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([{ periodId: 'p-closed', status: 'CLOSED', grades: [] }])
+    vi.setSystemTime(new Date('2026-05-20T12:00:00.000Z'))
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}/grades-board`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body.editWindowDays).toBe(30)
+    expect(res.body.canWriteOutsideWindow).toBe(false)
+    expect(res.body.assessments.map((a: any) => [a.id, a.canEdit, a.blockedReason])).toEqual([
+      ['reciente', true, null],
+      ['vieja', false, 'WINDOW_EXPIRED'],
+      ['cerrada', false, 'PERIOD_CLOSED'],
+    ])
+    expect(res.body.assessments[0].editableUntil).toBe('2026-06-14T12:00:00.000Z')
+  })
+})
+
+describe('seguimiento del grupo', () => {
+  function readyForIndicators() {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([{ studentId: STUDENT_A, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'Benítez', documentId: null }])
+    prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([{ studentId: STUDENT_A, status: 'ABSENT', session: { occurrenceYmd: '2026-05-04' } }])
+    prismaMock.studentAttendanceSession.count.mockResolvedValue(12)
+    prismaMock.academicPeriod.findMany.mockResolvedValue([])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([])
+    prismaMock.gradingScale.findUnique.mockResolvedValue({ levels: [] })
+  }
+
+  it('las faltas a sus clases, sólo de esta libreta y de las listas pasadas', async () => {
+    readyForIndicators()
+    const res = await request(app()).get(`/gradebook/${GB_ID}/indicators`).set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(200)
+    expect(res.body.attendance).toMatchObject({ classesWithRollCall: 12, marks: 1, absent: 1 })
+    expect(res.body.attendance.students[0]).toMatchObject({ studentId: STUDENT_A, absent: 1 })
+    expect(prismaMock.studentAttendanceEntry.findMany.mock.calls[0][0].where.session).toMatchObject({ subjectId: 'sub-1', courseOfferingId: 'off-1', status: 'TAKEN' })
+    // Las R se leen de esta libreta y de ninguna otra.
+    expect(prismaMock.gradeBookPeriod.findMany.mock.calls[0][0].where).toEqual({ gradeBookId: GB_ID })
+  })
+
+  it('el resumen de «Mi día»: sólo sus libretas como titular, sin nombres', async () => {
+    readyForIndicators()
+    prismaMock.gradeBook.findMany.mockResolvedValue([{ ...ROW, courseOffering: { course: { level: 'EMS' } } }])
+    const res = await request(app()).get('/gradebook/mine/indicators').set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(200)
+    expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where).toMatchObject({ teacherUserId: 'teacher-1', status: 'ACTIVE' })
+    expect(res.body.data[0]).toMatchObject({ gradeBookId: GB_ID, attendance: { absent: 1 } })
+    expect(res.body.data[0].attendance.students).toBeUndefined()
+    expect(res.body.data[0].grades.students).toBeUndefined()
+  })
+})
+
+describe('GET /:id/meetings', () => {
+  it('cada reunión con lo que le falta y los nombres del grupo', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { ...PERIOD, id: 'm1', name: '1.er semestre', kind: 'TRAMO', sortOrder: 10, level: 'EMS', schoolYearId: ROW.schoolYearId, isMeeting: true, requiresGeneralGrade: true, requiresConceptualJudgement: true, closesOn: null, judgementLabel: null },
+    ])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([])
+    prismaMock.assessment.findMany.mockResolvedValue([])
+    rosterMock.mockResolvedValue([{ studentId: STUDENT_A, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'Benítez', documentId: null }])
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}/meetings`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.students).toEqual([{ studentId: STUDENT_A, lastName: 'Benítez', firstName: 'Ana' }])
+    expect(res.body.data).toHaveLength(1)
+    expect(res.body.data[0]).toMatchObject({ periodId: 'm1', status: 'OPEN', reportCard: true })
+    expect(res.body.data[0].missing.map((b: any) => b.code)).toEqual(['NO_ASSESSMENTS', 'MISSING_GRADES', 'MISSING_CONDUCT', 'MISSING_JUDGEMENT', 'MISSING_GROUP_REPORT'])
   })
 })
 
@@ -2934,7 +3127,7 @@ describe('suplente: ve y carga sólo sus notas', () => {
   })
 
   it('lo del titular le queda cerrado: planificación, períodos, cierre, mensajes, historia y exportaciones', async () => {
-    for (const path of ['planning', 'development', 'periods', 'messages', 'endorsements', 'exports/xlsx', 'subject-attendance']) {
+    for (const path of ['planning', 'development', 'periods', 'meetings', 'indicators', 'messages', 'endorsements', 'exports/xlsx', 'subject-attendance']) {
       const res = await request(app()).get(`/gradebook/${GB_ID}/${path}`).set('Authorization', `Bearer ${subTok()}`)
       expect(res.status, path).toBe(403)
       expect(res.body.code, path).toBe('SUBSTITUTE_OWN_WORK_ONLY')

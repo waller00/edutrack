@@ -49,9 +49,18 @@ export function reclosedAfterObservation(params: {
   return params.closedAt.getTime() > lastObservation
 }
 
-export function serializeEndorsementRow(row: any, now: Date) {
-  // `row` es `any` (viene de un include de Prisma), así que se fija el genérico a mano: si no,
-  // `currentStates` infiere el tipo base y se pierden `observations` y `actorRoleCode`.
+/**
+ * Lo que dice el visado de un período: el estado de cada sección, el general, lo observado y si se
+ * volvió a cerrar después de la observación. Es lo que necesitan el docente y su Inicio; la fila
+ * entera de la grilla (`serializeEndorsementRow`) le suma la libreta.
+ */
+export function reviewSummary(row: {
+  status: string
+  closedAt: Date | null
+  endorsements: readonly unknown[]
+}) {
+  // Las filas vienen de un include de Prisma: se fija el genérico a mano para no perder
+  // `observations` y `actorRoleCode`.
   const states = currentStates<EndorsementDetail>(row.endorsements as EndorsementDetail[])
   const sections = SECTIONS.map((section) => {
     const current = states.get(section)
@@ -63,9 +72,23 @@ export function serializeEndorsementRow(row: any, now: Date) {
       actorRoleCode: current?.actorRoleCode ?? null,
     }
   })
-  const lastChange = row.endorsements.at(-1)?.occurredAt ?? row.closedAt ?? row.updatedAt
   const blocking = blockingSections(states)
-  const overallStatus = statusOf(states, 'ALL')
+  return {
+    states,
+    sections,
+    overallStatus: statusOf(states, 'ALL'),
+    blockingSections: blocking,
+    reclosedAfterObservation: reclosedAfterObservation({
+      periodStatus: row.status,
+      closedAt: row.closedAt ?? null,
+      observedAt: blocking.map((section) => states.get(section)!.occurredAt),
+    }),
+  }
+}
+
+export function serializeEndorsementRow(row: any, now: Date) {
+  const { states, sections, overallStatus, blockingSections: blocking, reclosedAfterObservation: reclosed } = reviewSummary(row)
+  const lastChange = row.endorsements.at(-1)?.occurredAt ?? row.closedAt ?? row.updatedAt
 
   return {
     gradeBookPeriodId: row.id,
@@ -85,11 +108,7 @@ export function serializeEndorsementRow(row: any, now: Date) {
     pendingAgeDays: overallStatus === 'ENDORSED' ? null : pendingAgeDays(lastChange, now),
     blockingSections: blocking,
     canFinalize: canFinalize(states),
-    reclosedAfterObservation: reclosedAfterObservation({
-      periodStatus: row.status,
-      closedAt: row.closedAt ?? null,
-      observedAt: blocking.map((section) => states.get(section)!.occurredAt),
-    }),
+    reclosedAfterObservation: reclosed,
   }
 }
 

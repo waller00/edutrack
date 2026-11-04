@@ -2,7 +2,7 @@
 
 import RoleGuard from '@/components/auth/RoleGuard'
 import { RefreshCw } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
@@ -21,13 +21,17 @@ import type {
 } from '@/lib/attendance/summary'
 import {
   getDefaultAttendanceStartDate,
+  getAttendanceKindLabel,
   getAttendanceTypeStyle,
-  getAttendanceTypeLabel,
   getAttendanceStatusStyle,
   getAttendanceStatusLabelForType,
+  isAbsenceStatus,
   type MyAttendanceType,
   type MyAttendanceStatus,
 } from '@/lib/attendance/my-attendance-display'
+import { defaultMyAttendanceRange, myAttendanceTiles } from '@/lib/attendance/my-attendance-range'
+import { overlapDays } from '@/lib/personal/licenses'
+import StatTile from '@/components/common/StatTile'
 import {
   PersonalLoading,
   PersonalError,
@@ -45,18 +49,31 @@ type AttendanceRecord = {
   event?: { id: string; title: string; type: string }
 }
 
-const ABSENCE_STATUSES = new Set([
-  'ABSENT',
-  'ABSENT_NOT_JUSTIFIED',
-  'ABSENT_JUSTIFIED',
-  'SUBSTITUTED',
-  'MEDICAL_LEAVE',
-  'JUSTIFIED_ABSENCE',
-])
-const isAbsence = (record: AttendanceRecord) =>
-  ABSENCE_STATUSES.has(record.status)
-const recordTypeLabel = (record: AttendanceRecord) =>
-  isAbsence(record) ? 'Falta' : getAttendanceTypeLabel(record.type)
+const isAbsence = (record: AttendanceRecord) => isAbsenceStatus(record.status)
+const recordTypeLabel = (record: AttendanceRecord) => getAttendanceKindLabel(record.type, record.status)
+
+type MyLicense = { startDate: string; endDate: string; status: string }
+
+/** «12 entradas · 11 salidas · 2 faltas»: antes era «Total: 25 registros», todo mezclado. */
+function recordCounts(records: readonly AttendanceRecord[]): string {
+  const absences = records.filter(isAbsence).length
+  const entries = records.filter((r) => !isAbsence(r) && r.type === 'CHECK_IN').length
+  const exits = records.filter((r) => !isAbsence(r) && r.type === 'CHECK_OUT').length
+  return `${entries} ${entries === 1 ? 'entrada' : 'entradas'} · ${exits} ${exits === 1 ? 'salida' : 'salidas'} · ${absences} ${absences === 1 ? 'falta o ausencia' : 'faltas y ausencias'}`
+}
+
+/** Las licencias que caen en el período, y cuántos días. Sin el permiso, no se piden. */
+function LicensesTile({ licenses, from, to }: { licenses: readonly MyLicense[]; from: string; to: string }) {
+  const inRange = licenses.filter((license) => license.status === 'ACTIVE' && overlapDays(license, from, to) > 0)
+  const days = inRange.reduce((acc, license) => acc + overlapDays(license, from, to), 0)
+  return (
+    <StatTile
+      label="Licencias"
+      value={String(inRange.length)}
+      detail={inRange.length === 0 ? 'Ninguna en el período.' : `${days} ${days === 1 ? 'día' : 'días'} de licencia en el período.`}
+    />
+  )
+}
 
 function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
   if (
@@ -88,6 +105,10 @@ function AttendanceContent() {
   const [error, setError] = useState<string | null>(null)
   const [startDate, setStartDate] = useState(getDefaultAttendanceStartDate())
   const [endDate, setEndDate] = useState(getTodayYmdInUruguay())
+  // Hasta que la persona elige otro período, se mira el ciclo lectivo (no desde el 1 de enero).
+  const rangeTouched = useRef(false)
+  const [licenses, setLicenses] = useState<MyLicense[]>([])
+  const canSeeLicenses = hasPermission(me, 'licenses.read')
   const [refresh, setRefresh] = useState(0)
   const [view, setView] = useState('history')
   const [type, setType] = useState('')
@@ -98,6 +119,35 @@ function AttendanceContent() {
     startDate && endDate && startDate > endDate
       ? 'La fecha de fin debe ser posterior al inicio.'
       : null
+  useEffect(() => {
+    let cancelled = false
+    api<{ data: { from: string; to: string } | null }>('/attendance/my-school-year')
+      .then((res) => {
+        if (cancelled || rangeTouched.current) return
+        const range = defaultMyAttendanceRange(res?.data ?? null, getTodayYmdInUruguay())
+        setStartDate(range.from)
+        setEndDate(range.to)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+    // Sólo al entrar: después el período lo elige la persona.
+  }, [])
+
+  useEffect(() => {
+    if (!canSeeLicenses) return
+    let cancelled = false
+    api<{ data: MyLicense[] }>('/medical-leaves/my-leaves?pageSize=100')
+      .then((res) => {
+        if (!cancelled) setLicenses(res?.data ?? [])
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [canSeeLicenses, refresh])
+
   useEffect(() => {
     if (!userId || rangeError) return
     let cancelled = false
@@ -162,15 +212,14 @@ function AttendanceContent() {
           startDate={startDate}
           endDate={endDate}
           onChange={(range) => {
+            rangeTouched.current = true
             setStartDate(range.startDate)
             setEndDate(range.endDate)
             setPage(1)
           }}
         />
         <p className="text-xs text-slate-500">
-          {loading
-            ? 'Consultando el período…'
-            : `Total: ${attendances.length} registros`}
+          {loading ? 'Consultando el período…' : recordCounts(attendances)}
         </p>
       </div>
       <div
@@ -220,35 +269,13 @@ function AttendanceContent() {
             />
           ) : summary ? (
             <>
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                {[
-                  [
-                    'Asistencia',
-                    `${summary.stats.pctAsistencia}%`,
-                    'text-emerald-600',
-                  ],
-                  [
-                    'Puntualidad',
-                    `${summary.stats.pctPuntualidad}%`,
-                    'text-emerald-600',
-                  ],
-                  ['Llegadas tarde', summary.stats.tarde, 'text-amber-600'],
-                  [
-                    'Faltas sin justificar',
-                    summary.stats.ausenteNoJustificado,
-                    'text-red-600',
-                  ],
-                ].map(([label, value, color]) => (
-                  <article
-                    key={label}
-                    className="rounded-xl border border-slate-200 bg-white p-4"
-                  >
-                    <h2 className="text-xs text-slate-500">{label}</h2>
-                    <p className={`mt-2 text-2xl font-bold ${color}`}>
-                      {value}
-                    </p>
-                  </article>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {myAttendanceTiles(summary.ownStats ?? summary.stats, summary.coverage).map((tile) => (
+                  <StatTile key={tile.label} label={tile.label} value={tile.value} detail={tile.detail} />
                 ))}
+                {canSeeLicenses && (
+                  <LicensesTile licenses={licenses} from={startDate || `${(endDate || getTodayYmdInUruguay()).slice(0, 4)}-01-01`} to={endDate || getTodayYmdInUruguay()} />
+                )}
               </div>
               <SettingsDetails
                 title="Mapa de asistencia"

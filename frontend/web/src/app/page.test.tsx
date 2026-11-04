@@ -479,19 +479,8 @@ const ownModules = ['events.read', 'attendance.read', 'licenses.read'].map(
 const schoolRead = { id: 'courses.read', scope: 'all' }
 const rolePermissions = [
   {
-    role: 'TEACHER',
-    permissions: [
-      ...ownModules,
-      { id: 'gradebook.read', scope: 'own' },
-    ],
-  },
-  {
     role: 'STAFF',
-    permissions: [
-      ...ownModules,
-      schoolRead,
-      { id: 'gradebook.read', scope: 'own' },
-    ],
+    permissions: [...ownModules, schoolRead],
   },
   {
     role: 'ADSCRIPTO',
@@ -569,6 +558,37 @@ it.each(rolePermissions)(
     )
   },
 )
+it('el docente tiene «Mi día»: sus clases de hoy, las listas atrasadas y lo que tiene que cerrar, sin repetir el menú', async () => {
+  const calls = vi.mocked(api)
+  calls.mockReset()
+  calls.mockImplementation(async (url) => {
+    if (url === '/auth/me') {
+      return {
+        id: 'u1',
+        name: 'Ana',
+        role: 'TEACHER',
+        permissions: [
+          ...ownModules,
+          { id: 'student-attendance.take', scope: 'own' },
+          { id: 'gradebook.read', scope: 'own' },
+        ],
+        isActive: true,
+        isApproved: true,
+        emailVerifiedAt: '2026-01-01',
+      } as never
+    }
+    if (String(url).startsWith('/student-attendance/mine/pending')) return { windowHours: 168, data: [] } as never
+    return (String(url).startsWith('/gradebook') ? { data: [] } : []) as never
+  })
+  renderHome()
+  expect(await screen.findByRole('heading', { name: 'Tus clases de hoy' })).toBeInTheDocument()
+  expect(await screen.findByText('Hoy no tenés clases.')).toBeInTheDocument()
+  expect(await screen.findByText('Estás al día: no te quedó ninguna lista sin pasar.')).toBeInTheDocument()
+  expect(await screen.findByText('No tenés reuniones para cerrar.')).toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: 'Accesos rápidos' })).not.toBeInTheDocument()
+  expect(calls.mock.calls.some(([url]) => String(url).startsWith('/events/my-events'))).toBe(false)
+})
+
 it('un perfil personalizado con indicadores no recibe enlaces a módulos que no puede consultar', async () => {
   vi.mocked(api).mockReset()
   vi.mocked(api).mockImplementation(async (url) =>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { editWindowNotice, isEditableNow } from './rollcall-window'
+import { editWindowNotice, isEditableNow, windowPhrase } from './rollcall-window'
 
 describe('isEditableNow', () => {
   const until = '2026-05-07T14:00:00.000Z'
@@ -58,5 +58,15 @@ describe('editWindowNotice', () => {
 
   it('no muestra aviso si no hay fecha límite', () => {
     expect(editWindowNotice({ canEdit: true, blockedReason: null, editableUntil: null })).toBeNull()
+  })
+})
+
+describe('windowPhrase', () => {
+  it('dice el plazo en palabras, el que haya fijado administración', () => {
+    expect(windowPhrase(168)).toBe('una semana')
+    expect(windowPhrase(72)).toBe('3 días')
+    expect(windowPhrase(24)).toBe('un día')
+    expect(windowPhrase(12)).toBe('12 horas')
+    expect(windowPhrase(1)).toBe('una hora')
   })
 })

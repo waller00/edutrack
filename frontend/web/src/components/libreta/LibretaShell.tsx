@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, BookOpen, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, FilePenLine, GraduationCap, LayoutList, Loader2, NotebookPen, UserRoundCheck, Users } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, BookOpen, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, FilePenLine, GraduationCap, LayoutList, Loader2, NotebookPen, TrendingUp, UserRoundCheck, Users } from 'lucide-react'
 import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
 import { useLibreta } from '@/contexts/LibretaContext'
 import { useOptionalAuth } from '@/contexts/AuthContext'
@@ -18,6 +18,7 @@ const SECTION_ICONS = {
   desarrollo: FilePenLine,
   evaluaciones: ClipboardList,
   cierre: CalendarDays,
+  seguimiento: TrendingUp,
   visado: CheckCheck,
 }
 

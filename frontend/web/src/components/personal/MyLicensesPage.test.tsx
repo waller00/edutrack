@@ -47,6 +47,7 @@ describe('MyLicensesPage', () => {
     fireEvent.click(screen.getByText('Notas de la licencia'))
     expect(screen.getByText('Control')).toBeVisible()
     expect(screen.getByText('01/01/2025 – 03/01/2025')).toBeInTheDocument()
+    expect(screen.getByText('· 3 días')).toBeInTheDocument()
     expect(screen.getByText('Licencia médica presentada')).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /editar/i }),
@@ -76,3 +77,16 @@ it('incluye todas las páginas del servidor y filtra por estado, búsqueda y fec
   expect(screen.getByText('Control de salud')).toBeVisible()
   expect(screen.queryByText('Licencia anterior')).not.toBeInTheDocument()
 })
+
+it('la vigente hoy va primero y lo dice con texto', async () => {
+  vi.mocked(api).mockReset()
+  vi.setSystemTime(new Date('2026-11-04T15:00:00.000Z'))
+  const license = (id: string, startDate: string, endDate: string) => ({ id, type: 'MEDICAL_LEAVE', status: 'ACTIVE', startDate, endDate, reason: id })
+  vi.mocked(api).mockResolvedValue({ data: [license('Vieja', '2026-05-01', '2026-05-02'), license('Actual', '2026-11-03', '2026-11-06')] })
+  render(<MyLicensesPage />)
+  expect(await screen.findByText('Vigente hoy')).toBeInTheDocument()
+  const reasons = screen.getAllByText(/^(Vieja|Actual)$/).map((node) => node.textContent)
+  expect(reasons).toEqual(['Actual', 'Vieja'])
+  vi.useRealTimers()
+})
+

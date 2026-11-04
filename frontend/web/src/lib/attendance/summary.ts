@@ -41,6 +41,10 @@ export type AttendanceSummaryPerson = {
   email: string
   rows: AttendanceSummaryRow[]
   stats: AttendanceSummaryStats
+  /** Lo mismo sin las clases que cubrió como suplente: la base de «Mis asistencias». */
+  ownStats?: AttendanceSummaryStats
+  /** Clases de otros que cubrió, y sus horas. */
+  coverage?: { classes: number; hours: number }
 }
 
 export type AttendanceSummaryResponse = {

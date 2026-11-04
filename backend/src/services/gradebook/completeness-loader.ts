@@ -1,6 +1,5 @@
 import { AuditAction } from '@prisma/client'
 import { prisma } from '../../db/prisma.js'
-import { loadRosterForScope, type RosterStudent } from '../student-attendance/roster.js'
 import {
   countMissingAssessmentGrades,
   countStudentsWithoutGrades,
@@ -10,6 +9,7 @@ import {
 } from './completeness.js'
 import { gradeBooksForGroup } from './institutional.js'
 import { assessmentPeriodsFor, isReportCardPeriod } from './period-closure.js'
+import { rostersByScope, scopeKeyOf } from './rosters.js'
 
 /** Un grupo del filtro: su oferta y, si tiene, su orientación. */
 export type CompletenessGroup = { courseOfferingId: string; courseOrientationId: string | null }
@@ -22,27 +22,6 @@ export type CompletenessPeriod = {
 }
 
 const hasText = (value: string | null | undefined) => (value ?? '').trim() !== ''
-
-type RosterScope = {
-  schoolYearId: string
-  courseOfferingId: string
-  orientationId: string | null
-  courseOrientationId: string | null
-}
-
-const scopeKeyOf = (s: RosterScope) => `${s.courseOfferingId}|${s.orientationId ?? ''}|${s.courseOrientationId ?? ''}`
-
-/**
- * Roster de cada grupo, una consulta por grupo y no por libreta: las doce materias de un grupo
- * comparten alumnos, y antes se pedían doce veces.
- */
-async function rostersByScope(scopes: readonly RosterScope[]): Promise<Map<string, RosterStudent[]>> {
-  const unique = new Map(scopes.map((scope) => [scopeKeyOf(scope), scope]))
-  const entries = await Promise.all(
-    [...unique].map(async ([key, scope]) => [key, await loadRosterForScope(scope)] as const),
-  )
-  return new Map(entries)
-}
 
 type RequestStamp = { before: string | null; after: string | null }
 

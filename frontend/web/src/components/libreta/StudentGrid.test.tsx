@@ -108,7 +108,7 @@ describe('<StudentGrid />', () => {
         students={[student({ studentId: 's9', absences: '1', absenceHundredths: 100, lates: 1 })]}
       />,
     )
-    expect(screen.getByText(/1 falta$/)).toBeInTheDocument()
+    expect(screen.getByText(/1 falta en el liceo$/)).toBeInTheDocument()
     expect(screen.getByText(/1 tarde$/)).toBeInTheDocument()
   })
 

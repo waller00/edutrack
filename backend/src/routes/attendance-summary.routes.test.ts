@@ -271,3 +271,27 @@ describe("attendance /my-attendances includeAbsences (mock analytics)", () => {
     expect(res.body[0].id).toBe("real-1");
   });
 });
+
+describe("GET /attendance/my-school-year", () => {
+  it("el ciclo activo en días, hasta hoy: Mis asistencias arranca ahí y no el 1 de enero", async () => {
+    vi.setSystemTime(new Date("2026-11-04T15:00:00.000Z"));
+    prismaMock.schoolYear.findFirst.mockResolvedValue({
+      id: "y26",
+      code: 2026,
+      label: "Ciclo 2026",
+      startsOn: new Date("2026-03-02T00:00:00.000Z"),
+      endsOn: new Date("2026-12-15T00:00:00.000Z"),
+    });
+    const res = await request(app()).get("/attendance/my-school-year").set("Authorization", `Bearer ${tok()}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ label: "Ciclo 2026", from: "2026-03-02", to: "2026-11-04" });
+    vi.useRealTimers();
+  });
+
+  it("sin ciclo activo, nada: la pantalla vuelve al año calendario", async () => {
+    prismaMock.schoolYear.findFirst.mockResolvedValue(null);
+    const res = await request(app()).get("/attendance/my-school-year").set("Authorization", `Bearer ${tok()}`);
+    expect(res.body.data).toBeNull();
+  });
+});
+

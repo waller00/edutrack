@@ -1,3 +1,5 @@
+import { periodWriteBlock } from './period-closure.js'
+
 /**
  * Ventana de edición de las calificaciones.
  *
@@ -65,6 +67,19 @@ export function resolveGradeEditPermissions(params: {
   }
 
   return { canEdit: true, editableUntil, blockedReason: null, outsideWindow: false }
+}
+
+/**
+ * Lo que puede hacer con una evaluación: la ventana de edición y, encima, el período. Un período
+ * cerrado congela sus evaluaciones aunque la ventana siga abierta, y manda sobre ella. Es lo que
+ * usan al escribir y lo que la pantalla recibe antes, para no ofrecer lo que después falla.
+ */
+export function assessmentWritePermissions(
+  params: Parameters<typeof resolveGradeEditPermissions>[0] & { periodStatus: 'OPEN' | 'CLOSED' | 'REOPENED' | null },
+): GradeEditPermissions {
+  const permissions = resolveGradeEditPermissions(params)
+  const block = periodWriteBlock({ periodStatus: params.periodStatus, gradeBookStatus: params.gradeBookStatus })
+  return block === 'CLOSED' ? { ...permissions, canEdit: false, blockedReason: 'PERIOD_CLOSED' } : permissions
 }
 
 export const GRADE_BLOCK_MESSAGES: Record<GradeBlockReason, string> = {

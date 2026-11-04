@@ -2,9 +2,13 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, BookMarked, ChevronDown, ChevronLeft, ChevronRight, GraduationCap, Loader2, Search, SlidersHorizontal, User } from 'lucide-react'
+import { AlertTriangle, ArrowRight, BookMarked, ChevronDown, ChevronLeft, ChevronRight, GraduationCap, Loader2, Search, SlidersHorizontal, User } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { permissionScope } from '@/lib/auth/permissions'
+import { cardStatus, ownerSummaries, type CardStatus, type LibretaSummary, type OwnerSummary } from '@/lib/gradebook/libreta-status'
+import { todayYmdUruguay } from '@/lib/libreta/absence-day'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import { gradeBookTitle } from '@/lib/gradebook/labels'
 import type { GradeBookHeader } from '@/lib/gradebook/types'
@@ -12,6 +16,7 @@ import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
 
 const PAGE_SIZES = [12, 24, 50]
 const EMPTY_FILTERS = { libreta: '', asignatura: '', docente: '', search: '', course: '', status: 'ALL' }
+const ADVANCED_FILTERS = [['asignatura', 'Asignatura'], ['docente', 'Docente']] as const
 const FIELD_CLASS = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100'
 
 /** Nombre corto de la libreta, como en la tapa: "1-EMS A · FÍSICA". */
@@ -43,7 +48,41 @@ export function filterLibretas(
   )
 }
 
-function LibretaCard({ book }: { book: GradeBookHeader }) {
+/** En qué está la libreta: la reunión que viene, su plazo y su etapa, qué falta y lo observado. */
+function LibretaStatus({ status }: { status: CardStatus }) {
+  const rest = status.missing.length - 3
+  return (
+    <div className="space-y-1.5 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="font-semibold text-slate-800">{status.meeting.name}</span>
+        {status.deadline && (
+          <span className={status.deadline.overdue ? 'font-medium text-red-700' : 'text-slate-500'}>{status.deadline.text}</span>
+        )}
+        <span className={`ml-auto inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-medium ${status.stage.className}`}>
+          <span aria-hidden>{status.stage.symbol}</span>
+          {status.stage.label}
+        </span>
+      </p>
+      {status.observed && (
+        <p className="flex items-start gap-1 text-amber-900">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          {status.observed}
+        </p>
+      )}
+      {status.missing.length > 0 && (
+        <ul className="space-y-0.5 text-slate-600" aria-label="Falta para cerrar">
+          {status.missing.slice(0, 3).map((text) => (
+            <li key={text}>· {text}</li>
+          ))}
+          {rest > 0 && <li>y {rest} {rest === 1 ? 'cosa' : 'cosas'} más</li>}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function LibretaCard({ book, summary, ownName }: { book: GradeBookHeader; summary?: OwnerSummary; ownName: boolean }) {
+  const status = summary && book.status === 'ACTIVE' ? cardStatus(summary, todayYmdUruguay()) : null
   return (
     <Link
       href={`/libreta/${book.id}`}
@@ -68,13 +107,17 @@ function LibretaCard({ book }: { book: GradeBookHeader }) {
             {book.orientation && <span className="mt-0.5 block text-xs text-slate-500">{book.orientation}</span>}
           </dd>
         </div>
-        <div className="flex items-start gap-2">
-          <User className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-          <dt className="sr-only">Docente</dt>
-          <dd className="min-w-0 break-words">{book.teacher?.name ?? 'Sin titular asignado'}</dd>
-        </div>
+        {/* Su propio nombre en cada tarjeta no le dice nada al docente. */}
+        {!ownName && (
+          <div className="flex items-start gap-2">
+            <User className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+            <dt className="sr-only">Docente</dt>
+            <dd className="min-w-0 break-words">{book.teacher?.name ?? 'Sin titular asignado'}</dd>
+          </div>
+        )}
       </dl>
       <div className="mt-auto space-y-3">
+        {status && <LibretaStatus status={status} />}
         {book.status === 'ARCHIVED' && (
           <p className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">Ciclo cerrado · sólo lectura</p>
         )}
@@ -94,7 +137,11 @@ function LibretaCard({ book }: { book: GradeBookHeader }) {
 export default function MisLibretas() {
   const schoolYear = useOptionalAdminSchoolYear()
   const query = schoolYear?.schoolYearScopedQuery ?? ''
+  const me = useOptionalAuth()?.me ?? null
+  // Quien sólo ve lo suyo no necesita filtrar por docente: todas son de él.
+  const ownOnly = permissionScope(me, 'gradebook.read') === 'own'
   const [books, setBooks] = useState<GradeBookHeader[]>([])
+  const [summaries, setSummaries] = useState<Map<string, OwnerSummary>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState(EMPTY_FILTERS)
@@ -130,6 +177,19 @@ export default function MisLibretas() {
     void load()
     return cancelPendingLoad
   }, [load, cancelPendingLoad])
+
+  // En qué está cada libreta propia. Sin esto las tarjetas igual se muestran, sin el estado.
+  useEffect(() => {
+    let alive = true
+    api<{ data: LibretaSummary[] }>('/gradebook/mine/summary')
+      .then((res) => {
+        if (alive) setSummaries(ownerSummaries(res?.data))
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const courses = useMemo(() => {
     const unique = new Map(books.map((book) => [book.course.id, book.course]))
@@ -177,7 +237,8 @@ export default function MisLibretas() {
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div role="group" aria-label="Estado de las libretas" className="inline-flex max-w-full gap-1 rounded-lg bg-slate-100 p-1">
-            {([['ALL', 'Todas'], ['ACTIVE', 'Activas'], ['ARCHIVED', 'Cerradas']] as const).map(([value, label]) => (
+            {/* Como el encabezado de la libreta: «Cerradas» se confundía con las reuniones cerradas. */}
+            {([['ALL', 'Todas'], ['ACTIVE', 'En curso'], ['ARCHIVED', 'Histórico']] as const).map(([value, label]) => (
               <button key={value} type="button" aria-pressed={filters.status === value} onClick={() => updateFilter('status', value)}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${filters.status === value ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600 hover:bg-white/60'}`}>{label}</button>
             ))}
@@ -193,7 +254,7 @@ export default function MisLibretas() {
           </div>
         </div>
         {showOptions && <div id={optionsId} className="grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-3">
-          {([['asignatura', 'Asignatura'], ['docente', 'Docente']] as const).map(([key, label]) => (
+          {ADVANCED_FILTERS.filter(([key]) => !ownOnly || key !== 'docente').map(([key, label]) => (
             <label key={key} className="min-w-0">
               <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
               <input value={filters[key]} onChange={(e) => updateFilter(key, e.target.value)} className={FIELD_CLASS} />
@@ -236,7 +297,11 @@ export default function MisLibretas() {
               {hasFilters && <button type="button" onClick={clearFilters} className="mt-4 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">Ver todas las libretas</button>}
             </div>
           ) : <ul data-tour="libretas.card" className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {visible.map((book) => <li key={book.id} className="min-w-0"><LibretaCard book={book} /></li>)}
+            {visible.map((book) => (
+              <li key={book.id} className="min-w-0">
+                <LibretaCard book={book} summary={summaries.get(book.id)} ownName={Boolean(me?.id) && book.teacher?.id === me?.id} />
+              </li>
+            ))}
           </ul>}
           {totalPages > 1 && <nav aria-label="Páginas de libretas" className="flex flex-wrap items-center justify-end gap-2 text-sm text-slate-600">
             <button type="button" onClick={() => setPage(current - 1)} disabled={current === 1} aria-label="Página anterior"

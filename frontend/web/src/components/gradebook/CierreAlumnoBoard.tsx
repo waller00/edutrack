@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -34,7 +34,8 @@ import { printStudentClosure } from '@/lib/gradebook/student-closure-export'
 import { formatClosureStamp, periodStatusText } from '@/lib/gradebook/period-info'
 import { todayYmdUruguay } from '@/lib/libreta/absence-day'
 import { libretaCode } from '@/components/libreta/MisLibretas'
-import type { GradeBookDetail, GradeBookHeader, RosterStudent } from '@/lib/gradebook/types'
+import type { GradeBookDetail, RosterStudent } from '@/lib/gradebook/types'
+import { useOptionalLibreta } from '@/contexts/LibretaContext'
 import PeriodBlock, { type BlockGrade, type BlockLevel } from './PeriodBlock'
 import MeetingClosePanel from './MeetingClosePanel'
 import GradeSelect from './GradeSelect'
@@ -286,7 +287,8 @@ export default function CierreAlumnoBoard({
   gradeBookId: string
   detail: GradeBookDetail
 }) {
-  const router = useRouter()
+  // Un aviso de «falta completar» trae la reunión: el panel y la tabla del grupo abren en ella.
+  const requestedPeriodId = useSearchParams()?.get('periodId') ?? null
   const students = detail.students
   const [focusIndex, setFocusIndex] = useState(0)
   // Abre en todo el grupo: es la forma de cerrar una reunión. La carta es para mirar a uno solo.
@@ -294,10 +296,9 @@ export default function CierreAlumnoBoard({
   const [groupDirty, setGroupDirty] = useState(false)
   // Desde el panel, "Ir al informe del grupo" o "la tabla del grupo" saltan a una reunión: la tabla
   // se vuelve a montar en ese período aunque ya estuviera abierta en otro.
-  const [groupJump, setGroupJump] = useState<{ periodId: string | null; n: number }>({ periodId: null, n: 0 })
+  const [groupJump, setGroupJump] = useState<{ periodId: string | null; n: number }>({ periodId: requestedPeriodId, n: 0 })
   // Cambia al guardar: el panel vuelve a contar lo que falta para cerrar.
   const [refreshKey, setRefreshKey] = useState(0)
-  const [mine, setMine] = useState<GradeBookHeader[]>([])
   const [sheet, setSheet] = useState<ClosureSheet | null>(null)
   const [board, setBoard] = useState<BoardResponse | null>(null)
   const [draft, setDraft] = useState<Draft>({})
@@ -313,14 +314,6 @@ export default function CierreAlumnoBoard({
   const courseLabel = `${detail.course.name} · ${detail.subject.name}`
   const libretaLabel = libretaCode(detail)
 
-  const loadMine = useCallback(async () => {
-    try {
-      const res = await api<{ data: GradeBookHeader[] }>('/gradebook/mine')
-      setMine(res.data ?? [])
-    } catch {
-      setMine([])
-    }
-  }, [])
 
   // Las notas de toda la libreta se piden una vez, no cada vez que se cambia de alumno.
   useEffect(() => {
@@ -360,10 +353,6 @@ export default function CierreAlumnoBoard({
   }, [gradeBookId, selected])
 
   useEffect(() => {
-    void loadMine()
-  }, [loadMine])
-
-  useEffect(() => {
     void loadStudent()
   }, [loadStudent])
 
@@ -382,6 +371,12 @@ export default function CierreAlumnoBoard({
   // Antes cambiar de alumno o de libreta tiraba lo cargado sin avisar.
   useUnsavedChangesWarning(dirty)
   const unsaved = mode === 'grupo' ? groupDirty : dirty
+  // El selector de grupo de la libreta pregunta antes de irse con cambios sin guardar.
+  const setLeaveGuard = useOptionalLibreta()?.setLeaveGuard
+  useEffect(() => {
+    setLeaveGuard?.({ dirty: unsaved, message: DISCARD_MESSAGE })
+    return () => setLeaveGuard?.(null)
+  }, [setLeaveGuard, unsaved])
 
   function selectStudent(studentId: string) {
     const idx = students.findIndex((s) => s.studentId === studentId)
@@ -512,30 +507,13 @@ export default function CierreAlumnoBoard({
         gradeBookId={gradeBookId}
         canClose={detail.access.canGrade}
         refreshKey={refreshKey}
+        initialPeriodId={requestedPeriodId}
         onChanged={() => void loadStudent()}
         onPickStudent={(studentId) => showStudent(studentId)}
         onOpenGroup={(periodId) => showGroup(periodId)}
       />
 
       <div className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-slate-100/80 px-3 py-2 text-sm">
-        <span className="font-medium text-slate-700">Libreta</span>
-        <select
-          value={gradeBookId}
-          onChange={(e) => {
-            const next = e.target.value
-            if (!next || next === gradeBookId || !confirmDiscard(unsaved, DISCARD_MESSAGE)) return
-            router.push(`/libreta/${next}/cierre`)
-          }}
-          className="min-w-[12rem] rounded border border-slate-300 bg-white px-2 py-1.5"
-          aria-label="Seleccionar libreta"
-        >
-          {(mine.length ? mine : [detail]).map((book) => (
-            <option key={book.id} value={book.id}>
-              {libretaCode(book)}
-            </option>
-          ))}
-        </select>
-
         {/* Las dos vistas a la vista: "Todo el grupo" estaba escondido como primera opción del
             buscador de alumnos. */}
         <div role="group" aria-label="Vista del cierre" className="inline-flex overflow-hidden rounded border border-slate-300 bg-white">
@@ -847,7 +825,8 @@ export default function CierreAlumnoBoard({
                                       ) : (
                                         <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
                                       )}
-                                      {missing ? 'Falta completar' : 'Completo'}
+                                      {/* Mira C, R y juicio de este alumno; las notas del tramo las cuenta el panel de arriba. */}
+                                      {missing ? 'Falta C, R o juicio' : 'C, R y juicio cargados'}
                                     </span>
                                   )}
                                 </td>

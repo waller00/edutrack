@@ -19,7 +19,11 @@ export default function RollCallBulkBar({ counts, disabled, saving, taken, hasCh
     <div className="sticky bottom-0 z-20 -mx-4 border-t border-slate-200 bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-6px_20px_-12px_rgba(15,23,42,0.3)] backdrop-blur sm:mx-0 sm:rounded-xl sm:border">
       <p className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500" aria-live="polite" aria-atomic="true">
         <span><strong className="tabular-nums text-emerald-700">{counts.present}</strong> presentes</span>
-        <span><strong className="tabular-nums text-red-700">{counts.absent + counts.justified}</strong> ausentes</span>
+        <span>
+          <strong className="tabular-nums text-red-700">{counts.absent + counts.justified}</strong> ausentes
+          {/* Las justificadas se cuentan aparte: en la fila dicen «Justificado», no «Ausente». */}
+          {counts.justified > 0 && ` (${counts.justified} ${counts.justified === 1 ? 'justificada' : 'justificadas'})`}
+        </span>
         <span><strong className="tabular-nums text-amber-700">{counts.late}</strong> tarde</span>
         {counts.pending > 0 && <span className="font-medium text-amber-800">{counts.pending} sin marcar</span>}
       </p>

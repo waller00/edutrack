@@ -4,8 +4,10 @@ import userEvent from '@testing-library/user-event'
 import CierreAlumnoBoard from './CierreAlumnoBoard'
 import type { GradeBookDetail } from '@/lib/gradebook/types'
 
+const { searchState } = vi.hoisted(() => ({ searchState: { query: '' } }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(searchState.query),
 }))
 
 const apiMock = vi.fn()
@@ -50,6 +52,7 @@ function openStudentView() {
 describe('<CierreAlumnoBoard />', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    searchState.query = ''
     apiMock.mockImplementation(async (path: string) => {
       if (String(path).includes('/mine')) return { data: [] }
       if (String(path).includes('/grades-board')) return { assessments: [], grades: [] }
@@ -272,16 +275,26 @@ describe('<CierreAlumnoBoard />', () => {
   it('un nombre de lo que falta en el panel abre la carta de ese alumno', async () => {
     const base = apiMock.getMockImplementation()!
     apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
-      if (path === '/gradebook/gb-1/periods') {
-        return { data: [{ periodId: 'p-1', name: '1.ª Entrega', kind: 'ENTREGA', isMeeting: true, status: 'OPEN' }] }
-      }
-      if (path === '/gradebook/gb-1/endorsements') return { data: [] }
-      if (path === '/gradebook/gb-1/periods/p-1') {
+      if (path === '/gradebook/gb-1/meetings') {
         return {
-          period: { id: 'p-1', name: '1.ª Entrega', judgementLabel: 'Informe de actuación' },
-          state: { status: 'OPEN', closedAt: null, closedLate: false, reopenReason: null },
-          blockers: [{ code: 'MISSING_GRADES', studentIds: ['s1'] }],
           students: [{ studentId: 's1', lastName: 'Cabrera', firstName: 'Camila' }],
+          data: [
+            {
+              periodId: 'p-1',
+              name: '1.ª Entrega',
+              kind: 'ENTREGA',
+              sortOrder: 30,
+              reportCard: true,
+              judgementLabel: 'Informe de actuación',
+              closesOn: null,
+              status: 'OPEN',
+              closedAt: null,
+              closedLate: false,
+              reopenReason: null,
+              missing: [{ code: 'MISSING_GRADES', studentIds: ['s1'] }],
+              review: null,
+            },
+          ],
         }
       }
       return base(path, init)
@@ -293,6 +306,33 @@ describe('<CierreAlumnoBoard />', () => {
 
     expect(screen.getByRole('button', { name: 'Alumno por alumno' })).toHaveAttribute('aria-pressed', 'true')
     expect(await screen.findByLabelText('R (rendimiento) de Marzo – Abril')).toBeInTheDocument()
+  })
+
+  it('un aviso con `?periodId=` abre esa reunión en el panel', async () => {
+    searchState.query = 'periodId=p-2'
+    const base = apiMock.getMockImplementation()!
+    const meeting = (periodId: string, name: string) => ({
+      periodId,
+      name,
+      kind: 'ENTREGA',
+      sortOrder: 30,
+      reportCard: true,
+      judgementLabel: null,
+      closesOn: null,
+      status: 'OPEN',
+      closedAt: null,
+      closedLate: false,
+      reopenReason: null,
+      missing: [],
+      review: null,
+    })
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === '/gradebook/gb-1/meetings') return { students: [], data: [meeting('p-1', '1.ª Entrega'), meeting('p-2', '2.ª Entrega')] }
+      return base(path, init)
+    })
+    render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /^2\.ª Entrega/ })).toHaveAttribute('aria-expanded', 'true'))
+    searchState.query = ''
   })
 
   it('no muestra combo ni textarea en períodos no habilitados', async () => {

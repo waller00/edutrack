@@ -96,6 +96,25 @@ describe('<RollCallTodayList />', () => {
     expect(apiMock).toHaveBeenCalledWith('/student-attendance/my-classes?date=2026-10-08')
   })
 
+  it('las que terminaron sin pasar van en «Sin pasar», no mezcladas con las pasadas', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/student-attendance/mine/pending') return { windowHours: 168, data: [] }
+      return [
+        row({
+          eventId: 'ev-0',
+          course: '1.º A',
+          startAt: '2026-10-08T11:00:00.000Z',
+          endAt: '2026-10-08T11:45:00.000Z',
+          rollCall: { opensAt: '2026-10-08T10:50:00.000Z' },
+        }),
+      ]
+    })
+    render(<RollCallTodayList />)
+    const overdue = await screen.findByRole('region', { name: 'Sin pasar' })
+    expect(within(overdue).getByText('1.º A')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Terminadas' })).not.toBeInTheDocument()
+  })
+
   it('dice quién da la clase cuando hay suplencia', async () => {
     apiMock.mockResolvedValue([
       row({ teacher: { id: 'bea', name: 'Beatriz Sosa' }, substitute: { id: 'ana', name: 'Ana Pérez' }, isSubstitution: true }),

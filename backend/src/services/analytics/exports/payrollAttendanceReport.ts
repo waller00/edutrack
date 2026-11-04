@@ -79,6 +79,13 @@ export type PayrollPersonReport = {
   email: string
   rows: PayrollEventRow[]
   stats: PayrollStats
+  /**
+   * Lo mismo sin las clases que cubrió como suplente: es la base de "Mis asistencias". En `stats`
+   * las coberturas suman a esperadas y presentes, así que el porcentaje no era de lo suyo.
+   */
+  ownStats: PayrollStats
+  /** Clases de otros que cubrió, y sus horas. */
+  coverage: { classes: number; hours: number }
 }
 
 export type PayrollReportData = {
@@ -322,6 +329,11 @@ function computeStats(items: ResolvedItem[]): PayrollStats {
   }
 }
 
+function coverageOf(items: readonly ResolvedItem[]): { classes: number; hours: number } {
+  const covered = items.filter((it) => it.isCoverage)
+  return { classes: covered.length, hours: roundTo(covered.reduce((acc, it) => acc + it.durationMinutes, 0) / 60) }
+}
+
 function toEventRow(it: ResolvedItem): PayrollEventRow {
   const presence = isPresenceStatus(it.checkInStatusResolved, it.isCoverage)
   const estado = it.isCoverage ? 'Cobertura (suplencia)' : STATUS_LABELS[it.checkInStatusResolved] ?? it.checkInStatusResolved
@@ -422,6 +434,8 @@ export async function buildPayrollAttendanceData(params: {
       email: sample.userEmail || '',
       rows: userItems.map(toEventRow),
       stats: computeStats(userItems),
+      ownStats: computeStats(userItems.filter((it) => !it.isCoverage)),
+      coverage: coverageOf(userItems),
     })
   }
   persons.sort((a, b) => a.nombre.localeCompare(b.nombre))

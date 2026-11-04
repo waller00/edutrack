@@ -44,8 +44,9 @@ export function getLicenseStatusBadgeClass(status: string): string {
   switch (status) {
     case 'ACTIVE':
       return 'bg-green-100 text-green-800'
+    // Una licencia dada de baja no es una alerta: va en neutro, no en el rojo de los errores.
     case 'INACTIVE':
-      return 'bg-red-100 text-red-800'
+      return 'bg-slate-100 text-slate-700'
     default:
       return 'bg-gray-100 text-gray-800'
   }

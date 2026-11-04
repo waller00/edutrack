@@ -35,7 +35,8 @@ export function editWindowNotice(params: {
       case 'LOCKED':
         return 'Administración cerró esta planilla. Pedile el cambio a secretaría.'
       case 'WINDOW_EXPIRED':
-        return 'Venció el plazo: la lista se puede pasar hasta una semana después de la clase. Pedile el cambio a secretaría.'
+        // El plazo lo fija administración (hasta una semana): no se dice uno fijo.
+        return 'Venció el plazo para pasar esta lista. Pedile el cambio a secretaría.'
       case 'NOT_ASSIGNED':
         return 'No sos el docente de esta clase.'
       case 'COVERED_BY_SUBSTITUTE':
@@ -48,4 +49,11 @@ export function editWindowNotice(params: {
   }
   if (!params.editableUntil) return null
   return `Podés editar esta lista hasta el ${formatDateTimeInUruguay(params.editableUntil)}.`
+}
+
+/** El plazo en palabras: 168 h → «una semana», 72 h → «3 días», 12 h → «12 horas». */
+export function windowPhrase(hours: number): string {
+  if (hours === 168) return 'una semana'
+  if (hours % 24 === 0) return hours === 24 ? 'un día' : `${hours / 24} días`
+  return hours === 1 ? 'una hora' : `${hours} horas`
 }

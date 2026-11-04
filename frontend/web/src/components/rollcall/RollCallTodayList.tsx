@@ -19,8 +19,9 @@ import {
   rollCallPhaseLabel,
   type RollCallPhase,
 } from '@/lib/rollcall/rollcall-phase'
-import { rollCallHref, timingOf, type RollCallClassRow } from '@/lib/rollcall/class-row'
+import { groupRowsByMoment, rollCallHref, timingOf, type RollCallClassRow } from '@/lib/rollcall/class-row'
 import ModuleHeader from '@/components/common/ModuleHeader'
+import OverdueRollCalls from './OverdueRollCalls'
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
 
@@ -123,9 +124,7 @@ export default function RollCallTodayList() {
   }
 
   const phased: PhasedRow[] = rows.map((row) => ({ ...row, phase: rollCallPhase(timingOf(row), now) }))
-  const current = phased.filter((row) => row.phase === 'OPEN')
-  const later = phased.filter((row) => row.phase === 'UPCOMING')
-  const done = phased.filter((row) => row.phase !== 'OPEN' && row.phase !== 'UPCOMING')
+  const groups = groupRowsByMoment(phased)
   const nonWorkingDay = rows.find((row) => row.nonWorkingDay)?.nonWorkingDay ?? null
   const meId = me?.id ?? null
 
@@ -171,6 +170,9 @@ export default function RollCallTodayList() {
         </div>
       </nav>
 
+      {/* Las de días anteriores que todavía se pueden pasar: antes había que ir día por día. */}
+      {date === today && <OverdueRollCalls hideWhenEmpty />}
+
       {msg ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{msg}</p> : null}
       {nonWorkingDay ? (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -189,9 +191,10 @@ export default function RollCallTodayList() {
         </p>
       ) : (
         <div className="space-y-5">
-          <Section title="Ahora" rows={current} meId={meId} highlight />
-          <Section title="Más tarde" rows={later} meId={meId} />
-          <Section title="Terminadas" rows={done} meId={meId} />
+          <Section title="Ahora" rows={groups.now} meId={meId} highlight />
+          <Section title="Sin pasar" rows={groups.overdue} meId={meId} highlight />
+          <Section title="Más tarde" rows={groups.later} meId={meId} />
+          <Section title="Terminadas" rows={groups.done} meId={meId} />
         </div>
       )}
     </div>

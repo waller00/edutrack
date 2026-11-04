@@ -2,21 +2,15 @@ import { Router } from 'express'
 import { requirePermission } from '../middlewares/auth.js'
 import { z } from 'zod'
 import { prisma } from '../db/prisma.js'
-import { applyEventStartDateFilter, expandRecurringEvent } from '../events/events-query.js'
 import { isYmdDateString } from '../config/app-timezone.js'
 import { todayUruguayYmd } from '../services/events/event-versioning.js'
-import { occurrenceYmdOf } from '../services/events/occurrence-instant.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { FULL_ABSENCE, HALF_ABSENCE, countsByDay } from '../services/student-attendance/absence-weight.js'
 import { AuditAction } from '@prisma/client'
 import { recordAuditEventNow } from '../services/audit-log.js'
-import {
-  clampPendingRange,
-  selectPendingOccurrences,
-  sessionKey,
-  type ExpandedOccurrence,
-} from '../services/student-attendance/pending.js'
+import { clampPendingRange } from '../services/student-attendance/pending.js'
 import { justifyStudentAbsence } from '../services/student-attendance/justify.js'
+import { loadPendingOccurrences } from '../services/student-attendance/pending-loader.js'
 import {
   createJustificationRange,
   listJustificationRanges,
@@ -149,96 +143,14 @@ r.get('/pending', async (req: any, res) => {
     })
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
 
-    // Las suplencias del rango: un día cubierto, la lista es del suplente (no del titular).
-    const substitutionRange = { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T23:59:59.999Z`) }
-    const teacherUserId = parsed.data.teacherUserId
-    const coveredByTeacher = teacherUserId
-      ? await prisma.substitution.findMany({
-          where: { substituteUserId: teacherUserId, date: substitutionRange },
-          select: { eventId: true },
-        })
-      : []
-
-    const where: Record<string, unknown> = {
-      type: 'CLASE',
-      status: { not: 'CANCELLED' },
-      parentEventId: null,
+    const rows = await loadPendingOccurrences({
       schoolYearId,
-      ...(parsed.data.courseOfferingId ? { courseOfferingId: parsed.data.courseOfferingId } : {}),
-      ...(parsed.data.subjectId ? { subjectId: parsed.data.subjectId } : {}),
-      // Las del docente como titular y las que cubrió como suplente.
-      ...(teacherUserId
-        ? { OR: [{ assignedUserId: teacherUserId }, { id: { in: coveredByTeacher.map((row) => row.eventId) } }] }
-        : {}),
-    }
-    applyEventStartDateFilter(where, from, to)
-
-    const events = await prisma.event.findMany({
-      where: where as never,
-      include: {
-        subject: { select: { name: true } },
-        orientation: { select: { name: true } },
-        courseOrientation: { select: { orientation: { select: { name: true } } } },
-        courseOffering: { select: { course: { select: { name: true } } } },
-        assignedUser: { select: { id: true, name: true, username: true } },
-        childEvents: true,
-      },
-      orderBy: { startTime: 'asc' },
+      from,
+      to,
+      teacherUserId: parsed.data.teacherUserId,
+      courseOfferingId: parsed.data.courseOfferingId,
+      subjectId: parsed.data.subjectId,
     })
-
-    const substitutions = events.length
-      ? await prisma.substitution.findMany({
-          where: { eventId: { in: events.map((e) => e.id) }, date: substitutionRange },
-          select: { eventId: true, date: true, substitute: { select: { id: true, name: true, username: true } } },
-        })
-      : []
-    const substituteByOccurrence = new Map(
-      substitutions.map((row) => [sessionKey(row.eventId, occurrenceYmdOf(row.date)), row.substitute]),
-    )
-
-    const occurrences: ExpandedOccurrence[] = events
-      .flatMap((event: any) =>
-        (expandRecurringEvent(event, from, to) as any[]).map((occ) => {
-          const startAt = new Date(occ.startTime ?? occ.startDate)
-          const ymd = occurrenceYmdOf(startAt)
-          // Responsable de la lista: el suplente del día, si lo hubo; si no, el titular.
-          const responsible = substituteByOccurrence.get(sessionKey(event.id, ymd)) ?? event.assignedUser
-          return {
-            eventId: event.id,
-            ymd,
-            startAt,
-            endAt: new Date(occ.endTime ?? occ.startDate),
-            title: event.title,
-            subject: event.subject?.name ?? null,
-            course: event.courseOffering?.course?.name ?? null,
-            orientation: event.courseOrientation?.orientation?.name ?? event.orientation?.name ?? null,
-            teacher: responsible ? { id: responsible.id, name: responsible.name, username: responsible.username } : null,
-            covered: substituteByOccurrence.has(sessionKey(event.id, ymd)),
-          }
-        }),
-      )
-      // Con filtro por docente, sólo las listas de las que es responsable: no las que cubrió otro.
-      .filter((occurrence) => !teacherUserId || occurrence.teacher?.id === teacherUserId)
-
-    const [nonWorkingRows, sessionRows] = await Promise.all([
-      (prisma as any).nonWorkingDay.findMany({
-        where: { date: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T00:00:00.000Z`) } },
-        select: { date: true },
-      }),
-      prisma.studentAttendanceSession.findMany({
-        where: { occurrenceYmd: { gte: from, lte: to }, eventId: { in: events.map((e) => e.id) } },
-        select: { id: true, eventId: true, occurrenceYmd: true, status: true },
-      }),
-    ])
-
-    const nonWorkingYmds = new Set<string>(
-      nonWorkingRows.map((row: { date: Date }) => new Date(row.date).toISOString().slice(0, 10)),
-    )
-    const sessions = new Map(
-      sessionRows.map((s) => [sessionKey(s.eventId, s.occurrenceYmd), { id: s.id, status: s.status as string }]),
-    )
-
-    const rows = selectPendingOccurrences({ occurrences, sessions, nonWorkingYmds, now: new Date() })
     const start = (parsed.data.page - 1) * parsed.data.pageSize
 
     return res.json({

@@ -69,59 +69,12 @@ export type CompletenessSummary = GradeBookCompleteness & {
   complete: boolean
 }
 
-export type AssessmentWithGrades = {
-  /** `INDIVIDUAL` es una nota suelta de un alumno; sin dato, es del grupo. */
-  scope?: 'GROUP' | 'INDIVIDUAL'
-  grades: readonly {
-    studentId: string
-    valueHundredths: number | null
-    scaleLevelId?: string | null
-    isAbsent: boolean
-  }[]
-}
-
-/** Alumnos con algo cargado en la evaluación. "No rindió" cuenta como cargado. */
-function loadedStudents(assessment: AssessmentWithGrades): Set<string> {
-  return new Set(
-    assessment.grades
-      .filter((g) => g.isAbsent || g.valueHundredths != null || g.scaleLevelId != null)
-      .map((g) => g.studentId),
-  )
-}
-
-/**
- * Notas que faltan en las evaluaciones **del grupo**, cruzando contra el roster: un alumno dado de
- * baja con nota no tapa a uno del grupo que no la tiene. Las notas sueltas no se cruzan: son de
- * un alumno, no de todos.
- */
-export function countMissingAssessmentGrades(
-  assessments: readonly AssessmentWithGrades[],
-  rosterIds: ReadonlySet<string>,
-): number {
-  let missing = 0
-  for (const assessment of assessments) {
-    if (assessment.scope === 'INDIVIDUAL') continue
-    const loaded = loadedStudents(assessment)
-    for (const studentId of rosterIds) if (!loaded.has(studentId)) missing += 1
-  }
-  return missing
-}
-
-/**
- * Alumnos del roster sin ninguna nota en esas evaluaciones. Sólo cuenta cuando el tramo tiene
- * nada más que notas sueltas: si hay una evaluación del grupo, el alumno sin notas ya falta en
- * ella, y contarlo otra vez repetiría el mismo faltante en el aviso.
- */
-export function countStudentsWithoutGrades(
-  assessments: readonly AssessmentWithGrades[],
-  rosterIds: ReadonlySet<string>,
-): number {
-  if (assessments.some((assessment) => assessment.scope !== 'INDIVIDUAL')) return 0
-  const graded = new Set(assessments.flatMap((assessment) => [...loadedStudents(assessment)]))
-  let missing = 0
-  for (const studentId of rosterIds) if (!graded.has(studentId)) missing += 1
-  return missing
-}
+// Las cuentas de evaluaciones viven en `meeting-readiness.ts`: son las mismas que pide el cierre.
+export {
+  countMissingAssessmentGrades,
+  countStudentsWithoutGrades,
+  type AssessmentWithGrades,
+} from './meeting-readiness.js'
 
 export function summarize(row: GradeBookCompleteness): CompletenessSummary {
   const missingGrades = row.requiresGrade ? Math.max(0, row.rosterSize - row.gradedCount) : 0

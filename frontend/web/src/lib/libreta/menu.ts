@@ -12,7 +12,7 @@
  * salen del pase de lista y se ven en la carta de cada alumno.
  */
 
-export type LibretaSectionId = 'planificacion' | 'desarrollo' | 'evaluaciones' | 'cierre' | 'visado'
+export type LibretaSectionId = 'planificacion' | 'desarrollo' | 'evaluaciones' | 'cierre' | 'seguimiento' | 'visado'
 
 export type LibretaSection = {
   id: LibretaSectionId
@@ -33,6 +33,12 @@ const WORK_SECTIONS: readonly LibretaSection[] = [
     hint: 'Carta por alumno como la planilla: notas sueltas por tramo, C (conducta) y R (rendimiento), e informe de cada entrega.',
   },
   { id: 'cierre', label: 'Cierre de períodos', abbr: 'Cie', hint: 'Conducta, rendimiento, juicio e informe del grupo, y cierre de cada entrega.' },
+  {
+    id: 'seguimiento',
+    label: 'Seguimiento del grupo',
+    abbr: 'Seg',
+    hint: 'Cómo viene el grupo en tu materia: faltas a tus clases, R en alerta y quiénes bajaron respecto del boletín anterior.',
+  },
 ]
 
 const ENDORSEMENT_SECTION: LibretaSection = {

@@ -2,14 +2,26 @@ import type { AuthMe } from '@/contexts/AuthContext'
 import { hasPermission, permissionScope, type PermissionScope } from '@/lib/auth/permissions'
 import { APP_MODULES, canSeeModule, moduleById, visibleModules, visibleNavGroups, visibleRelated, type AppModule, type ModuleId, type VisibleNavGroup } from './modules'
 import { navSpot, RELATED_SPOT, SCREEN_SPOTS, type Spot } from './onboarding-spots'
+import { homeVariant } from '@/lib/home/home-variant'
 
 type Capability = { permission: string; text: string; scope?: PermissionScope }
-type StepContent = { task: string; instructions: string; capabilities?: Capability[] }
+type StepContent = {
+  task: string
+  instructions: string
+  capabilities?: Capability[]
+  /** El paso sólo es de algunos: el Inicio del docente («Mi día») no es el de administración. */
+  when?: (me: AuthMe) => boolean
+}
 
 /** Las pantallas vienen del catálogo del menú; las acciones se filtran por separado. */
 const CONTENT: Partial<Record<ModuleId, StepContent>> = {
+  home: {
+    task: 'Conocé tu día',
+    instructions: 'En Inicio ves tus clases de hoy con el estado de su lista, las listas que te quedaron sin pasar y las reuniones que tenés que cerrar, con lo que le falta a cada libreta.',
+    when: (me) => homeVariant(me) === 'teacher',
+  },
   profile: { task: 'Revisá tu cuenta', instructions: 'Comprobá tus datos de contacto y revisá las opciones de contraseña y verificación en dos pasos.' },
-  'my-agenda': { task: 'Ubicá tu próxima clase o turno', instructions: 'Buscá una fecha en tu agenda y abrí un evento para consultar su horario y lugar.' },
+  'my-agenda': { task: 'Ubicá tu próxima clase o turno', instructions: 'Buscá una fecha en tu agenda y revisá el horario y el lugar de tus clases, turnos y reuniones.' },
   'roll-call': { task: 'Conocé el pase de lista', instructions: 'Elegí una de tus clases y revisá cómo se registra la presencia de cada estudiante. Cuando corresponda pasar lista, guardá el registro de esa clase.' },
   'my-attendance': { task: 'Consultá tus entradas y salidas', instructions: 'Elegí un período y revisá tus marcas y su resumen. Esta es tu asistencia como integrante del personal.' },
   'my-licenses': { task: 'Revisá tus licencias', instructions: 'Consultá las licencias registradas a tu nombre y sus fechas.' },
@@ -86,7 +98,7 @@ const CONTENT: Partial<Record<ModuleId, StepContent>> = {
 
 const GRADEBOOK_CONTENT: StepContent = {
   task: 'Explorá una libreta',
-  instructions: 'Elegí una libreta y ubicá sus estudiantes, evaluaciones, planificación e inasistencias. Las opciones disponibles dependen de tus permisos.',
+  instructions: 'Elegí una libreta y ubicá sus estudiantes, la planificación, las calificaciones, el cierre de cada reunión y el seguimiento del grupo. Las opciones disponibles dependen de tus permisos.',
   capabilities: [
     { permission: 'gradebook.plan', text: 'Cargar planificación y desarrollo de las clases.' },
     { permission: 'gradebook.grade', text: 'Registrar evaluaciones y calificaciones.' },
@@ -99,7 +111,7 @@ const GRADEBOOK_CONTENT: StepContent = {
 
 // Primero la cuenta y la preparación del centro; luego el trabajo cotidiano y su seguimiento.
 const ORDER: ModuleId[] = [
-  'profile', 'school-years', 'courses', 'gradebook-config', 'users', 'students', 'agenda',
+  'home', 'profile', 'school-years', 'courses', 'gradebook-config', 'users', 'students', 'agenda',
   'my-agenda', 'roll-call', 'my-gradebooks', 'gradebooks', 'student-attendance',
   'gradebook-control', 'teachers-meeting', 'student-indicators', 'my-attendance',
   'my-licenses', 'staff-attendance', 'staff-licenses', 'staff-indicators', 'tuition',
@@ -140,7 +152,7 @@ export function onboardingSteps(me: AuthMe | null): OnboardingStep[] {
     const entry = modules.find((candidate) => candidate.id === id)
     if (!entry) return []
     const content = id === 'my-gradebooks' || id === 'gradebooks' ? GRADEBOOK_CONTENT : CONTENT[id]
-    if (!content) return []
+    if (!content || (content.when && !content.when(me))) return []
     const ids = typeof entry.permission === 'string' ? [entry.permission] : entry.permission ?? []
     const institutional = entry.group !== 'mine' && ids.some((permission) => permissionScope(me, permission) === 'all')
     return [{

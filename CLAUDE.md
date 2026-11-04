@@ -184,6 +184,11 @@ docker compose up -d --build auth  # rebuild solo el backend
 > anticipación que el reloj (`earlyEntryWindowMinutes`). Como el biométrico, guarda `date` = inicio
 > del día civil y `time` = instante. Alimenta la liquidación: no aceptar hora ni día del cliente.
 
+> **«Mis asistencias» cuenta lo propio y abre en el ciclo lectivo.** `/attendance/summary` trae
+> `ownStats` (sin las clases que cubrió como suplente: en `stats` suman a esperadas y presentes) y
+> `coverage`; `GET /attendance/my-school-year` da el rango del ciclo activo. Cada número dice de
+> cuántos sale, y una clase con suplente es "Ausencia con suplente", no una falta en rojo.
+
 > **Asistencia del personal rearma todo el ciclo en cada carga.** Las ausencias sin marca no se
 > guardan: `/attendance/all` y `/stats` (y Mis asistencias y la liquidación) expanden las clases con
 > `getPlannedInstances`. Ahí nada de conversiones de zona horaria por día ni por marca: van una vez
@@ -264,6 +269,14 @@ calculadas con la hora del cliente: no confiar en un `canEdit` viejo.
 > `resolveSubstitutionOccurrence` en `Substitution.date`. Si difieren, el suplente recibe un 403
 > silencioso. Nunca `new Date(ymd)`.
 
+> **Las listas atrasadas del docente** salen de `loadPendingOccurrences`
+> (`services/student-attendance/pending-loader.ts`), el mismo cálculo de "Listas sin pasar" de
+> administración, y `selectTeacherDue` deja las que todavía puede pasar (en plazo, sin cerrar, sin
+> licencia ese día si es el titular): `GET /student-attendance/mine/pending`. Al expandir clases el
+> rango va al mediodía de cada día civil: con `YYYY-MM-DD` la expansión lo leía como la medianoche
+> UTC, que en Uruguay es el día anterior, y el último día quedaba afuera. La pantalla no dice "una
+> semana": el plazo lo fija administración (`windowPhrase`).
+
 > **Un día cubierto, la lista es del suplente.** Si hay `Substitution` ese día, el responsable es
 > sólo el suplente: le llegan los avisos, figura en "Listas sin pasar" (también por el filtro de
 > docente) y queda como `takenBy`. El titular ve la planilla pero no la pasa
@@ -307,9 +320,12 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > editan lo suyo (visar / justificar). Inspección se retiró (`RETIRED_ORG_ROLE_CODES`): no se lista
 > y el arranque la borra en cuanto queda sin usuarios. Los "Mis …" del menú (agenda, asistencias,
 > licencias) no fijan alcance: quien ve todo conserva lo propio. **La cuenta de Administración no
-> tiene "Mi trabajo"** (es la del sistema) y **Personal y el docente ven en el menú sólo "Mi
-> trabajo"**: quien no puede abrir nada más que lo suyo no recibe Inicio ni Configuración
-> (`visibleNavGroups`); los tiene en el logo y en el botón de su cuenta. **El docente no ve
+> tiene "Mi trabajo"** (es la del sistema) y **Personal ve en el menú sólo "Mi trabajo"**: quien
+> no puede abrir nada más que lo suyo no recibe Inicio ni Configuración (`visibleNavGroups`); los
+> tiene en el logo y en el botón de su cuenta. **El docente recibe además Inicio, que para él es
+> «Mi día»** (`hasOwnTeachingWork`, `homeVariant`): sus clases de hoy con la lista, las listas
+> atrasadas que todavía puede pasar, las reuniones por cerrar con lo que falta, lo observado y sus
+> grupos. Reemplaza los accesos que repetían el menú. **El docente no ve
 > «Cursos»** (`courses.read`, revocado al TEACHER): ninguna pantalla suya lo usa, y sus libretas
 > filtran por sus propios grupos. No devolvérselo "para filtrar": con un permiso `all` vuelve a
 > recibir Inicio, Académico y Configuración en el menú.
@@ -421,6 +437,20 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > `InstitutionBranding` (Configuración → Institución), no del código: el logo va en su tabla para
 > no arrastrarlo en cada lectura de `SystemSettings`, y sólo PNG/JPEG porque pdfkit no dibuja otros.
 
+> **«Lista para cerrar» es lo mismo que pide el control** (`meetingReadiness`,
+> `services/gradebook/meeting-readiness.ts`). En una reunión de boletín, además de R, C, juicio e
+> informe del grupo, el cierre exige las evaluaciones de los tramos que informa: cada alumno con
+> alguna nota y cada evaluación del grupo con nota para todos ("No rindió" cuenta). Antes el cierre
+> no las miraba y el control mandaba "falta completar". `summarize` (el control) y el cierre usan
+> las mismas cuentas. `GET /gradebook/:id/meetings` da el estado y lo que falta de **todas** las
+> reuniones (el panel de cierre); `GET /gradebook/mine/summary`, lo mismo de cada libreta propia
+> para Mis libretas y «Mi día» (de una suplencia, sólo hasta cuándo).
+
+> **La pantalla no ofrece lo que después falla.** `POST /gradebook/:id/assessments` rechaza un
+> período cerrado y una fecha ya fuera del plazo (`assessmentWritePermissions`: el período cerrado
+> manda sobre la ventana), y `grades-board` dice por evaluación `canEdit`, `blockedReason` y
+> `editableUntil`: Calificaciones muestra un candado con el motivo y sólo ofrece tramos abiertos.
+
 > **Control y visado de libretas es una sola pantalla** (`/libreta/control`, `ControlVisadoPanel`):
 > una reunión en tres pasos (Carga, Cierre, Visado) que comparten la reunión y el grupo, cada uno con
 > lo que le falta. Carga y Cierre son sólo de las reuniones de boletín y piden `gradebook.review`;
@@ -432,6 +462,12 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > arriba lo que cerró el docente (`CierreGrupoTable` con `readOnly`) y abajo la decisión
 > (`VisadoDecision`: visar, observar, dar por corregido, reabrir), con "Siguiente para revisar".
 > No hay visado desde la fila ni en lote (se sacó `POST /endorsements/bulk`): no volver a ofrecerlo.
+
+> **«Seguimiento del grupo» es sólo de esa libreta** (`services/gradebook/group-indicators.ts`,
+> `GET /gradebook/:id/indicators`, sección `seguimiento`): faltas a las clases de esa materia (con
+> clases y marcas como base), R en alerta del último boletín con notas y quiénes bajaron respecto del
+> anterior. Nunca notas de otras materias, cuántas tiene bajas un alumno ni sus previas, y sin los
+> umbrales de 18 y 25 faltas: son del liceo y los sigue administración. Cerrada al suplente.
 
 > **Las adecuaciones guardan un enlace, nunca el informe.** Un informe psicológico de un menor es un
 > documento clínico, y la política de privacidad lo prohíbe (§4 bis). Las cargan Administración,

@@ -214,6 +214,18 @@ Registro **sin login obligatorio** del alumnado:
 ### 9.2 Vista personal
 
 - `/me/attendance`, `/teacher/attendance`, `/staff/attendance`: historial propio.
+- **Abre en el ciclo lectivo hasta hoy** (`GET /attendance/my-school-year`), no el 1 de enero; entre
+  ciclos, en el año calendario.
+- **Cada número dice de cuántos sale:** asistencia («36 de 40 clases y turnos con entrada marcada»),
+  puntualidad (a tiempo de los que marcaron entrada, con los minutos tarde), faltas (sin justificar,
+  justificadas y con suplente), horas trabajadas de las planificadas, licencias del período y, aparte,
+  las clases que cubrió como suplente. Son las propias (`ownStats` de `/attendance/summary`): las
+  coberturas no suman a la asistencia.
+- Una clase que dio un suplente dice "Ausencia con suplente" (en ámbar, no una falta en rojo), una
+  licencia dice "Licencia", y las salidas van en neutro. Arriba, «12 entradas · 11 salidas · 2
+  faltas y ausencias» en vez de un total mezclado.
+- **Mis licencias** dice cuántos días tiene cada una, marca la «Vigente hoy» (o «Empieza el 12/11»)
+  con icono y texto, y la pone primero.
 
 ### 9.3 Biométrico (ADMS)
 
@@ -290,7 +302,13 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
 (la planilla, pensada para el celular). Control: `/admin/student-attendance`.
 
 - **Agenda del día del docente:** el día se elige con flechas o con la fecha, y viaja en la URL
-  (`?date=`). Las clases se ordenan en **Ahora**, **Más tarde** y **Terminadas**.
+  (`?date=`). Las clases se ordenan en **Ahora**, **Sin pasar** (terminó y todavía está en plazo),
+  **Más tarde** y **Terminadas**. Hoy, arriba van además las **listas atrasadas** de días
+  anteriores que todavía se pueden pasar, con hasta cuándo («Vence el jue 6/11 a las 12:40»).
+  - Salen de `GET /student-attendance/mine/pending`: el mismo cálculo de "Listas sin pasar" de
+    administración (`loadPendingOccurrences`), sólo las propias, en plazo, sin cerrar y sin licencia
+    ese día si es el titular. El día cubierto como suplente es del suplente.
+  - El plazo se dice como lo fijó administración (`windowPhrase`): no siempre es una semana.
   - Cada clase muestra el grupo, la asignatura, la hora y el estado de la lista: "Abre 09:50",
     "Pasá la lista", "Sin pasar", "Pasada 10:07" o "Fuera de plazo".
   - Con suplencia dice quién da la clase: "Suplencia: cubrís a …" o "La pasa … (suplencia)".
@@ -388,8 +406,33 @@ puente Excel hacia Moodle, que no persistía nada y era sólo para administraci�
 Profesor de papel — una libreta es un libro con capítulos siempre visibles a la izquierda, no una
 pantalla con paneles apilados.
 
-**Pantallas del docente:** `/libreta` (mis libretas, con filtros Libreta / Asignatura / Docente) y
-`/libreta/[id]`, que abre el Libro del Profesor. El menú depende de quién mira
+**Pantallas del docente:** `/libreta` (mis libretas, con filtros Libreta / Asignatura, y Docente
+sólo para quien ve las de todos) y `/libreta/[id]`, que abre el Libro del Profesor.
+
+- **Cada tarjeta dice en qué está la libreta** (`GET /gradebook/mine/summary`): la reunión que viene
+  con su plazo («cierra el 14/11» o «venció el 14/11»), la etapa (Cargar → Cerrar → Revisión →
+  Visada), qué falta y de quiénes («3 sin R (rendimiento): Pérez, Ana · Gómez, Beto y 1 más») y lo
+  observado. De una suplencia, sólo hasta cuándo la tiene. Los filtros de estado son «En curso» e
+  «Histórico», como el encabezado de la libreta.
+- **«Lista para cerrar» pide lo mismo que el control** (`meetingReadiness`): en una reunión de
+  boletín, además de R, C, juicio e informe del grupo, las evaluaciones de los tramos que informa,
+  con nota (o «No rindió») para todo el grupo. El panel de cierre muestra la etapa de todas las
+  reuniones (`GET /gradebook/:id/meetings`), abre la del aviso (`?periodId=`), y los faltantes de
+  notas llevan a la carta del alumno en Calificaciones.
+- **No se ofrece lo que después falla:** una nota de un período cerrado o fuera de plazo muestra un
+  candado con el motivo («Período cerrado», «Plazo vencido el 12/10») en vez del lápiz y el tacho;
+  una nota nueva sólo se puede poner en un tramo abierto y con una fecha dentro del plazo, y el
+  backend rechaza las dos cosas al crear la evaluación.
+- **Un solo selector de libreta:** el del encabezado. Si hay cambios sin guardar en el cierre,
+  pregunta antes de cambiar de grupo.
+- **Seguimiento del grupo** (sección `seguimiento`, `GET /gradebook/:id/indicators`): las faltas a
+  las clases de esa materia (clases con lista y marcas como base; sin justificar, justificadas y
+  tarde, por alumno), la R en alerta del último boletín con notas («4 de 30 … todavía sin cerrar»)
+  con la distribución por tramo, y quiénes subieron, bajaron o siguen igual respecto del boletín
+  anterior. Es sólo de esa libreta: nunca notas de otras materias, cuántas materias tiene bajas un
+  alumno ni sus previas, y sin los umbrales de 18 y 25 faltas (son del liceo). El suplente no lo ve.
+- En la lista del grupo, las faltas dicen «N faltas en el liceo» en texto neutro: ya no se pintan de
+  ámbar y rojo a las 10 y 20, una escala que no era ningún umbral. El menú depende de quién mira
 (`sectionsFor` en `lib/libreta/menu.ts`):
 - **Suplente:** sólo **Tus notas (suplencia)** (`evaluaciones`), con la lista del grupo. Ver
   "Acceso del suplente" más abajo.
@@ -1100,8 +1143,8 @@ El menú lateral (`UserNav`) muestra cada entrada según **permisos**, no por ro
 
 | Grupo | Qué tiene |
 |-------|-----------|
-| Inicio | Inicio y la **Guía** (`/guia`) |
-| Mi trabajo | Lo propio: Mi agenda, Pase de lista, Mis libretas, Mis asistencias, Mis licencias. No lo tiene la cuenta de Administración; Personal ve sólo este grupo |
+| Inicio | Inicio y la **Guía** (`/guia`). Para el docente, Inicio es **«Mi día»** |
+| Mi trabajo | Lo propio: Mi agenda, Pase de lista, Mis libretas, Mis asistencias, Mis licencias. No lo tiene la cuenta de Administración; Personal ve sólo este grupo, y el docente este e Inicio |
 | Personal | Asistencia del personal, Licencias, Agenda y clases, Usuarios, Indicadores del personal |
 | Estudiantes | Estudiantes, Asistencia de estudiantes, Indicadores de estudiantes, Mensualidades |
 | Académico | Ciclos lectivos, Cursos |
@@ -1114,7 +1157,14 @@ El menú lateral (`UserNav`) muestra cada entrada según **permisos**, no por ro
 - **Encabezado:** cada pantalla dice de qué grupo es y para qué sirve. Si tiene una pantalla parecida
   con la que se confunde, ofrece el enlace ("¿Buscás las faltas de los estudiantes?").
 - **La Guía:** explica la diferencia entre las dos asistencias y lista sólo lo que la persona
-  puede usar. Inicio la ofrece la primera vez, con un aviso que se cierra.
+  puede usar. Inicio la ofrece la primera vez, con un aviso que se cierra. El recorrido del docente
+  empieza por «Mi día».
+- **«Mi día», el Inicio del docente** (`TeacherDay`): sus clases de hoy con la lista («Pasar
+  lista», «Listas pasadas 2 de 4», «Con licencia: no la das»), las listas atrasadas que todavía
+  puede pasar, lo que Dirección o Adscripción le observaron, las reuniones por cerrar («2.ª Entrega
+  · cierra el 14/11 · 1 de 6 libretas cerradas», con lo que le falta a cada una) y una línea por
+  grupo con su seguimiento. Reemplaza los accesos rápidos, que repetían el menú, y las cuatro
+  «próximas clases» sin el estado de su lista. Personal conserva sus accesos y su agenda.
 
 ---
 

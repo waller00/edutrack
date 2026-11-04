@@ -1,115 +1,69 @@
 'use client'
 
 import { Fragment, useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { AlertTriangle, Loader2, Lock } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
+import { ENDORSEMENT_SECTION_LABELS, formatEndorsementDate, REVIEW_SECTIONS, sectionState } from '@/lib/gradebook/endorsements'
 import {
-  ENDORSEMENT_SECTION_LABELS,
-  formatEndorsementDate,
-  REVIEW_SECTIONS,
-  sectionState,
-  type EndorsementHistoryEntry,
-  type EndorsementRow,
-} from '@/lib/gradebook/endorsements'
+  blockerTitle,
+  closeErrorText,
+  fixedInGrades,
+  openingMeeting,
+  type Blocker,
+  type MeetingSummary,
+} from '@/lib/gradebook/closure-blockers'
 import { meetingStage, type MeetingStage } from '@/lib/gradebook/meeting-stage'
 import MeetingStepper from './MeetingStepper'
 
-type MeetingRow = {
-  periodId: string
-  name: string
-  kind?: 'DIAGNOSTICO' | 'TRAMO' | 'ENTREGA'
-  isMeeting?: boolean
-  status: 'OPEN' | 'CLOSED' | 'REOPENED'
-  closesOn?: string | null
-  closedAt?: string | null
-  closedLate?: boolean
-}
+type MeetingRow = MeetingSummary
 
-type Blocker = {
-  code: 'MISSING_GRADES' | 'MISSING_CONDUCT' | 'MISSING_JUDGEMENT' | 'MISSING_GROUP_REPORT'
-  studentIds: string[]
-}
-
-/** La planilla de la reunión: lo que falta para cerrar ya viene calculado, con los alumnos. */
-type Sheet = {
-  period: { id: string; name: string; judgementLabel?: string | null }
-  state: { status: 'OPEN' | 'CLOSED' | 'REOPENED'; closedAt: string | null; closedLate: boolean; reopenReason: string | null }
-  blockers: Blocker[]
-  students: Array<{ studentId: string; lastName: string; firstName: string }>
-}
-
-type ReviewRow = EndorsementRow & { reopenReason: string | null; history: EndorsementHistoryEntry[] }
+type Student = { studentId: string; lastName: string; firstName: string }
 
 type Message = { kind: 'ok' | 'error'; text: string } | null
-
-const BLOCKER_LABELS: Record<Blocker['code'], string> = {
-  MISSING_GRADES: 'sin R (rendimiento)',
-  MISSING_CONDUCT: 'sin C (conducta)',
-  MISSING_JUDGEMENT: 'sin informe o juicio',
-  MISSING_GROUP_REPORT: 'falta el informe del grupo',
-}
-
-/** "3 sin R (rendimiento)"; el informe del grupo no es de alumnos, va sin número. */
-function blockerText(blocker: Blocker): string {
-  const label = BLOCKER_LABELS[blocker.code] ?? blocker.code
-  return blocker.code === 'MISSING_GROUP_REPORT' ? label : `${blocker.studentIds.length} ${label}`
-}
-
-/** El 409 del cierre trae la lista completa de faltantes en `detail.blockers`. */
-export function closeErrorText(err: unknown): string {
-  const data = (err as { data?: { message?: string; detail?: { blockers?: Blocker[] } } })?.data
-  const blockers = data?.detail?.blockers ?? []
-  if (blockers.length > 0) {
-    const list = blockers.map(blockerText).join(' · ')
-    return `No se puede cerrar todavía: ${list}.`
-  }
-  return data?.message ?? (err instanceof Error ? err.message : 'No se pudo cerrar')
-}
-
-/** La reunión que se abre desplegada: la primera sin cerrar; si están todas cerradas, la última. */
-export function openingMeeting<T extends Pick<MeetingRow, 'status'>>(meetings: readonly T[]): T | null {
-  return meetings.find((meeting) => meeting.status !== 'CLOSED') ?? meetings.at(-1) ?? null
-}
 
 function dayMonth(ymd: string): string {
   const [, month, day] = ymd.slice(0, 10).split('-')
   return `${day}/${month}`
 }
 
-function blockerTitle(code: Blocker['code'], judgementLabel: string | null | undefined): string {
-  if (code === 'MISSING_GRADES') return 'R (rendimiento)'
-  if (code === 'MISSING_CONDUCT') return 'C (conducta)'
-  if (code === 'MISSING_JUDGEMENT') return judgementLabel?.trim() || 'Juicio'
-  return 'Informe del grupo'
-}
-
 const SHOWN_NAMES = 4
 
-/** Los alumnos a los que les falta algo: cada nombre abre su carta. */
+/**
+ * Los alumnos a los que les falta algo. Cada nombre abre su carta en el cierre; si lo que falta son
+ * notas de evaluaciones, abre su carta en Calificaciones, que es donde se cargan.
+ */
 function StudentLinks({
   ids,
   students,
   onPick,
+  gradesHref,
 }: {
   ids: readonly string[]
-  students: Sheet['students']
+  students: readonly Student[]
   onPick?: (studentId: string) => void
+  gradesHref?: (studentId: string) => string
 }) {
   const names = new Map(students.map((s) => [s.studentId, `${s.lastName}, ${s.firstName}`]))
   const rest = ids.length - SHOWN_NAMES
+  const name = (id: string) => names.get(id) ?? 'Alumno'
   return (
     <>
       {ids.slice(0, SHOWN_NAMES).map((id, index) => (
         <Fragment key={id}>
           {index > 0 && ' · '}
-          {onPick ? (
+          {gradesHref ? (
+            <Link href={gradesHref(id)} className="font-medium text-emerald-700 hover:underline">
+              {name(id)}
+            </Link>
+          ) : onPick ? (
             <button type="button" onClick={() => onPick(id)} className="font-medium text-emerald-700 hover:underline">
-              {names.get(id) ?? 'Alumno'}
+              {name(id)}
             </button>
           ) : (
-            <span>{names.get(id) ?? 'Alumno'}</span>
+            <span>{name(id)}</span>
           )}
         </Fragment>
       ))}
@@ -118,12 +72,74 @@ function StudentLinks({
   )
 }
 
-function Missing({
-  sheet,
+/** Lo que dice cada faltante: el informe del grupo lleva a la tabla; el resto, a los alumnos. */
+function MissingItem({
+  blocker,
+  gradeBookId,
+  meeting,
+  students,
   onPickStudent,
   onOpenGroup,
 }: {
-  sheet: Sheet
+  blocker: Blocker
+  gradeBookId: string
+  meeting: MeetingRow
+  students: readonly Student[]
+  onPickStudent?: (studentId: string) => void
+  onOpenGroup?: (periodId: string) => void
+}) {
+  const title = <span className="font-medium">{blockerTitle(blocker.code, meeting.judgementLabel)}</span>
+  if (blocker.code === 'MISSING_GROUP_REPORT') {
+    return (
+      <li className="list-disc">
+        {title}
+        {onOpenGroup && (
+          <>
+            {' · '}
+            <button type="button" onClick={() => onOpenGroup(meeting.periodId)} className="font-medium text-emerald-700 hover:underline">
+              Ir al informe del grupo
+            </button>
+          </>
+        )}
+      </li>
+    )
+  }
+  const inGrades = fixedInGrades(blocker.code)
+  const gradesHref = inGrades ? (id: string) => `/libreta/${gradeBookId}/evaluaciones?alumno=${encodeURIComponent(id)}` : undefined
+  return (
+    <li className="list-disc">
+      {title}
+      {blocker.code === 'NO_ASSESSMENTS' ? (
+        <>
+          {': no hay ninguna en los tramos de esta reunión · '}
+          <Link href={`/libreta/${gradeBookId}/evaluaciones`} className="font-medium text-emerald-700 hover:underline">
+            Ir a Calificaciones
+          </Link>
+        </>
+      ) : (
+        <>
+          {blocker.code === 'MISSING_ASSESSMENT_GRADES' && blocker.slots
+            ? ` (${blocker.slots} ${blocker.slots === 1 ? 'nota' : 'notas'}; a quien no rindió, marcale «No rindió»): `
+            : ': '}
+          <StudentLinks ids={blocker.studentIds} students={students} onPick={onPickStudent} gradesHref={gradesHref} />
+        </>
+      )}
+    </li>
+  )
+}
+
+function Missing({
+  gradeBookId,
+  meeting,
+  blockers,
+  students,
+  onPickStudent,
+  onOpenGroup,
+}: {
+  gradeBookId: string
+  meeting: MeetingRow
+  blockers: readonly Blocker[]
+  students: readonly Student[]
   onPickStudent?: (studentId: string) => void
   onOpenGroup?: (periodId: string) => void
 }) {
@@ -134,37 +150,20 @@ function Missing({
         Falta para cerrar
       </p>
       <ul className="space-y-1 pl-5">
-        {sheet.blockers.map((blocker) => (
-          <li key={blocker.code} className="list-disc">
-            <span className="font-medium">{blockerTitle(blocker.code, sheet.period.judgementLabel)}</span>
-            {blocker.code === 'MISSING_GROUP_REPORT' ? (
-              onOpenGroup ? (
-                <>
-                  {' · '}
-                  <button
-                    type="button"
-                    onClick={() => onOpenGroup(sheet.period.id)}
-                    className="font-medium text-emerald-700 hover:underline"
-                  >
-                    Ir al informe del grupo
-                  </button>
-                </>
-              ) : null
-            ) : (
-              <>
-                {': '}
-                <StudentLinks ids={blocker.studentIds} students={sheet.students} onPick={onPickStudent} />
-              </>
-            )}
-          </li>
+        {blockers.map((blocker) => (
+          <MissingItem
+            key={blocker.code}
+            blocker={blocker}
+            gradeBookId={gradeBookId}
+            meeting={meeting}
+            students={students}
+            onPickStudent={onPickStudent}
+            onOpenGroup={onOpenGroup}
+          />
         ))}
       </ul>
-      {onOpenGroup && (
-        <button
-          type="button"
-          onClick={() => onOpenGroup(sheet.period.id)}
-          className="text-sm font-medium text-emerald-700 hover:underline"
-        >
+      {onOpenGroup && blockers.some((blocker) => !fixedInGrades(blocker.code)) && (
+        <button type="button" onClick={() => onOpenGroup(meeting.periodId)} className="text-sm font-medium text-emerald-700 hover:underline">
           Completarlo en la tabla de todo el grupo
         </button>
       )}
@@ -173,7 +172,7 @@ function Missing({
 }
 
 /** Lo que Dirección o Adscripción observaron en esta reunión y sigue sin corregir. */
-function Observations({ review }: { review: ReviewRow | null }) {
+function Observations({ review }: { review: MeetingRow['review'] }) {
   const live = review ? REVIEW_SECTIONS.map((s) => sectionState(review, s)).filter((s) => s.status === 'OBSERVED') : []
   if (live.length === 0) return null
   return (
@@ -208,8 +207,7 @@ function withTramos(res: CloseResult | undefined): string {
 function MeetingDetail({
   gradeBookId,
   meeting,
-  sheet,
-  review,
+  students,
   stage,
   canClose,
   canReopen,
@@ -219,8 +217,7 @@ function MeetingDetail({
 }: {
   gradeBookId: string
   meeting: MeetingRow
-  sheet: Sheet | null
-  review: ReviewRow | null
+  students: readonly Student[]
   stage: MeetingStage
   canClose: boolean
   canReopen: boolean
@@ -284,8 +281,9 @@ function MeetingDetail({
         </p>
       ) : (
         <OpenMeeting
+          gradeBookId={gradeBookId}
           meeting={meeting}
-          sheet={sheet}
+          students={students}
           canClose={canClose}
           confirming={confirming}
           busy={busy}
@@ -296,7 +294,7 @@ function MeetingDetail({
           onOpenGroup={onOpenGroup}
         />
       )}
-      <Observations review={review} />
+      <Observations review={meeting.review} />
       {closed && canReopen && (
         <Reopen
           meeting={meeting}
@@ -336,6 +334,7 @@ export default function MeetingClosePanel({
   gradeBookId,
   canClose,
   refreshKey = 0,
+  initialPeriodId = null,
   onChanged,
   onPickStudent,
   onOpenGroup,
@@ -344,63 +343,44 @@ export default function MeetingClosePanel({
   canClose: boolean
   /** Cambia cuando se guardó algo en la tabla o en la carta: lo que falta se vuelve a contar. */
   refreshKey?: number
+  /** La reunión que se abre desplegada: la de un aviso (`?periodId=`). */
+  initialPeriodId?: string | null
   /** Se cerró o se reabrió una reunión: quien la usa recarga lo que depende del estado. */
   onChanged?: () => void
   onPickStudent?: (studentId: string) => void
   onOpenGroup?: (periodId: string) => void
 }) {
   const canReopen = hasPermission(useOptionalAuth()?.me, 'gradebook.manage', 'all')
-  const [meetings, setMeetings] = useState<MeetingRow[] | null>(null)
-  const [reviews, setReviews] = useState<ReviewRow[]>([])
+  const [data, setData] = useState<{ students: Student[]; data: MeetingRow[] } | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [sheet, setSheet] = useState<Sheet | null>(null)
   const [version, setVersion] = useState(0)
 
+  // Un solo pedido: el estado y lo que falta de todas las reuniones, con los nombres del grupo.
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      api<{ data: MeetingRow[] }>(`/gradebook/${gradeBookId}/periods`)
-        .then((res) => (res?.data ?? []).filter((period) => period.isMeeting))
-        .catch(() => [] as MeetingRow[]),
-      api<{ data: ReviewRow[] }>(`/gradebook/${gradeBookId}/endorsements`)
-        .then((res) => res?.data ?? [])
-        // Sin el visado el cierre sigue sirviendo: sólo no se ven las observaciones.
-        .catch(() => [] as ReviewRow[]),
-    ]).then(([rows, reviewRows]) => {
-      if (cancelled) return
-      setMeetings(rows)
-      setReviews(reviewRows)
-      setSelectedId((current) =>
-        current && rows.some((row) => row.periodId === current) ? current : (openingMeeting(rows)?.periodId ?? null),
-      )
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [gradeBookId, refreshKey, version])
-
-  useEffect(() => {
-    if (!selectedId) return
-    let cancelled = false
-    api<Sheet>(`/gradebook/${gradeBookId}/periods/${selectedId}`)
+    api<{ students: Student[]; data: MeetingRow[] }>(`/gradebook/${gradeBookId}/meetings`)
       .then((res) => {
-        if (!cancelled) setSheet(res ?? null)
+        if (cancelled) return
+        const rows = res?.data ?? []
+        setData({ students: res?.students ?? [], data: rows })
+        setSelectedId((current) =>
+          current && rows.some((row) => row.periodId === current) ? current : (openingMeeting(rows, initialPeriodId)?.periodId ?? null),
+        )
       })
       .catch(() => {
-        if (!cancelled) setSheet(null)
+        if (!cancelled) setData({ students: [], data: [] })
       })
     return () => {
       cancelled = true
     }
-  }, [gradeBookId, selectedId, refreshKey, version])
+  }, [gradeBookId, refreshKey, version, initialPeriodId])
 
   const onDone = useCallback(() => {
     setVersion((value) => value + 1)
     onChanged?.()
   }, [onChanged])
 
-  if (!meetings || meetings.length === 0) return null
-  const current = sheet && sheet.period.id === selectedId ? sheet : null
+  if (!data || data.data.length === 0) return null
 
   return (
     <section aria-labelledby="cierre-reuniones" className="rounded-lg border border-slate-200 bg-white">
@@ -413,19 +393,9 @@ export default function MeetingClosePanel({
         </p>
       </header>
       <ul className="mt-2 divide-y divide-slate-100 border-t border-slate-100">
-        {meetings.map((meeting) => {
-          const review = reviews.find((row) => row.period.id === meeting.periodId) ?? null
+        {data.data.map((meeting) => {
           const isSelected = meeting.periodId === selectedId
-          const stage = meetingStage(
-            {
-              periodStatus: meeting.status,
-              missing: isSelected && current ? current.blockers.length : null,
-              closedAt: meeting.closedAt ?? null,
-              reopenReason: review?.reopenReason ?? null,
-              endorsement: review,
-            },
-            'teacher',
-          )
+          const stage = stageOf(meeting)
           return (
             <li key={meeting.periodId}>
               <button
@@ -446,8 +416,7 @@ export default function MeetingClosePanel({
                 <MeetingDetail
                   gradeBookId={gradeBookId}
                   meeting={meeting}
-                  sheet={current}
-                  review={review}
+                  students={data.students}
                   stage={stage}
                   canClose={canClose}
                   canReopen={canReopen}
@@ -464,6 +433,20 @@ export default function MeetingClosePanel({
   )
 }
 
+/** La etapa de la reunión, con lo que le falta: ahora se sabe para todas, no sólo la elegida. */
+function stageOf(meeting: MeetingRow): MeetingStage {
+  return meetingStage(
+    {
+      periodStatus: meeting.status,
+      missing: meeting.missing ? meeting.missing.length : null,
+      closedAt: meeting.closedAt,
+      reopenReason: meeting.reopenReason,
+      endorsement: meeting.review ? { ...meeting.review, periodStatus: meeting.status } : null,
+    },
+    'teacher',
+  )
+}
+
 function StageChip({ stage }: { stage: MeetingStage }) {
   return (
     <span className={`ml-auto inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${stage.className}`}>
@@ -475,8 +458,9 @@ function StageChip({ stage }: { stage: MeetingStage }) {
 
 /** Una reunión sin cerrar: qué falta, o el botón para cerrarla. */
 function OpenMeeting({
+  gradeBookId,
   meeting,
-  sheet,
+  students,
   canClose,
   confirming,
   busy,
@@ -486,8 +470,9 @@ function OpenMeeting({
   onPickStudent,
   onOpenGroup,
 }: {
+  gradeBookId: string
   meeting: MeetingRow
-  sheet: Sheet | null
+  students: readonly Student[]
   canClose: boolean
   confirming: boolean
   busy: boolean
@@ -497,16 +482,18 @@ function OpenMeeting({
   onPickStudent?: (studentId: string) => void
   onOpenGroup?: (periodId: string) => void
 }) {
-  if (!sheet) {
+  const missing = meeting.missing ?? []
+  if (missing.length > 0) {
     return (
-      <p className="flex items-center gap-2 text-sm text-slate-500">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-        Revisando qué falta…
-      </p>
+      <Missing
+        gradeBookId={gradeBookId}
+        meeting={meeting}
+        blockers={missing}
+        students={students}
+        onPickStudent={onPickStudent}
+        onOpenGroup={onOpenGroup}
+      />
     )
-  }
-  if (sheet.blockers.length > 0) {
-    return <Missing sheet={sheet} onPickStudent={onPickStudent} onOpenGroup={onOpenGroup} />
   }
   if (!canClose) return null
   if (!confirming) {

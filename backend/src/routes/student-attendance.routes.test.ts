@@ -25,6 +25,9 @@ vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../services/non-working-days.js", () => ({
   findNonWorkingDayForDate: vi.fn().mockResolvedValue(null),
 }));
+vi.mock("../services/school-year-service.js", () => ({
+  getActiveSchoolYearId: vi.fn().mockResolvedValue("sy-1"),
+}));
 vi.mock("../config/system-settings.js", () => ({
   getStudentRollCallSettings: vi.fn().mockResolvedValue({
     editWindowHours: 48,
@@ -309,6 +312,19 @@ describe("student-attendance routes", () => {
     expect(res.body[0].rollCall.status).toBe("PENDING");
   });
 
+  it("my-classes marca la clase que el titular no da por licencia, con una sola consulta", async () => {
+    prismaMock.event.findMany.mockResolvedValue([classEvent()]);
+    prismaMock.medicalLeave.findMany.mockResolvedValue([
+      { startDate: new Date("2026-05-11T00:00:00.000Z"), endDate: new Date("2026-05-11T00:00:00.000Z") },
+    ]);
+    const res = await request(app())
+      .get(`/student-attendance/my-classes?date=${YMD}`)
+      .set("Authorization", `Bearer ${tok()}`);
+    expect(res.body[0].onLicense).toBe(true);
+    expect(prismaMock.medicalLeave.findMany).toHaveBeenCalledTimes(1);
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
+  });
+
   it("my-classes rechaza una fecha inválida", async () => {
     const res = await request(app())
       .get("/student-attendance/my-classes?date=05-2026")
@@ -488,3 +504,35 @@ describe("student-attendance routes", () => {
     });
   });
 });
+
+describe("GET /student-attendance/mine/pending", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.substitution.findMany.mockResolvedValue([]);
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
+    prismaMock.studentAttendanceSession.findMany.mockResolvedValue([]);
+    (prismaMock as any).nonWorkingDay = { findMany: vi.fn().mockResolvedValue([]) };
+  });
+
+  it("sólo las listas propias de días anteriores, con hasta cuándo se pueden pasar", async () => {
+    vi.setSystemTime(new Date("2026-05-12T15:00:00.000Z"));
+    prismaMock.event.findMany.mockResolvedValue([classEvent()]);
+
+    const res = await request(app()).get("/student-attendance/mine/pending").set("Authorization", `Bearer ${tok()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.windowHours).toBe(48);
+    expect(res.body.to).toBe("2026-05-11");
+    // La clase se busca como titular o como suplente de quien pide, nunca de otro.
+    expect(prismaMock.event.findMany.mock.calls[0][0].where.OR[0]).toEqual({ assignedUserId: TEACHER_ID });
+    expect(res.body.data.map((row: any) => row.ymd)).toEqual([YMD]);
+    expect(res.body.data[0]).toMatchObject({ covered: false, titular: null, editableUntil: "2026-05-13T12:00:00.000Z" });
+    vi.useRealTimers();
+  });
+
+  it("Personal, que no pasa lista, no tiene a qué entrar", async () => {
+    const res = await request(app()).get("/student-attendance/mine/pending").set("Authorization", `Bearer ${tok("STAFF", "staff-1")}`);
+    expect(res.status).toBe(403);
+  });
+});
+

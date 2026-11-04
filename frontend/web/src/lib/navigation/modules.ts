@@ -533,12 +533,22 @@ export type VisibleNavGroup = NavGroupMeta & { id: NavGroupId; modules: AppModul
  * suyo (Personal: sus asistencias y sus licencias) ve únicamente "Mi trabajo": Inicio, la Guía y su
  * perfil siguen en el botón de la cuenta, y el logo lleva a Inicio.
  */
+/**
+ * ¿Da clases? El docente pasa lista o tiene libretas propias. Su Inicio es «Mi día» (las clases de
+ * hoy, las listas atrasadas y lo que tiene que cerrar), así que lo tiene en el menú; Personal, que
+ * sólo ve sus ingresos y licencias, no.
+ */
+export function hasOwnTeachingWork(me: NavViewer): boolean {
+  return permissionScope(me, 'student-attendance.take') === 'own' || permissionScope(me, 'gradebook.read') === 'own'
+}
+
 export function visibleNavGroups(me: NavViewer): VisibleNavGroup[] {
   const modules = visibleModules(me)
   const onlyOwnWork =
     modules.some((entry) => entry.group === 'mine') &&
     modules.every((entry) => entry.group === 'mine' || !entry.permission)
-  const groups: readonly NavGroupId[] = onlyOwnWork ? ['mine'] : NAV_GROUP_ORDER
+  const ownGroups: readonly NavGroupId[] = hasOwnTeachingWork(me) ? ['inicio', 'mine'] : ['mine']
+  const groups: readonly NavGroupId[] = onlyOwnWork ? ownGroups : NAV_GROUP_ORDER
   return groups
     .map((id) => ({
       id,

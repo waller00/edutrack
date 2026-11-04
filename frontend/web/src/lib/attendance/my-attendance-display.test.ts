@@ -5,6 +5,8 @@ import {
   getAttendanceStatusStyle,
   getAttendanceStatusLabel,
   getAttendanceStatusLabelForType,
+  getAttendanceKindLabel,
+  isAbsenceStatus,
 } from '@/lib/attendance/my-attendance-display'
 
 describe('my-attendance-display', () => {
@@ -17,7 +19,8 @@ describe('my-attendance-display', () => {
     expect(getAttendanceTypeLabel('CHECK_IN')).toBe('Entrada')
     expect(getAttendanceTypeLabel('CHECK_OUT')).toBe('Salida')
     expect(getAttendanceTypeStyle('CHECK_IN')).toContain('bg-green-100')
-    expect(getAttendanceTypeStyle('CHECK_OUT')).toContain('bg-red-100')
+    // Una salida no es una falta: neutro, no rojo.
+    expect(getAttendanceTypeStyle('CHECK_OUT')).toContain('bg-slate-100')
   })
 
   it('returns the visible label for each attendance status', () => {
@@ -48,4 +51,15 @@ describe('my-attendance-display', () => {
     expect(getAttendanceStatusLabelForType('CHECK_OUT', 'ABSENT_NOT_JUSTIFIED')).toBe('Salida pendiente')
     expect(getAttendanceStatusLabelForType('CHECK_IN', 'ABSENT_NOT_JUSTIFIED')).toBe('Ausencia sin justificar')
   })
+
+  it('una clase con suplente es una ausencia prevista, no una falta en rojo; la licencia es licencia', () => {
+    expect(getAttendanceKindLabel('CHECK_IN', 'SUBSTITUTED')).toBe('Ausencia')
+    expect(getAttendanceStatusLabel('SUBSTITUTED')).toBe('Ausencia con suplente')
+    expect(getAttendanceStatusStyle('SUBSTITUTED')).toContain('bg-amber-100')
+    expect(getAttendanceKindLabel('CHECK_IN', 'MEDICAL_LEAVE')).toBe('Licencia')
+    expect(getAttendanceKindLabel('CHECK_IN', 'ABSENT_NOT_JUSTIFIED')).toBe('Falta')
+    expect(getAttendanceKindLabel('CHECK_OUT', 'EXIT')).toBe('Salida')
+    expect(isAbsenceStatus('PRESENT')).toBe(false)
+  })
 })
+

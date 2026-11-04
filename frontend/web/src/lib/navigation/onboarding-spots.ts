@@ -18,16 +18,40 @@ export type Spot = {
 
 const GRADEBOOK_SPOTS: Spot[] = [
   { target: 'libretas.filters', title: 'Buscá una libreta', text: 'Filtrá por grupo, asignatura o estado.' },
-  { target: 'libretas.card', title: 'Las libretas', text: 'Cada tarjeta es un grupo y una asignatura. Abrí una para trabajar en ella.' },
+  {
+    target: 'libretas.card',
+    title: 'Las libretas',
+    text: 'Cada tarjeta es un grupo y una asignatura, con la reunión que viene, su plazo y qué le falta. Abrila para trabajar en ella.',
+  },
   {
     target: 'libreta.menu',
     title: 'Las secciones de la libreta',
-    text: 'Planificación, desarrollo del curso, calificaciones y cierre de períodos, en el orden de la libreta de papel.',
+    text: 'Planificación, desarrollo del curso, calificaciones y cierre de períodos, en el orden de la libreta de papel, y el seguimiento del grupo en tu materia.',
   },
   { target: 'libreta.groups', title: 'Cambiá de grupo', text: 'Pasá a otra libreta sin volver a la lista: quedás en la misma sección.' },
 ]
 
 export const SCREEN_SPOTS: Partial<Record<ModuleId, Spot[]>> = {
+  home: [
+    {
+      target: 'home.today',
+      title: 'Tus clases de hoy',
+      text: 'Cada una con su lista: «Pasar lista» cuando toca, y cuántas llevás pasadas.',
+      permission: { id: 'student-attendance.take' },
+    },
+    {
+      target: 'home.pending',
+      title: 'Listas atrasadas',
+      text: 'Las de días anteriores que todavía podés pasar, con hasta cuándo.',
+      permission: { id: 'student-attendance.take' },
+    },
+    {
+      target: 'home.closings',
+      title: 'Reuniones por cerrar',
+      text: 'Qué le falta a cada libreta y de quiénes. Es lo mismo que mira Dirección en el control.',
+      permission: { id: 'gradebook.read', scope: 'own' },
+    },
+  ],
   profile: [
     { target: 'profile.sections', title: 'Tu cuenta en tres partes', text: 'Datos personales, Seguridad y Notificaciones. Pasá de una a otra con estos botones.' },
     { target: 'profile.data', title: 'Tus datos', text: 'Revisá que el correo y el teléfono estén bien: por ahí te llegan los avisos.' },
@@ -53,7 +77,7 @@ export const SCREEN_SPOTS: Partial<Record<ModuleId, Spot[]>> = {
     {
       target: 'roll-call.save',
       title: 'Guardá la lista',
-      text: 'Cuando marcaste a todos, guardá. Podés corregir la lista hasta una semana después de la clase.',
+      text: 'Cuando marcaste a todos, guardá. Podés corregir la lista dentro del plazo, que corre desde el fin de la clase.',
     },
   ],
   'my-gradebooks': GRADEBOOK_SPOTS,

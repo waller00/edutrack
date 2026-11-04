@@ -34,7 +34,7 @@ describe('admin-licenses-display', () => {
   it('tipo y estado', () => {
     expect(getLicenseTypeLabel('MEDICAL_LEAVE')).toContain('Médica')
     expect(getLicenseStatusLabel('ACTIVE')).toBe('Activa')
-    expect(getLicenseStatusBadgeClass('INACTIVE')).toContain('red')
+    expect(getLicenseStatusBadgeClass('INACTIVE')).toContain('slate')
     expect(getLicenseStatusBadgeClass('UNKNOWN')).toContain('gray')
   })
 })

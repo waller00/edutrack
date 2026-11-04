@@ -8,12 +8,14 @@ describe('menú del Libro del Profesor', () => {
       'desarrollo',
       'evaluaciones',
       'cierre',
+      'seguimiento',
     ])
     expect(sectionById('mensajes')).toBeUndefined()
   })
 
   it('el suplente sólo tiene sus notas: lo demás de la libreta es del titular', () => {
     const sections = sectionsFor({ supervises: false, substitute: true })
+    // Tampoco el seguimiento del grupo: son las notas y las faltas del titular.
     expect(sections.map((s) => s.id)).toEqual(['evaluaciones'])
     expect(sections[0].label).toBe('Tus notas (suplencia)')
   })
@@ -24,6 +26,7 @@ describe('menú del Libro del Profesor', () => {
       'desarrollo',
       'evaluaciones',
       'cierre',
+      'seguimiento',
       'visado',
     ])
     expect(sectionsFor({ supervises: false }).some((s) => s.id === 'visado')).toBe(false)

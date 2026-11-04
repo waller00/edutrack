@@ -11,10 +11,12 @@ describe('onboarding por permisos reales', () => {
   it.each(BUILTIN_PROFILE_ROLES)('cubre las pantallas de %s sin ofrecer accesos ajenos', (role) => {
     const me = profile(role)
     const steps = onboardingSteps(me)
-    expect(steps[0].module.id).toBe('profile')
+    // El docente empieza por su día; el resto, por su cuenta.
+    expect(steps[0].module.id).toBe(role === 'TEACHER' ? 'home' : 'profile')
     expect(new Set(steps.map((step) => step.module.id)).size).toBe(steps.length)
     for (const step of steps) expect(canSeeModule(me, step.module), step.module.id).toBe(true)
-    const expected = visibleModules(me).filter((entry) => !['home', 'guide'].includes(entry.id)).map((entry) => entry.id)
+    const skipped = role === 'TEACHER' ? ['guide'] : ['home', 'guide']
+    const expected = visibleModules(me).filter((entry) => !skipped.includes(entry.id)).map((entry) => entry.id)
     expect(steps.map((step) => step.module.id).sort()).toEqual([...expected, 'messages'].sort())
   })
 
@@ -26,6 +28,7 @@ describe('onboarding por permisos reales', () => {
 
   it('el docente trabaja en sus propias libretas y clases', () => {
     const steps = onboardingSteps(profile('TEACHER'))
+    expect(steps[0].spots.map((spot) => spot.target)).toEqual(['home.today', 'home.pending', 'home.closings', 'nav:home'])
     expect(steps.find((step) => step.module.id === 'roll-call')).toBeDefined()
     const books = steps.find((step) => step.module.id === 'my-gradebooks')!
     expect(books.actions.join(' ')).toMatch(/calificaciones/)

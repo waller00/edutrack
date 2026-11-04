@@ -7,6 +7,11 @@ import type { GradeBookHeader } from '@/lib/gradebook/types'
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
 
+const { libretaState } = vi.hoisted(() => ({ libretaState: { confirmLeave: null as null | (() => boolean) } }))
+vi.mock('@/contexts/LibretaContext', () => ({
+  useOptionalLibreta: () => (libretaState.confirmLeave ? { confirmLeave: libretaState.confirmLeave } : null),
+}))
+
 const push = vi.fn()
 // El router tiene que ser el MISMO objeto en cada render (ver ElegirLibreta.test.tsx).
 const router = { push, replace: vi.fn() }
@@ -30,6 +35,7 @@ function book(id: string, subject: string): GradeBookHeader {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  libretaState.confirmLeave = null
 })
 
 describe('<GroupSwitcher />', () => {
@@ -78,5 +84,17 @@ describe('<GroupSwitcher />', () => {
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalled())
     expect(screen.queryByLabelText('Cambiar de libreta')).not.toBeInTheDocument()
+  })
+
+  it('con cambios sin guardar pregunta antes de cambiar de grupo, y si no se acepta se queda', async () => {
+    mockedApi.mockResolvedValue({ data: [book('gb-1', 'Física'), book('gb-2', 'Química')] })
+    const confirmLeave = vi.fn(() => false)
+    libretaState.confirmLeave = confirmLeave
+
+    render(<GroupSwitcher gradeBookId="gb-1" section="cierre" />)
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Cambiar de libreta' }), { target: { value: 'gb-2' } })
+
+    expect(confirmLeave).toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
   })
 })

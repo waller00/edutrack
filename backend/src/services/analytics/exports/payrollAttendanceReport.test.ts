@@ -141,6 +141,9 @@ describe('buildPayrollAttendanceData', () => {
     expect(suplente.stats.horasTrabajadas).toBe(1) // sin fichaje → duración planificada
     expect(suplente.stats.pctAsistencia).toBe(100)
     expect(suplente.rows[0].estado).toBe('Cobertura (suplencia)')
+    // Lo suyo, sin lo que cubrió: es la base de "Mis asistencias".
+    expect(suplente.ownStats.esperadas).toBe(0)
+    expect(suplente.coverage).toEqual({ classes: 1, hours: 1 })
 
     // El titular sigue apareciendo con el suplido
     const titularP = data.persons.find((p) => p.userId === 'u1')!

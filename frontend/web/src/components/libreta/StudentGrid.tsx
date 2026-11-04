@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { ArrowUpRight, CalendarX2, Clock, Search, X } from 'lucide-react'
 import { useStudentPhoto } from '@/lib/hooks/useStudentPhoto'
-import { absenceTone } from '@/lib/libreta/badges'
+import { absenceLabel } from '@/lib/libreta/badges'
 import { studentFullName } from '@/lib/gradebook/labels'
 import type { RosterStudent } from '@/lib/gradebook/types'
 import StudentBadges, { type StudentBadgeFocus } from './StudentBadges'
@@ -135,11 +135,11 @@ export default function StudentGrid({
                 />
                 <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-slate-100 pt-3 text-xs">
                   <span
-                    className={`inline-flex items-center gap-1 ${absenceTone(absenceHundredths)}`}
-                    title="Faltas del ciclo en todo el liceo, contando las medias faltas"
+                    className="inline-flex items-center gap-1 text-gray-600"
+                    title="Faltas del ciclo en todas las materias, contando las medias faltas. Las de tu materia están en su carta, en Calificaciones."
                   >
                     <CalendarX2 className="h-3.5 w-3.5" aria-hidden />
-                    {absences} falta{absenceHundredths === 100 ? '' : 's'}
+                    {absenceLabel(absenceHundredths, absences)}
                   </span>
                   <span className="inline-flex items-center gap-1 text-gray-500" title="Llegadas tarde acumuladas">
                     <Clock className="h-3.5 w-3.5" aria-hidden />

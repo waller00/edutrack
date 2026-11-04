@@ -49,11 +49,10 @@ export function badgeFor(code: string): StudentBadge {
 }
 
 /**
- * Color del contador de inasistencias, a partir del total en **centésimos** (250 = 2,5 faltas).
- * El número siempre se muestra escrito: el color es refuerzo, nunca la única señal (RNF 7.2).
+ * El contador de faltas de la lista del grupo, en texto neutro. Antes se pintaba de ámbar a las 10
+ * y de rojo a las 20, una escala que no era ningún umbral del liceo ni se explicaba: las faltas
+ * del docente se miran en su materia, y los umbrales del reglamento son de administración.
  */
-export function absenceTone(hundredths: number): string {
-  if (hundredths >= 2000) return 'text-red-700'
-  if (hundredths >= 1000) return 'text-amber-700'
-  return 'text-gray-500'
+export function absenceLabel(hundredths: number, formatted: string): string {
+  return `${formatted} ${hundredths === 100 ? 'falta' : 'faltas'} en el liceo`
 }

@@ -47,7 +47,7 @@ import {
   resolveRollCallPermissions,
   rollCallBlockedMessage,
 } from '../services/student-attendance/edit-window.js'
-import { GRADE_BLOCK_MESSAGES, resolveGradeEditPermissions } from '../services/gradebook/edit-window.js'
+import { GRADE_BLOCK_MESSAGES, assessmentWritePermissions } from '../services/gradebook/edit-window.js'
 import { GradingError, saveGrades } from '../services/gradebook/grading.js'
 import ExcelJS from 'exceljs'
 import {
@@ -81,8 +81,8 @@ import {
   CLOSURE_BLOCKER_MESSAGES,
   PERIOD_SCALE_CODE_BY_LEVEL,
   acceptsAssessments,
+  assessmentPeriodsFor,
   canEditStudentClosurePeriod,
-  closureBlockers,
   describeValue,
   isLateClosure,
   isOutOfScale,
@@ -91,6 +91,10 @@ import {
   periodsCoveredBy,
   periodWriteBlock,
 } from '../services/gradebook/period-closure.js'
+import { meetingReadiness } from '../services/gradebook/meeting-readiness.js'
+import { loadMeetingSummaries } from '../services/gradebook/meeting-summary.js'
+import { loadGroupIndicators, type GroupIndicators } from '../services/gradebook/group-indicators.js'
+import { scopeKeyOf } from '../services/gradebook/rosters.js'
 import { todayUruguayYmd } from '../services/events/event-versioning.js'
 
 /**
@@ -275,6 +279,117 @@ r.get('/mine', requirePermission('gradebook.read'), async (req: any, res) => {
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
+
+/**
+ * En qué está cada libreta de quien pide, para su lista de libretas y su Inicio: las reuniones de
+ * cada una con su plazo, qué falta para cerrarlas y de quiénes, y lo que observó el visado.
+ *
+ * Sólo de las libretas que tiene como titular: de una suplencia va nada más hasta cuándo la tiene,
+ * porque el suplente ve sólo sus notas y no lo que le falta al titular. Siempre el ciclo activo.
+ */
+r.get('/mine/summary', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const { userId } = await scopesOf(req)
+    const schoolYearId = await resolveSchoolYearIdForList(prisma, { role: req.user?.role })
+    if (!schoolYearId) return res.json({ schoolYearId: null, data: [] })
+
+    const [owned, covered] = await Promise.all([
+      prisma.gradeBook.findMany({
+        where: { schoolYearId, teacherUserId: userId, status: 'ACTIVE', courseOfferingId: { not: null } },
+        select: {
+          id: true,
+          schoolYearId: true,
+          courseOfferingId: true,
+          orientationId: true,
+          courseOrientationId: true,
+          courseOffering: { select: { course: { select: { level: true } } } },
+        },
+      }),
+      coveredScopeKeys(userId, schoolYearId),
+    ])
+    const substitutions = covered.size
+      ? await prisma.gradeBook.findMany({
+          where: { schoolYearId, scopeKey: { in: [...covered.keys()] }, NOT: { teacherUserId: userId } },
+          select: { id: true, scopeKey: true },
+        })
+      : []
+
+    const books = owned.map((book) => ({
+      id: book.id,
+      schoolYearId: book.schoolYearId,
+      courseOfferingId: book.courseOfferingId as string,
+      orientationId: book.orientationId,
+      courseOrientationId: book.courseOrientationId,
+      level: book.courseOffering?.course?.level ?? null,
+    }))
+    const { byBook, rosters } = await loadMeetingSummaries(books)
+
+    return res.json({
+      schoolYearId,
+      data: [
+        ...books.map((book) => {
+          const meetings = byBook.get(book.id) ?? []
+          // Los nombres de quienes figuran en algún faltante: la tarjeta dice "3 sin R: Pérez, …".
+          const mentioned = new Set(meetings.flatMap((m) => (m.missing ?? []).flatMap((b) => b.studentIds)))
+          const students = (rosters.get(scopeKeyOf(book)) ?? [])
+            .filter((s) => mentioned.has(s.studentId))
+            .map((s) => ({ studentId: s.studentId, lastName: s.lastName, firstName: s.firstName }))
+          return { gradeBookId: book.id, role: 'OWNER' as const, meetings, students }
+        }),
+        ...substitutions.map((book) => ({
+          gradeBookId: book.id,
+          role: 'SUBSTITUTE' as const,
+          until: covered.get(book.scopeKey)?.toISOString() ?? null,
+        })),
+      ],
+    })
+  } catch (error) {
+    console.error('[gradebook] mine summary:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * El seguimiento de cada libreta propia, resumido para «Mi día»: los mismos números de
+ * `/:id/indicators` sin los nombres. Sólo de las libretas que tiene como titular: una suplencia no
+ * tiene seguimiento (el suplente ve sus notas, no las del titular).
+ */
+r.get('/mine/indicators', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const { userId } = await scopesOf(req)
+    const schoolYearId = await resolveSchoolYearIdForList(prisma, { role: req.user?.role })
+    if (!schoolYearId) return res.json({ data: [] })
+    const owned = await prisma.gradeBook.findMany({
+      where: { schoolYearId, teacherUserId: userId, status: 'ACTIVE', courseOfferingId: { not: null } },
+      include: { courseOffering: { select: { course: { select: { level: true } } } } },
+    })
+    const cache = new Map<string, Promise<unknown>>()
+    const data = await Promise.all(
+      owned.map(async (row: any) => {
+        const roster = await loadRosterForScope({
+          schoolYearId: row.schoolYearId,
+          courseOfferingId: row.courseOfferingId,
+          orientationId: row.orientationId,
+          courseOrientationId: row.courseOrientationId,
+        })
+        const indicators = await loadGroupIndicators({ id: row.id, scope: scopeOfRow(row), level: levelOfRow(row), roster }, cache)
+        return { gradeBookId: row.id, ...withoutNames(indicators) }
+      }),
+    )
+    return res.json({ data })
+  } catch (error) {
+    console.error('[gradebook] mine indicators:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/** Los números del seguimiento sin las listas de alumnos: el resumen de «Mi día» no los nombra. */
+function withoutNames(indicators: GroupIndicators) {
+  const { students: _attendanceStudents, ...attendance } = indicators.attendance
+  const { students: _gradeStudents, distribution: _distribution, ...grades } = indicators.grades
+  const evolution = indicators.evolution ? (({ students: _declined, ...rest }) => rest)(indicators.evolution) : null
+  return { rosterSize: indicators.rosterSize, attendance, grades, evolution }
+}
 
 const idParamSchema = z.object({ id: z.string().uuid('Identificador de libreta inválido') })
 
@@ -1278,8 +1393,23 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
 
     const todayYmd = todayUruguayYmd()
     const statusByPeriod = new Map(states.map((state) => [state.periodId, state.status]))
+    // Lo mismo que se chequea al escribir: la pantalla no ofrece editar lo que después falla.
+    const writer = ctx.access.canGrade ? await gradeWriter(req, ctx) : null
+    const writeOf = (row: { date: Date; periodId: string }) => {
+      if (!writer) return { canEdit: false, blockedReason: 'NOT_ASSIGNED' as const, editableUntil: null }
+      const permissions = assessmentWritePermissions({
+        ...writer,
+        assessmentDate: row.date,
+        periodStatus: (statusByPeriod.get(row.periodId) as 'OPEN' | 'CLOSED' | 'REOPENED' | undefined) ?? null,
+      })
+      return { canEdit: permissions.canEdit, blockedReason: permissions.blockedReason, editableUntil: permissions.editableUntil.toISOString() }
+    }
 
     return res.json({
+      // Días que el docente tiene para editar una evaluación desde su fecha; `null` si no la corrige
+      // nadie fuera de plazo (administración sí puede: `canWriteOutsideWindow`).
+      editWindowDays: writer?.windowDays ?? null,
+      canWriteOutsideWindow: writer?.canManage ?? false,
       periodStates: periods.map((period) => {
         const status = statusByPeriod.get(period.id) ?? 'OPEN'
         return {
@@ -1307,6 +1437,7 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
         scope: row.scope,
         activityType: row.activityType,
         gradingScale: row.gradingScale,
+        ...writeOf(row),
         author: row.createdBy
           ? {
               id: row.createdBy.id,
@@ -1405,6 +1536,21 @@ r.post('/:id/assessments', requirePermission('gradebook.grade'), async (req: any
     const d = parsed.data
     const periodError = await assertPeriodFitsGradeBook(d.periodId, ctx.row)
     if (periodError) return res.status(400).json(periodError)
+    // Lo mismo que se chequea al cargar las notas: sin esto se creaba la evaluación en un período
+    // cerrado o fuera de plazo y después no se le podía poner ninguna nota.
+    const periodState = await prisma.gradeBookPeriod.findUnique({
+      where: { gradeBookId_periodId: { gradeBookId: ctx.row.id, periodId: d.periodId } },
+      select: { status: true },
+    })
+    const permissions = assessmentWritePermissions({
+      ...(await gradeWriter(req, ctx)),
+      assessmentDate: parseYmd(d.date),
+      periodStatus: periodState?.status ?? null,
+    })
+    if (!permissions.canEdit) {
+      const reason = permissions.blockedReason!
+      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES[reason], code: reason })
+    }
 
     const created = await prisma.assessment.create({
       data: {
@@ -1456,36 +1602,37 @@ async function loadAssessmentContext(req: any, res: any) {
   }
 
   const userId = req.user?.id ?? req.user?.sub
-  const [gradeScope, manageScope] = await Promise.all([
-    userPermissionScope(userId, 'gradebook.grade', req.user?.role),
-    userPermissionScope(userId, 'gradebook.manage', req.user?.role),
-  ])
-  const { editWindowDays } = await getGradeBookSettings()
-
-  const permissions = resolveGradeEditPermissions({
-    gradeScope,
-    canManage: manageScope !== null,
-    isResponsible: ctx.access.level === 'OWNER' || ctx.access.level === 'SUBSTITUTE',
-    assessmentDate: assessment.date,
-    windowDays: editWindowDays,
-    gradeBookStatus: ctx.row.status,
-  })
-
+  const writer = await gradeWriter(req, ctx)
   // Un período cerrado congela sus evaluaciones: si no, se podría cambiar una nota parcial
   // después del cierre y el cierre dejaría de significar algo. Manda sobre la ventana de edición.
   const gradeBookPeriod = await prisma.gradeBookPeriod.findUnique({
     where: { gradeBookId_periodId: { gradeBookId: ctx.row.id, periodId: assessment.periodId } },
     select: { status: true },
   })
-  const block = periodWriteBlock({
+  const permissions = assessmentWritePermissions({
+    ...writer,
+    assessmentDate: assessment.date,
     periodStatus: gradeBookPeriod?.status ?? null,
-    gradeBookStatus: ctx.row.status,
   })
-  const effective = block === 'CLOSED'
-    ? { ...permissions, canEdit: false, blockedReason: 'PERIOD_CLOSED' as const }
-    : permissions
 
-  return { ...ctx, assessment, permissions: effective, userId }
+  return { ...ctx, assessment, permissions, userId }
+}
+
+/** Quién escribe y con qué plazo: lo que no depende de cada evaluación, resuelto una vez. */
+async function gradeWriter(req: any, ctx: any) {
+  const userId = req.user?.id ?? req.user?.sub
+  const [gradeScope, manageScope, settings] = await Promise.all([
+    userPermissionScope(userId, 'gradebook.grade', req.user?.role),
+    userPermissionScope(userId, 'gradebook.manage', req.user?.role),
+    getGradeBookSettings(),
+  ])
+  return {
+    gradeScope,
+    canManage: manageScope !== null,
+    isResponsible: ctx.access.level === 'OWNER' || ctx.access.level === 'SUBSTITUTE',
+    windowDays: settings.editWindowDays,
+    gradeBookStatus: ctx.row.status as 'ACTIVE' | 'ARCHIVED',
+  }
 }
 
 r.patch('/:id/assessments/:assessmentId', requirePermission('gradebook.grade'), async (req: any, res) => {
@@ -1923,6 +2070,65 @@ r.get('/:id/periods', requirePermission('gradebook.read'), async (req: any, res)
   }
 })
 
+/**
+ * Las reuniones de la libreta con todo lo que dice el panel de cierre de cada una: estado, plazo,
+ * qué falta para cerrarla y de quiénes (`meetingReadiness`, lo mismo que pide el cierre y el
+ * control), y el visado. Antes el panel pedía tres cosas y sólo sabía qué faltaba en la reunión
+ * elegida: las demás se veían todas «Abierta». Cerrada al suplente, como el cierre.
+ */
+r.get('/:id/meetings', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    if (!canResolveRoster(ctx.row)) {
+      return res.status(409).json({ message: 'La libreta no tiene grupo resoluble.', code: 'NO_COHORT' })
+    }
+    const book = {
+      id: ctx.row.id,
+      schoolYearId: ctx.row.schoolYearId,
+      courseOfferingId: ctx.row.courseOfferingId as string,
+      orientationId: ctx.row.orientationId,
+      courseOrientationId: ctx.row.courseOrientationId,
+      level: (ctx.row as any).courseOffering?.course?.level ?? null,
+    }
+    const { byBook, rosters } = await loadMeetingSummaries([book])
+    const roster = rosters.get(scopeKeyOf(book)) ?? []
+    return res.json({
+      students: roster.map((s) => ({ studentId: s.studentId, lastName: s.lastName, firstName: s.firstName })),
+      data: byBook.get(book.id) ?? [],
+    })
+  } catch (error) {
+    console.error('[gradebook] meetings:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * El seguimiento del grupo en esta materia: faltas a sus clases, R en alerta en el boletín y quiénes
+ * bajaron respecto del anterior. Sólo de esta libreta (`group-indicators.ts`). Cerrada al suplente,
+ * como todo lo del titular.
+ */
+r.get('/:id/indicators', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    if (!canResolveRoster(ctx.row)) {
+      return res.status(409).json({ message: 'La libreta no tiene grupo resoluble.', code: 'NO_COHORT' })
+    }
+    const roster = await loadRosterForScope({
+      schoolYearId: ctx.row.schoolYearId,
+      courseOfferingId: ctx.row.courseOfferingId,
+      orientationId: ctx.row.orientationId,
+      courseOrientationId: ctx.row.courseOrientationId,
+    })
+    const students = roster.map((s) => ({ studentId: s.studentId, lastName: s.lastName, firstName: s.firstName }))
+    return res.json(await loadGroupIndicators({ id: ctx.row.id, scope: scopeOfRow(ctx.row), level: levelOfRow(ctx.row), roster: students }))
+  } catch (error) {
+    console.error('[gradebook] indicators:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
 /** Día civil a `YYYY-MM-DD`; `serializeYmd` de la config académica no está exportado acá. */
 function serializeYmd(value: Date | null): string | null {
   return value ? value.toISOString().slice(0, 10) : null
@@ -1946,6 +2152,17 @@ async function loadClosureContext(req: any, res: any) {
   }
 
   const state = await ensureGradeBookPeriod(ctx.row.id, period.id)
+  // Las evaluaciones que informa la reunión: las de los tramos que cubre una entrega (EBI), o las
+  // del propio semestre (EMS). Las de la entrega misma no existen: las entregas no las admiten.
+  // Sólo una entrega necesita a sus hermanos para saber qué tramos cubre.
+  const siblings =
+    period.kind === 'ENTREGA'
+      ? await prisma.academicPeriod.findMany({
+          where: { schoolYearId: period.schoolYearId, level: period.level, isActive: true },
+          select: { id: true, kind: true, sortOrder: true },
+        })
+      : []
+  const assessmentPeriodIds = assessmentPeriodsFor(period, siblings)
   const [students, saved, assessments, scale] = await Promise.all([
     loadRosterForScope({
       schoolYearId: ctx.row.schoolYearId,
@@ -1955,13 +2172,26 @@ async function loadClosureContext(req: any, res: any) {
     }),
     prisma.periodGrade.findMany({ where: { gradeBookPeriodId: state.id } }),
     prisma.assessment.findMany({
-      where: { gradeBookId: ctx.row.id, periodId: period.id, deletedAt: null },
-      include: { grades: { select: { studentId: true, valueHundredths: true, isAbsent: true } }, gradingScale: { include: { levels: { orderBy: { sortOrder: 'asc' } } } } },
+      where: { gradeBookId: ctx.row.id, periodId: { in: assessmentPeriodIds }, deletedAt: null },
+      include: {
+        grades: { select: { studentId: true, valueHundredths: true, scaleLevelId: true, isAbsent: true } },
+        gradingScale: { include: { levels: { orderBy: { sortOrder: 'asc' } } } },
+      },
     }),
     loadPeriodScale(ctx.row),
   ])
 
-  return { ...ctx, period, state, students, saved, assessments, scale }
+  return { ...ctx, period, state, students, saved, assessments, scale, expectsAssessments: assessmentPeriodIds.length > 0 }
+}
+
+/** Lo que falta para cerrar: lo mismo que mira el control de administración (`meetingReadiness`). */
+function readinessOf(ctx: any, rows: ReturnType<typeof buildClosureRows>) {
+  return meetingReadiness({
+    rules: closureRulesOf(ctx.period),
+    students: rows,
+    groupReport: ctx.state.groupReport ?? null,
+    assessments: ctx.expectsAssessments ? ctx.assessments : undefined,
+  })
 }
 
 /** Escala con la que se ponen C y R en la libreta: la numérica de su nivel. */
@@ -2100,7 +2330,7 @@ r.get('/:id/periods/:periodId', requirePermission('gradebook.read'), async (req:
         startsOn: ctx.period.startsOn,
         todayYmd: todayUruguayYmd(),
       }),
-      blockers: closureBlockers(rows, rules, ctx.state.groupReport ?? null),
+      blockers: readinessOf(ctx, rows),
       students: rows,
     })
   } catch (error) {
@@ -2486,7 +2716,7 @@ r.post('/:id/periods/:periodId/close', requirePermission('gradebook.close'), asy
     }
 
     const rows = buildClosureRows(ctx)
-    const blockers = closureBlockers(rows, closureRulesOf(ctx.period), ctx.state.groupReport ?? null)
+    const blockers = readinessOf(ctx, rows)
     if (blockers.length > 0) {
       // Se devuelven todos juntos: la UI marca las filas que faltan de una vez.
       return res.status(409).json({

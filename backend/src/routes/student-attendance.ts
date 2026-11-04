@@ -3,7 +3,11 @@ import { z } from 'zod'
 import { prisma } from '../db/prisma.js'
 import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js'
 import { isYmdDateString } from '../config/app-timezone.js'
-import { todayUruguayYmd } from '../services/events/event-versioning.js'
+import { addDaysYmd, todayUruguayYmd } from '../services/events/event-versioning.js'
+import { getActiveSchoolYearId } from '../services/school-year-service.js'
+import { loadPendingOccurrences } from '../services/student-attendance/pending-loader.js'
+import { selectTeacherDue } from '../services/student-attendance/pending.js'
+import { licenseWindow } from '../services/medical-leave-dates.js'
 import { findNonWorkingDayForDate } from '../services/non-working-days.js'
 import { getStudentRollCallSettings } from '../config/system-settings.js'
 import {
@@ -28,6 +32,7 @@ import {
   loadClassesForDay,
   loadRollCallReminders,
   orientationLabelOf,
+  withLicenses,
 } from '../services/student-attendance/my-classes.js'
 import { PERSON_SELECT, personRef } from '../services/student-attendance/person.js'
 import { notifyLateRollCall, shouldNotifyLateRollCall } from '../services/student-attendance/late-roll-call.js'
@@ -249,7 +254,9 @@ r.get('/my-classes', requirePermission('student-attendance.take'), async (req: a
 
     const userId = req.user.sub
     const scope = (await userPermissionScope(userId, 'student-attendance.take', req.user.role)) ?? 'own'
-    return res.json(await loadClassesForDay({ userId, scope, ymd: rawDate }))
+    const rows = await loadClassesForDay({ userId, scope, ymd: rawDate })
+    // Las propias dicen si ese día tiene licencia: «Mi día» no le pide pasar una clase que no da.
+    return res.json(scope === 'own' ? await withLicenses(rows, userId, rawDate) : rows)
   } catch (error) {
     console.error('[student-attendance] my-classes:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -266,6 +273,62 @@ r.get('/reminder', requirePermission('student-attendance.take'), async (req: any
     return res.json({ items })
   } catch (error) {
     console.error('[student-attendance] reminder:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Las listas que quien pide dejó sin pasar en días anteriores y todavía puede pasar: dentro del
+ * plazo, sin cerrar por administración y sin licencia ese día. Hoy no entra: lo de hoy lo dicen sus
+ * clases del día. Siempre las propias; antes una lista atrasada de ayer no aparecía en ningún lado
+ * del docente, sólo en "Listas sin pasar" de administración.
+ */
+r.get('/mine/pending', requirePermission('student-attendance.take'), async (req: any, res) => {
+  try {
+    const userId = req.user.sub
+    const [schoolYearId, { editWindowHours }] = await Promise.all([getActiveSchoolYearId(prisma), getStudentRollCallSettings()])
+    const today = todayUruguayYmd()
+    const from = addDaysYmd(today, -(Math.ceil(editWindowHours / 24) + 1))
+    const to = addDaysYmd(today, -1)
+    if (!schoolYearId) return res.json({ windowHours: editWindowHours, from, to, data: [] })
+
+    const now = new Date()
+    const [rows, leaves] = await Promise.all([
+      loadPendingOccurrences({ schoolYearId, from, to, teacherUserId: userId, now }),
+      prisma.medicalLeave.findMany({
+        where: {
+          userId,
+          status: 'ACTIVE' as never,
+          startDate: { lte: new Date(`${to}T23:59:59.999Z`) },
+          endDate: { gte: new Date(`${from}T00:00:00.000Z`) },
+        },
+        select: { startDate: true, endDate: true },
+      }),
+    ])
+    const due = selectTeacherDue(rows, { windowHours: editWindowHours, now, licenseWindows: leaves.map(licenseWindow) })
+    return res.json({
+      windowHours: editWindowHours,
+      from,
+      to,
+      data: due.map((row) => ({
+        eventId: row.eventId,
+        ymd: row.ymd,
+        title: row.title,
+        subject: row.subject,
+        course: row.course,
+        orientation: row.orientation,
+        startAt: row.startAt.toISOString(),
+        endAt: row.endAt.toISOString(),
+        editableUntil: row.editableUntil.toISOString(),
+        sessionId: row.sessionId,
+        daysLate: row.daysLate,
+        covered: Boolean(row.covered),
+        // Si la cubrió, de quién es la clase.
+        titular: row.covered ? (row.titular ?? null) : null,
+      })),
+    })
+  } catch (error) {
+    console.error('[student-attendance] mine pending:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

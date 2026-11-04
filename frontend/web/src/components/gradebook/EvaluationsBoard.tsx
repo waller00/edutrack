@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ChevronDown,
@@ -9,6 +9,7 @@ import {
   ChevronUp,
   FileSpreadsheet,
   Loader2,
+  Lock,
   Pencil,
   Plus,
   Printer,
@@ -39,6 +40,7 @@ import {
 import { studentFullName } from '@/lib/gradebook/labels'
 import { gradeSelectFromHundredths, gradeSelectToHundredths, type GradeRange } from '@/lib/gradebook/grade-scale'
 import { todayYmdUruguay as todayYmd } from '@/lib/libreta/absence-day'
+import { assessmentLockText, earliestGradableDate, openTramos } from '@/lib/gradebook/grade-window'
 import {
   downloadStudentEvaluationsXlsx,
   printStudentEvaluations,
@@ -144,6 +146,10 @@ type BoardAssessment = {
   gradingScale: (Partial<GradeRange> & { id: string; name: string; kind: string; decimals: number }) | null
   /** Quién la cargó; `isSubstitute` si fue un suplente de esta libreta. */
   author?: { id: string; name: string | null; isSubstitute: boolean } | null
+  /** Si se puede editar ahora: período abierto y dentro del plazo. Lo dice el backend. */
+  canEdit?: boolean
+  blockedReason?: string | null
+  editableUntil?: string | null
 }
 
 /** Nombre del suplente que cargó la evaluación, o null si la cargó el titular (u otro). */
@@ -169,6 +175,24 @@ type BoardResponse = {
   /** C, R y el texto de cada alumno por período. */
   periodGrades?: StoredPeriodGrade[]
   periodStates?: PeriodState[]
+  /** Días que hay para editar una evaluación desde su fecha. */
+  editWindowDays?: number | null
+  canWriteOutsideWindow?: boolean
+}
+
+/**
+ * Dónde se puede cargar una nota nueva: los tramos abiertos y, si hay plazo, desde qué fecha. Lo
+ * leen los formularios; sin esto ofrecían tramos cerrados y fechas vencidas, y fallaba al guardar.
+ */
+const WriteRules = createContext<{ states?: PeriodState[]; minDate?: string }>({})
+
+/** Los tramos del formulario y el que se propone: el del día, si sigue abierto. */
+function useOpenTramos(options: Options, presetPeriodId?: string) {
+  const rules = useContext(WriteRules)
+  const tramos = openTramos(gradablePeriods(options.periods), rules.states)
+  const suggested = presetPeriodId ?? tramoForDate(options.periods, todayYmd())?.id
+  const initial = tramos.some((p) => p.id === suggested) ? suggested! : (tramos[0]?.id ?? '')
+  return { tramos, initial, minDate: rules.minDate }
 }
 
 type StudentGradeRow = BoardGrade & {
@@ -195,12 +219,10 @@ function AddGradeForm({
 }) {
   const scale = levelScaleOf(options)
   const gradingScaleId = scale?.id ?? ''
-  // Las notas sueltas sólo van en los tramos; las entregas llevan C, R e informe.
-  const tramos = gradablePeriods(options.periods)
+  // Las notas sueltas sólo van en los tramos abiertos; las entregas llevan C, R e informe.
+  const { tramos, initial, minDate } = useOpenTramos(options, preset.periodId)
   const [activityTypeId, setActivityTypeId] = useState(() => firstTypeOf(options.activityTypes, preset.category))
-  const [periodId, setPeriodId] = useState(
-    () => preset.periodId ?? tramoForDate(options.periods, todayYmd())?.id ?? tramos[0]?.id ?? '',
-  )
+  const [periodId, setPeriodId] = useState(initial)
   const [date, setDate] = useState(todayYmd)
   const [gradeSelect, setGradeSelect] = useState('')
   const [absent, setAbsent] = useState(false)
@@ -209,7 +231,8 @@ function AddGradeForm({
   const [saving, setSaving] = useState(false)
 
   const activity = options.activityTypes.find((t) => t.id === activityTypeId)
-  const canSubmit = Boolean(activityTypeId && periodId && gradingScaleId && date) && !saving
+  const inWindow = !minDate || date >= minDate
+  const canSubmit = Boolean(activityTypeId && periodId && gradingScaleId && date) && inWindow && !saving
   const firstFieldRef = useRef<HTMLSelectElement>(null)
 
   useEffect(() => {
@@ -229,6 +252,7 @@ function AddGradeForm({
     if (!canSubmit) return
     setSaving(true)
     setError(null)
+    let createdId: string | null = null
     try {
       const title = comment.trim() || `${activity?.name ?? 'Evaluación'} — ${date}`
       // Nota suelta de este alumno: el control no la cruza contra el grupo entero.
@@ -243,6 +267,7 @@ function AddGradeForm({
           ...(activityTypeId ? { activityTypeId } : {}),
         }),
       })
+      createdId = created.data.id
       await api(`/gradebook/${gradeBookId}/assessments/${created.data.id}/grades`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -258,6 +283,8 @@ function AddGradeForm({
       })
       await onSaved()
     } catch (err) {
+      // Una nota suelta sin su nota no sirve: si no se pudo poner, no queda la evaluación vacía.
+      if (createdId) await api(`/gradebook/${gradeBookId}/assessments/${createdId}`, { method: 'DELETE' }).catch(() => undefined)
       setError(err instanceof Error ? err.message : 'No se pudo guardar')
     } finally {
       setSaving(false)
@@ -326,6 +353,11 @@ function AddGradeForm({
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
+            {tramos.length === 0 && (
+              <span role="alert" className="mt-1 block text-xs text-red-700">
+                No hay tramos abiertos: los de este ciclo ya cerraron o todavía no empezaron.
+              </span>
+            )}
           </label>
 
           <label className="grid gap-1 text-sm">
@@ -335,10 +367,16 @@ function AddGradeForm({
             <input
               type="date"
               required
+              min={minDate}
               value={date}
               onChange={(e) => setDate(e.target.value)}
               className="rounded-lg border border-gray-300 px-3 py-2"
             />
+            {minDate && date < minDate && (
+              <span role="alert" className="mt-1 block text-xs text-red-700">
+                Ya pasó el plazo para cargar notas de esa fecha.
+              </span>
+            )}
           </label>
         </div>
 
@@ -411,9 +449,9 @@ function GroupGradeForm({
 }) {
   const scale = levelScaleOf(options)
   const gradingScaleId = scale?.id ?? ''
-  const tramos = gradablePeriods(options.periods)
+  const { tramos, initial, minDate } = useOpenTramos(options)
   const [activityTypeId, setActivityTypeId] = useState(() => firstTypeOf(options.activityTypes, undefined))
-  const [periodId, setPeriodId] = useState(() => tramoForDate(options.periods, todayYmd())?.id ?? tramos[0]?.id ?? '')
+  const [periodId, setPeriodId] = useState(initial)
   const [date, setDate] = useState(todayYmd)
   const [title, setTitle] = useState('')
   const [cells, setCells] = useState<Record<string, GroupCell>>({})
@@ -426,7 +464,8 @@ function GroupGradeForm({
   const activity = options.activityTypes.find((t) => t.id === activityTypeId)
   const cellOf = (studentId: string): GroupCell => cells[studentId] ?? { grade: '', absent: false }
   const done = students.filter((s) => cellOf(s.studentId).absent || cellOf(s.studentId).grade !== '').length
-  const canSubmit = Boolean(activityTypeId && periodId && gradingScaleId && date) && !saving
+  const inWindow = !minDate || date >= minDate
+  const canSubmit = Boolean(activityTypeId && periodId && gradingScaleId && date) && inWindow && !saving
 
   useEffect(() => {
     firstFieldRef.current?.focus()
@@ -554,6 +593,11 @@ function GroupGradeForm({
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
+            {tramos.length === 0 && (
+              <span role="alert" className="mt-1 block text-xs text-red-700">
+                No hay tramos abiertos: los de este ciclo ya cerraron o todavía no empezaron.
+              </span>
+            )}
           </label>
           <label className="grid gap-1 text-sm">
             <span className="font-medium text-gray-700">
@@ -562,10 +606,16 @@ function GroupGradeForm({
             <input
               type="date"
               required
+              min={minDate}
               value={date}
               onChange={(e) => setDate(e.target.value)}
               className="rounded-lg border border-gray-300 px-3 py-2"
             />
+            {minDate && date < minDate && (
+              <span role="alert" className="mt-1 block text-xs text-red-700">
+                Ya pasó el plazo para cargar notas de esa fecha.
+              </span>
+            )}
           </label>
           <label className="grid gap-1 text-sm sm:col-span-2">
             <span className="font-medium text-gray-700">Título</span>
@@ -930,7 +980,15 @@ function StudentDetailPanel({
                 const key = `${row.assessmentId}-${row.studentId}`
                 return (
                   <tr key={key} className="odd:bg-white even:bg-sky-50/40">
-                    {canGrade && (
+                    {canGrade && assessmentLockText(row.assessment) && (
+                      <td className="whitespace-nowrap px-2 py-1.5 text-xs text-slate-500">
+                        <span className="inline-flex items-center gap-1">
+                          <Lock className="h-3.5 w-3.5" aria-hidden />
+                          {assessmentLockText(row.assessment)}
+                        </span>
+                      </td>
+                    )}
+                    {canGrade && !assessmentLockText(row.assessment) && (
                       <td className="whitespace-nowrap px-2 py-1.5">
                         <div className="flex items-center gap-1">
                           <button
@@ -1391,6 +1449,13 @@ export default function EvaluationsBoard({
     () => new Map((board?.periodStates ?? []).map((state) => [state.periodId, state])),
     [board],
   )
+  const writeRules = useMemo(
+    () => ({
+      states: board?.periodStates,
+      minDate: earliestGradableDate(todayYmd(), board?.editWindowDays, board?.canWriteOutsideWindow ?? false),
+    }),
+    [board],
+  )
 
   /** Guarda C, R o el texto de una celda. Es parcial: lo que no viene no se toca. */
   async function savePeriodGrade(studentId: string, periodId: string, patch: PeriodGradePatch) {
@@ -1458,6 +1523,7 @@ export default function EvaluationsBoard({
   }
 
   return (
+    <WriteRules.Provider value={writeRules}>
     <section className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -1678,5 +1744,6 @@ export default function EvaluationsBoard({
       )}
 
     </section>
+    </WriteRules.Provider>
   )
 }

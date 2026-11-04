@@ -186,12 +186,23 @@ export function describeValue(valueHundredths: number | null, levels: readonly S
 }
 
 export type ClosureBlocker = {
-  code: 'MISSING_GRADES' | 'MISSING_CONDUCT' | 'MISSING_JUDGEMENT' | 'MISSING_GROUP_REPORT'
+  code:
+    | 'MISSING_GRADES'
+    | 'MISSING_CONDUCT'
+    | 'MISSING_JUDGEMENT'
+    | 'MISSING_GROUP_REPORT'
+    // Las evaluaciones de los tramos de una reunión de boletín (`meeting-readiness.ts`).
+    | 'NO_ASSESSMENTS'
+    | 'STUDENTS_WITHOUT_GRADES'
+    | 'MISSING_ASSESSMENT_GRADES'
   studentIds: string[]
+  /** Notas sin cargar (evaluación × alumno), en `MISSING_ASSESSMENT_GRADES`. */
+  slots?: number
 }
 
 /**
- * Qué impide cerrar el período, según lo que exige su configuración (RF-052).
+ * Qué impide cerrar el período por lo que se carga en el cierre: R, C, juicio e informe del grupo
+ * (RF-052). Las evaluaciones de los tramos las suma `meetingReadiness`, que es lo que usa el cierre.
  *
  * Devuelve la lista de bloqueos en vez de lanzar al primero, para que la UI pueda marcar todas
  * las filas que faltan de una sola vez en lugar de hacer que el docente descubra los errores
@@ -243,6 +254,9 @@ export const CLOSURE_BLOCKER_MESSAGES: Record<ClosureBlocker['code'], string> = 
   MISSING_CONDUCT: 'Hay estudiantes sin conducta (C).',
   MISSING_JUDGEMENT: 'Este período exige juicio conceptual y hay estudiantes sin él.',
   MISSING_GROUP_REPORT: 'Falta el informe general del grupo para la reunión.',
+  NO_ASSESSMENTS: 'No hay evaluaciones cargadas en los tramos de esta reunión.',
+  STUDENTS_WITHOUT_GRADES: 'Hay estudiantes sin ninguna nota en el tramo: cargales una o marcá que no rindieron.',
+  MISSING_ASSESSMENT_GRADES: 'Hay evaluaciones del grupo sin nota para algunos estudiantes: a quien no la hizo, marcale «No rindió».',
 }
 
 /** ¿El cierre ocurre después de la fecha límite del período? (§5.9, cierres fuera de plazo) */

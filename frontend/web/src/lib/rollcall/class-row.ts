@@ -1,6 +1,6 @@
 import type { BlockedReason } from './rollcall-window'
 import type { SessionStatus } from './rollcall-status'
-import type { PersonRef, RollCallTiming } from './rollcall-phase'
+import type { PersonRef, RollCallPhase, RollCallTiming } from './rollcall-phase'
 
 /** Una clase de un día con su pase de lista, como la devuelven `my-classes` y `reminder`. */
 export type RollCallClassRow = {
@@ -50,3 +50,21 @@ export function rollCallHref(row: { eventId: string; ymd: string }): string {
 
 /** Evento que dispara la planilla al guardar, para que el aviso de arriba se actualice. */
 export const ROLL_CALL_SAVED_EVENT = 'edutrack:rollcall-saved'
+
+export type MomentGroups<T> = { now: T[]; overdue: T[]; later: T[]; done: T[] }
+
+/**
+ * Las clases de un día según el momento de su lista: ahora, sin pasar (terminó y todavía está en
+ * plazo), más tarde, y el resto. Antes las vencidas quedaban dentro de «Terminadas», mezcladas con
+ * las pasadas.
+ */
+export function groupRowsByMoment<T extends { phase: RollCallPhase }>(rows: readonly T[]): MomentGroups<T> {
+  const groups: MomentGroups<T> = { now: [], overdue: [], later: [], done: [] }
+  for (const row of rows) {
+    if (row.phase === 'OPEN') groups.now.push(row)
+    else if (row.phase === 'OVERDUE') groups.overdue.push(row)
+    else if (row.phase === 'UPCOMING') groups.later.push(row)
+    else groups.done.push(row)
+  }
+  return groups
+}
