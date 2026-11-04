@@ -32,13 +32,18 @@ export async function assertCanCreateSchoolYear(prisma: PrismaClient): Promise<v
   if (active) throw new Error('ACTIVE_SCHOOL_YEAR_EXISTS')
 }
 
-/** ADMIN/STAFF puede elegir año por query. Otros roles: siempre el año activo. */
+/**
+ * El ciclo de una consulta: el pedido por query, si quien consulta puede elegirlo y existe; si no,
+ * el activo. Eligen ADMIN/STAFF y, con `institutionWide`, quien llega a una ruta que exige ver todo
+ * el centro (alcance `all`): Dirección y Adscripción miran los ciclos anteriores. Un docente (alcance
+ * `own`) nunca llega a esas rutas, así que sigue en el activo.
+ */
 export async function resolveSchoolYearIdForList(
   prisma: PrismaClient,
-  opts: { role?: string; requestedSchoolYearId?: string | undefined },
+  opts: { role?: string; requestedSchoolYearId?: string | undefined; institutionWide?: boolean },
 ): Promise<string | null> {
   const { role, requestedSchoolYearId } = opts
-  const privileged = role === 'ADMIN' || role === 'STAFF'
+  const privileged = opts.institutionWide === true || role === 'ADMIN' || role === 'STAFF'
   if (privileged && requestedSchoolYearId) {
     const found = await prisma.schoolYear.findUnique({
       where: { id: requestedSchoolYearId },

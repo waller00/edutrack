@@ -3,14 +3,14 @@ import { z } from 'zod'
 import { prisma } from '../db/prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { loadRosterForScope } from '../services/student-attendance/roster.js'
-import { officialPeriodValue } from '../services/gradebook/period-closure.js'
+import { isReportCardPeriod, officialPeriodValue } from '../services/gradebook/period-closure.js'
 import { alertRulesForYear } from '../services/gradebook/alert-rules.js'
 import { periodScaleFor } from '../services/gradebook/period-scale.js'
 import { gradeBooksForGroup } from '../services/gradebook/institutional.js'
+import { loadTrajectory } from '../services/student-indicators/loaders.js'
 import {
   buildComparison,
-  managementBlock,
-  managementStates,
+  lowSubjectsHistogram,
   performanceBlock,
   referencePeriod,
   studentSnapshots,
@@ -23,7 +23,8 @@ import {
 } from '../services/gradebook/analytics.js'
 
 /**
- * Backoffice de inteligencia académica (§5); en pantalla, "Rendimiento académico".
+ * Backoffice de inteligencia académica (§5); en pantalla, la sección Rendimiento de "Indicadores
+ * de estudiantes".
  *
  * Montado bajo `/admin/academic-analytics` con `academic-analytics.read` de alcance ALL. Lee del
  * mismo esquema transaccional: a escala de un liceo no compensa el repositorio analítico aparte
@@ -53,8 +54,9 @@ const DISCLAIMER =
   'automáticamente decisiones administrativas, promociones, repeticiones ni sanciones. Los indicadores ' +
   'de gestión no constituyen por sí solos un mecanismo de evaluación del desempeño docente.'
 
+/** El ciclo pedido, si existe; si no, el activo. El router exige alcance `all`: se elige el ciclo. */
 async function schoolYearOf(req: any, filters: Filters): Promise<string | null> {
-  return filters.schoolYearId ?? resolveSchoolYearIdForList(prisma, { role: req.user?.role, requestedSchoolYearId: undefined })
+  return resolveSchoolYearIdForList(prisma, { role: req.user?.role, requestedSchoolYearId: filters.schoolYearId, institutionWide: true })
 }
 
 type LevelPick = { level: Level | null; ambiguous?: string[] }
@@ -134,6 +136,22 @@ async function groupRoster(filters: Filters, schoolYearId: string): Promise<Set<
   return new Set(roster.map((s) => s.studentId))
 }
 
+const PERIOD_SELECT = {
+  id: true,
+  name: true,
+  sortOrder: true,
+  isMeeting: true,
+  requiresGeneralGrade: true,
+  requiresConceptualJudgement: true,
+} as const
+
+type PeriodRow = { id: string; name: string; sortOrder: number; isMeeting: boolean; requiresGeneralGrade: boolean; requiresConceptualJudgement: boolean }
+
+/** El período como lo usa la analítica: si es boletín decide la reunión por defecto. */
+function analyticsPeriod(period: PeriodRow): AnalyticsPeriod {
+  return { id: period.id, name: period.name, sortOrder: period.sortOrder, reportCard: isReportCardPeriod(period) }
+}
+
 /** Los períodos con reunión de las libretas, con la nota oficial (R) ya resuelta. */
 async function loadMeetingStates(
   gradeBookIds: readonly string[],
@@ -142,18 +160,11 @@ async function loadMeetingStates(
   if (gradeBookIds.length === 0) return []
   const rows = await prisma.gradeBookPeriod.findMany({
     where: { gradeBookId: { in: [...gradeBookIds] }, period: { isMeeting: true } },
-    include: {
-      grades: true,
-      endorsements: { where: { section: 'ALL' }, orderBy: { occurredAt: 'desc' }, take: 1 },
-      period: { select: { id: true, name: true, sortOrder: true } },
-    },
+    include: { grades: true, period: { select: PERIOD_SELECT } },
   })
   return rows.map((row) => ({
     gradeBookId: row.gradeBookId,
-    status: row.status as AnalyticsState['status'],
-    closedLate: row.closedLate,
-    endorsed: row.endorsements[0]?.status === 'ENDORSED',
-    period: row.period,
+    period: analyticsPeriod(row.period),
     grades: row.grades
       .filter((grade) => !rosterIds || rosterIds.has(grade.studentId))
       .map((grade) => ({
@@ -168,7 +179,8 @@ async function loadMeetingStates(
 /** La reunión pedida aunque ninguna libreta la haya abierto todavía: se rotula igual. */
 async function periodById(periodId: string | undefined): Promise<AnalyticsPeriod | null> {
   if (!periodId) return null
-  return prisma.academicPeriod.findUnique({ where: { id: periodId }, select: { id: true, name: true, sortOrder: true } })
+  const period = await prisma.academicPeriod.findUnique({ where: { id: periodId }, select: PERIOD_SELECT })
+  return period ? analyticsPeriod(period) : null
 }
 
 /** Evaluaciones de cada libreta hasta la reunión de referencia: las de los tramos que la preceden. */
@@ -184,28 +196,6 @@ async function assessmentCounts(gradeBookIds: readonly string[], reference: Anal
     _count: { _all: true },
   })
   return new Map(rows.map((row) => [row.gradeBookId, row._count._all]))
-}
-
-/** Cohorte de cada libreta, resuelta una vez por scope y no una por libreta. */
-async function rosterSizes(gradeBooks: readonly any[]): Promise<Map<string, number>> {
-  const byScope = new Map<string, string[]>()
-  for (const gb of gradeBooks) {
-    const key = `${gb.schoolYearId}|${gb.courseOfferingId}|${gb.orientationId ?? ''}|${gb.courseOrientationId ?? ''}`
-    byScope.set(key, [...(byScope.get(key) ?? []), gb.id])
-  }
-
-  const sizes = new Map<string, number>()
-  for (const [key, gradeBookIds] of byScope) {
-    const [schoolYearId, courseOfferingId, orientationId, courseOrientationId] = key.split('|')
-    const roster = await loadRosterForScope({
-      schoolYearId,
-      courseOfferingId,
-      orientationId: orientationId || null,
-      courseOrientationId: courseOrientationId || null,
-    })
-    for (const id of gradeBookIds) sizes.set(id, roster.length)
-  }
-  return sizes
 }
 
 type Snapshot = {
@@ -246,14 +236,13 @@ r.get('/dashboard', async (req: any, res) => {
 
     const snapshot = await loadSnapshot(parsed.data, schoolYearId)
     if ('ambiguous' in snapshot) return levelRequired(res, snapshot.ambiguous)
-    const { level, books, states, reference, rosterIds } = snapshot
+    const { level, books, states, reference } = snapshot
     const ids = books.map((b) => b.id)
 
-    const [{ levels, scale }, rules, assessments, sizes] = await Promise.all([
+    const [{ levels, scale }, rules, assessments] = await Promise.all([
       scaleFor(level),
       alertRulesForYear(schoolYearId),
       assessmentCounts(ids, reference),
-      rosterIds ? Promise.resolve(null) : rosterSizes(books),
     ])
 
     const students = studentSnapshots({
@@ -270,15 +259,7 @@ r.get('/dashboard', async (req: any, res) => {
       referencePeriod: reference ? { id: reference.id, name: reference.name } : null,
       students: studentsBlock(students, rules, levels),
       performance: performanceBlock(valuesAt(states, reference), levels),
-      management: managementBlock(
-        managementStates({
-          gradeBookIds: ids,
-          states,
-          reference,
-          // Con un grupo elegido, sólo cuentan sus alumnos, también en las libretas de tronco común.
-          rosterSizeOf: (id) => (rosterIds ? rosterIds.size : sizes?.get(id) ?? 0),
-        }),
-      ),
+      lowSubjects: lowSubjectsHistogram(students, levels),
       rules,
       disclaimer: DISCLAIMER,
     })
@@ -408,6 +389,22 @@ r.get('/comparison', async (req: any, res) => {
     })
   } catch (error) {
     console.error('[academic-analytics] comparison:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Trayectoria: cómo terminó el año cada curso (promoción, repetición, egreso, bajas, quienes no se
+ * reinscribieron), año a año, y qué pasó con cada generación. Se deriva al leer de las matrículas.
+ */
+r.get('/trajectory', async (req: any, res) => {
+  const parsed = filtersSchema.pick({ schoolYearId: true }).safeParse(req.query)
+  if (!parsed.success) return res.status(400).json({ message: 'Parámetros inválidos', errors: parsed.error.errors })
+  try {
+    const schoolYearId = await schoolYearOf(req, parsed.data)
+    return res.json(await loadTrajectory(schoolYearId))
+  } catch (error) {
+    console.error('[academic-analytics] trajectory:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

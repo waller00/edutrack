@@ -1,6 +1,6 @@
 import { prisma } from '../../db/prisma.js'
 import { getStudentRollCallSettings } from '../../config/system-settings.js'
-import { loadRosterForScope } from '../student-attendance/roster.js'
+import { buildRosterEnrollmentWhere, type RosterScope } from '../student-attendance/roster.js'
 import { loadAbsenceTotals } from '../student-attendance/absence-totals.js'
 import { countsByDay } from '../student-attendance/absence-weight.js'
 import { consolidateDay, type AttendanceCell } from '../student-attendance/consolidation.js'
@@ -41,12 +41,55 @@ type ReportPeriod = { id: string; name: string; level: string; schoolYearId: str
 
 export type StudentRef = { studentId: string; firstName: string; lastName: string; courseName: string }
 
+/**
+ * Libretas de un nivel en el ciclo. Sin filtrar por estado: al cerrar el año se archivan, y los
+ * reportes de un ciclo cerrado tienen que seguir mostrándolas.
+ */
 function booksOfLevel(schoolYearId: string, level: string) {
   return {
     schoolYearId,
-    status: 'ACTIVE' as const,
     courseOffering: { isOffered: true, course: { level: level as never } },
   }
+}
+
+/**
+ * Matrículas del grupo que cuentan en un reporte. En el ciclo en curso, las activas. En uno
+ * cerrado, las de fin de año: activas, egresadas, y las que se dieron de baja recién al empezar el
+ * año siguiente (el asistente de inicio de año las marca así); quien se fue durante el año, no.
+ */
+export function reportEnrollmentWhere(scope: RosterScope, closedYearCode: number | null): Record<string, unknown> {
+  const where = buildRosterEnrollmentWhere(scope)
+  if (closedYearCode === null) return where
+  const { enrollmentStatus: _active, ...rest } = where
+  return {
+    ...rest,
+    OR: [
+      { enrollmentStatus: { in: ['ACTIVE', 'GRADUATED'] } },
+      { enrollmentStatus: { in: ['WITHDRAWN', 'TRANSFERRED'] }, withdrawalAcademicYear: { gt: closedYearCode } },
+    ],
+  }
+}
+
+/** Ids de cada grupo, pedidos una sola vez por alcance aunque varias libretas lo compartan. */
+function rosterCache(closedYearCode: number | null) {
+  const cache = new Map<string, Promise<Set<string>>>()
+  return (scope: RosterScope) => {
+    const key = `${scope.courseOfferingId}|${scope.orientationId ?? ''}|${scope.courseOrientationId ?? ''}`
+    let ids = cache.get(key)
+    if (!ids) {
+      ids = prisma.studentEnrollment
+        .findMany({ where: reportEnrollmentWhere(scope, closedYearCode) as never, select: { studentId: true } })
+        .then((rows) => new Set(rows.map((row) => row.studentId)))
+      cache.set(key, ids)
+    }
+    return ids
+  }
+}
+
+/** El código del ciclo si está cerrado; `null` si está en curso. */
+async function closedYearCodeOf(schoolYearId: string): Promise<number | null> {
+  const year = await prisma.schoolYear.findUnique({ where: { id: schoolYearId }, select: { code: true, status: true } })
+  return year && year.status === 'CLOSED' ? year.code : null
 }
 
 const BOOK_LABELS = {
@@ -66,7 +109,7 @@ async function reportCardPeriod(periodId: string) {
 export async function loadLowGrades(periodId: string) {
   const period = await reportCardPeriod(periodId)
   if (!period) return null
-  const scale = await periodScaleFor(period.level)
+  const [scale, closedYearCode] = await Promise.all([periodScaleFor(period.level), closedYearCodeOf(period.schoolYearId)])
   const levels = scale?.levels ?? []
   const books = await prisma.gradeBook.findMany({
     where: booksOfLevel(period.schoolYearId, period.level),
@@ -76,15 +119,15 @@ export async function loadLowGrades(periodId: string) {
     },
   })
 
+  const rosterOf = rosterCache(closedYearCode)
   const input: LowGradeBook[] = await Promise.all(
     books.map(async (book) => {
-      const roster = await loadRosterForScope({
+      const rosterIds = await rosterOf({
         schoolYearId: book.schoolYearId,
         courseOfferingId: book.courseOfferingId,
         orientationId: book.orientationId,
         courseOrientationId: book.courseOrientationId,
       })
-      const rosterIds = new Set(roster.map((s) => s.studentId))
       const officialValues = (book.periods[0]?.grades ?? []).flatMap((g) => {
         const value = officialPeriodValue(g)
         return value != null && rosterIds.has(g.studentId) ? [{ studentId: g.studentId, valueHundredths: value }] : []
@@ -94,7 +137,7 @@ export async function loadLowGrades(periodId: string) {
         courseName: book.courseOffering?.course?.name ?? '—',
         orientationName: book.courseOrientation?.orientation?.name ?? book.orientation?.name ?? null,
         subjectName: book.subject?.name ?? '—',
-        rosterSize: roster.length,
+        rosterSize: rosterIds.size,
         officialValues,
       }
     }),
@@ -183,9 +226,24 @@ export async function loadAllGradeDrops(schoolYearId: string) {
 
 // ─── Faltas: matrículas del ciclo ───────────────────────────────────────────
 
-async function activeEnrollments(schoolYearId: string) {
+/**
+ * Matrículas del ciclo que cuentan en los reportes: las activas, o en un ciclo cerrado las de fin
+ * de año (activas, egresadas y las que se dieron de baja recién al empezar el siguiente).
+ */
+export async function reportEnrollments(schoolYearId: string) {
+  const closedYearCode = await closedYearCodeOf(schoolYearId)
+  const where =
+    closedYearCode === null
+      ? { schoolYearId, enrollmentStatus: 'ACTIVE' as const }
+      : {
+          schoolYearId,
+          OR: [
+            { enrollmentStatus: { in: ['ACTIVE' as const, 'GRADUATED' as const] } },
+            { enrollmentStatus: { in: ['WITHDRAWN' as const, 'TRANSFERRED' as const] }, withdrawalAcademicYear: { gt: closedYearCode } },
+          ],
+        }
   const rows = await prisma.studentEnrollment.findMany({
-    where: { schoolYearId, enrollmentStatus: 'ACTIVE' },
+    where,
     select: {
       studentId: true,
       courseOfferingId: true,
@@ -207,6 +265,18 @@ async function activeEnrollments(schoolYearId: string) {
   }))
 }
 
+/** Faltas del ciclo de cada estudiante, contadas como el boletín (cada nivel con su regla). */
+export async function loadYearAbsenceTotals(schoolYearId: string): Promise<Map<string, number>> {
+  const enrollments = await reportEnrollments(schoolYearId)
+  const totals = new Map<string, number>()
+  for (const level of new Set(enrollments.map((e) => e.level))) {
+    const group = enrollments.filter((e) => e.level === level)
+    const byStudent = await loadAbsenceTotals(group.map((e) => e.studentId), schoolYearId, level)
+    for (const e of group) totals.set(e.studentId, byStudent.get(e.studentId)?.absenceHundredths ?? 0)
+  }
+  return totals
+}
+
 // ─── 18 / 25 faltas ─────────────────────────────────────────────────────────
 
 export type AbsenceThresholdRow = StudentRef & {
@@ -217,26 +287,21 @@ export type AbsenceThresholdRow = StudentRef & {
 }
 
 export async function loadAbsenceThresholds(schoolYearId: string): Promise<AbsenceThresholdRow[]> {
-  const enrollments = await activeEnrollments(schoolYearId)
+  const [enrollments, totals] = await Promise.all([reportEnrollments(schoolYearId), loadYearAbsenceTotals(schoolYearId)])
   const rows: AbsenceThresholdRow[] = []
-  // Cada nivel cuenta distinto (ciclo básico por día): se cargan los totales por nivel.
-  for (const level of new Set(enrollments.map((e) => e.level))) {
-    const group = enrollments.filter((e) => e.level === level)
-    const totals = await loadAbsenceTotals(group.map((e) => e.studentId), schoolYearId, level)
-    for (const e of group) {
-      const hundredths = totals.get(e.studentId)?.absenceHundredths ?? 0
-      const reached = thresholdsReached(hundredths)
-      if (reached.length === 0) continue
-      rows.push({
-        studentId: e.studentId,
-        firstName: e.firstName,
-        lastName: e.lastName,
-        courseName: e.courseName,
-        absenceHundredths: hundredths,
-        threshold: reached[reached.length - 1],
-        reached,
-      })
-    }
+  for (const e of enrollments) {
+    const hundredths = totals.get(e.studentId) ?? 0
+    const reached = thresholdsReached(hundredths)
+    if (reached.length === 0) continue
+    rows.push({
+      studentId: e.studentId,
+      firstName: e.firstName,
+      lastName: e.lastName,
+      courseName: e.courseName,
+      absenceHundredths: hundredths,
+      threshold: reached[reached.length - 1],
+      reached,
+    })
   }
   return rows.sort((a, b) => b.absenceHundredths - a.absenceHundredths)
 }
@@ -276,7 +341,7 @@ function sessionOfGroup(session: GroupRef, enrollment: GroupRef): boolean {
 }
 
 export async function loadAbsenceStreaks(schoolYearId: string): Promise<AbsenceStreakRow[]> {
-  const enrollments = await activeEnrollments(schoolYearId)
+  const enrollments = await reportEnrollments(schoolYearId)
   if (enrollments.length === 0) return []
 
   // Sólo interesan los alumnos con alguna ausencia sin justificar: el resto no tiene racha.

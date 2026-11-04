@@ -323,7 +323,7 @@ it('docente: la libreta es una sola entrada; sus secciones están en el menú de
   }
 })
 
-it('adscripción: las faltas en Asistencia de estudiantes, las notas en Rendimiento académico, sin "Reportes"', async () => {
+it('adscripción: las faltas en Asistencia de estudiantes y los indicadores en Indicadores de estudiantes, sin "Reportes"', async () => {
   mockUsePathname.mockReturnValue('/admin/student-attendance')
   mockApiByUrl({
     role: 'ADSCRIPTO',
@@ -344,8 +344,9 @@ it('adscripción: las faltas en Asistencia de estudiantes, las notas en Rendimie
     'href',
     '/admin/student-attendance',
   )
+  expect(screen.getByRole('link', { name: 'Indicadores de estudiantes' })).toHaveAttribute('href', '/admin/student-indicators')
   fireEvent.click(screen.getByRole('button', { name: 'Libretas' }))
-  expect(screen.getByRole('link', { name: 'Rendimiento académico' })).toHaveAttribute('href', '/libreta/indicadores')
+  expect(screen.queryByRole('link', { name: 'Rendimiento académico' })).not.toBeInTheDocument()
   expect(screen.queryByRole('link', { name: 'Reportes de estudiantes' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /^Reportes/ })).not.toBeInTheDocument()
 })

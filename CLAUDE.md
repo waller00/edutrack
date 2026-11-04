@@ -468,6 +468,19 @@ y `lib/messages/`.
 
 ## Frontend
 
+> **Los indicadores de estudiantes son una sola pantalla** (`/admin/student-indicators`, grupo
+> Estudiantes): Resumen, Rendimiento, Materias y APE, Asistencia, Trayectoria y Quién necesita
+> atención, cada sección con el permiso de donde salen sus números
+> (`lib/admin/student-indicators-sections.ts`: notas y trayectoria `academic-analytics.read`; faltas,
+> materias y riesgo `student-reports.read`). `/libreta/indicadores`,
+> `/admin/student-attendance/indicadores` y `/admin/reportes` sólo redirigen
+> (`lib/admin/legacy-reports.ts`). **Ningún porcentaje suelto:** el backend devuelve conteos y la
+> pantalla escribe «34 de 88 (38,6 %)» con `lib/format/percent.ts`. La trayectoria (promoción,
+> repetición, egreso, generaciones) **se deriva al leer** de las matrículas
+> (`services/student-indicators/trajectory.ts`): sin fallo cargado, lo dice la matrícula del año
+> siguiente. Los routers montados con alcance `all` le pasan `institutionWide` a
+> `resolveSchoolYearIdForList`: sin eso, Dirección y Adscripción veían siempre el ciclo activo.
+
 > **Nombres, descripciones, íconos y permisos de cada sección salen de
 > `lib/navigation/modules.ts`.** Lo usan el menú (agrupado por destinatario: Mi trabajo, Personal,
 > Estudiantes, Académico, Libretas, Configuración), los accesos de Inicio, la Guía (`/guia`) y

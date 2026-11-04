@@ -53,6 +53,8 @@ r.get('/students', async (req: any, res) => {
   try {
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
+      // Montado con alcance `all`: quien llega ve todo el centro y elige el ciclo.
+      institutionWide: true,
       requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
     })
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo seleccionado' })
@@ -141,6 +143,8 @@ r.get('/pending', async (req: any, res) => {
 
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
+      // Montado con alcance `all`: quien llega ve todo el centro y elige el ciclo.
+      institutionWide: true,
       requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
     })
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
@@ -313,6 +317,8 @@ r.get('/justification-ranges', requirePermission('student-attendance.justify', '
     }
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
+      // Montado con alcance `all`: quien llega ve todo el centro y elige el ciclo.
+      institutionWide: true,
       requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
     })
     const data = await listJustificationRanges({ studentId: parsed.data.studentId, schoolYearId })
@@ -328,6 +334,8 @@ r.get('/justification-ranges/students', requirePermission('student-attendance.ju
     if (q.length < 2) return res.json({ data: [] })
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
+      // Montado con alcance `all`: quien llega ve todo el centro y elige el ciclo.
+      institutionWide: true,
       requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
     })
     return res.json({ data: await searchJustifiableStudents({ q: q.slice(0, 80), schoolYearId }) })
@@ -503,6 +511,8 @@ r.get('/students/:studentId', async (req: any, res) => {
 
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
+      // Montado con alcance `all`: quien llega ve todo el centro y elige el ciclo.
+      institutionWide: true,
       requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
     })
 

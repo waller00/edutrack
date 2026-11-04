@@ -8,6 +8,7 @@ import {
   loadGradeDrops,
   loadLowGrades,
 } from '../services/student-reports/reports.js'
+import { loadAttendanceTrend, loadRisk, loadSubjectsApe } from '../services/student-indicators/loaders.js'
 
 /**
  * Reportes de estudiantes para adscripción, dirección y administración.
@@ -19,10 +20,13 @@ const r = Router()
 
 const periodQuery = z.object({ periodId: z.string().uuid() })
 const alertsQuery = z.object({ type: z.enum(['GRADE_DROP', 'ABSENCE_STREAK', 'ABSENCE_THRESHOLD']).optional() })
+const riskQuery = z.object({ periodId: z.string().uuid().optional() })
 
 async function schoolYearOf(req: any): Promise<string | null> {
   return resolveSchoolYearIdForList(prisma, {
     role: req.user?.role,
+    // Montado con alcance `all`: quien llega ve todo el centro y elige el ciclo.
+    institutionWide: true,
     requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
   })
 }
@@ -77,6 +81,44 @@ r.get('/absence-thresholds', async (req: any, res) => {
     return res.json({ data: await loadAbsenceThresholds(schoolYearId) })
   } catch (error) {
     return fail(res, 'absence-thresholds', error)
+  }
+})
+
+/**
+ * Asistencia por mes y por curso, contada por día como el boletín: días con lista, con falta
+ * (justificadas aparte) y con llegada tarde. Los porcentajes los calcula la pantalla.
+ */
+r.get('/attendance-trend', async (req: any, res) => {
+  try {
+    const schoolYearId = await schoolYearOf(req)
+    if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
+    return res.json(await loadAttendanceTrend(schoolYearId))
+  } catch (error) {
+    return fail(res, 'attendance-trend', error)
+  }
+})
+
+/** Quién necesita atención por notas y por faltas, con los motivos de cada uno. */
+r.get('/risk', async (req: any, res) => {
+  const parsed = riskQuery.safeParse(req.query)
+  if (!parsed.success) return res.status(400).json({ message: 'Boletín inválido' })
+  try {
+    const schoolYearId = await schoolYearOf(req)
+    if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
+    return res.json(await loadRisk(schoolYearId, parsed.data.periodId))
+  } catch (error) {
+    return fail(res, 'risk', error)
+  }
+})
+
+/** Qué pasó con las materias que fueron a APE, y quiénes deben materias de años anteriores. */
+r.get('/subjects-ape', async (req: any, res) => {
+  try {
+    const schoolYearId = await schoolYearOf(req)
+    if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
+    return res.json(await loadSubjectsApe(schoolYearId))
+  } catch (error) {
+    return fail(res, 'subjects-ape', error)
   }
 })
 

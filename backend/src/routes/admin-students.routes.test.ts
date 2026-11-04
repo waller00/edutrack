@@ -30,7 +30,7 @@ const {
     course: { findUnique: vi.fn() },
     studentPhoto: { findUnique: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
     studentAccommodation: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
-    studentPendingSubject: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
+    studentPendingSubject: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
     schoolYear: { findMany: vi.fn() },
     studentEnrollment: {
       findMany: vi.fn(),
@@ -146,6 +146,7 @@ beforeEach(() => {
   prismaMock.schoolYear.findMany.mockResolvedValue([]);
   prismaMock.$queryRaw.mockResolvedValue([]);
   prismaMock.$executeRaw.mockResolvedValue(1);
+  prismaMock.studentPendingSubject.findUnique.mockResolvedValue(null);
   prismaMock.studentPhoto.findUnique.mockResolvedValue(null);
   prismaMock.studentPhoto.deleteMany.mockResolvedValue({ count: 1 });
   getMappedIdMock.mockResolvedValue(null);
@@ -764,6 +765,37 @@ describe('materias bajas', () => {
 
     const call = prismaMock.studentPendingSubject.upsert.mock.calls[0][0]
     expect(call.update.resolvedAt).toBeInstanceOf(Date)
+  })
+
+  it('editar una salvada como previa no le borra la fecha', async () => {
+    prismaMock.studentPendingSubject.findUnique.mockResolvedValue({
+      resolvedAt: new Date('2026-07-24T15:00:00Z'),
+      apeDecember: 'FAILED',
+      apeFebruary: 'FAILED',
+    })
+    prismaMock.studentPendingSubject.upsert.mockResolvedValue({ id: 'p-1' })
+
+    const res = await request(app())
+      .put(`/admin/students/${STUDENT_ID}/pending-subjects`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ schoolYearId: SY_ID, subjectId: SUBJECT_ID, apeDecember: 'FAILED', apeFebruary: 'FAILED', notes: 'La salvó en julio.' })
+
+    expect(res.status).toBe(200)
+    const call = prismaMock.studentPendingSubject.upsert.mock.calls[0][0]
+    expect(call.update).not.toHaveProperty('resolvedAt')
+    expect(call.update.notes).toBe('La salvó en julio.')
+  })
+
+  it('passedAsPrevia la marca salvada después de las APE', async () => {
+    prismaMock.studentPendingSubject.upsert.mockResolvedValue({ id: 'p-1' })
+
+    await request(app())
+      .put(`/admin/students/${STUDENT_ID}/pending-subjects`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ schoolYearId: SY_ID, subjectId: SUBJECT_ID, apeDecember: 'FAILED', apeFebruary: 'FAILED', passedAsPrevia: true })
+
+    const call = prismaMock.studentPendingSubject.upsert.mock.calls[0][0]
+    expect(call.create.resolvedAt).toBeInstanceOf(Date)
   })
 
   it('un ciclo o materia inexistente da 400, no 500', async () => {

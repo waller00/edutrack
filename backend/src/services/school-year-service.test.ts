@@ -144,6 +144,36 @@ describe("resolveSchoolYearIdForList", () => {
     expect(id).toBe("active-1");
     expect(findUnique).not.toHaveBeenCalled();
   });
+
+  it("en una ruta de todo el centro, Dirección elige el ciclo", async () => {
+    const prisma = {
+      schoolYear: {
+        findUnique: vi.fn().mockResolvedValue({ id: "sy-2025" }),
+        findFirst: vi.fn(),
+      },
+    };
+    const id = await resolveSchoolYearIdForList(prisma as never, {
+      role: "DIRECCION",
+      requestedSchoolYearId: "sy-2025",
+      institutionWide: true,
+    });
+    expect(id).toBe("sy-2025");
+  });
+
+  it("aun así, un ciclo que no existe cae al activo", async () => {
+    const prisma = {
+      schoolYear: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        findFirst: vi.fn().mockResolvedValue({ id: "active-1", code: 2026 }),
+      },
+    };
+    const id = await resolveSchoolYearIdForList(prisma as never, {
+      role: "ADSCRIPTO",
+      requestedSchoolYearId: "no-existe",
+      institutionWide: true,
+    });
+    expect(id).toBe("active-1");
+  });
 });
 
 describe("ensureDefaultSchoolYear", () => {

@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { prismaMock, rosterMock } = vi.hoisted(() => ({
+const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
+    schoolYear: { findUnique: vi.fn() },
     academicPeriod: { findUnique: vi.fn(), findMany: vi.fn() },
     gradeBook: { findMany: vi.fn() },
     gradingScale: { findFirst: vi.fn() },
@@ -9,11 +10,9 @@ const { prismaMock, rosterMock } = vi.hoisted(() => ({
     studentAttendanceEntry: { findMany: vi.fn() },
     studentAttendanceSession: { findMany: vi.fn() },
   },
-  rosterMock: vi.fn(),
 }))
 
 vi.mock('../../db/prisma.js', () => ({ prisma: prismaMock }))
-vi.mock('../student-attendance/roster.js', () => ({ loadRosterForScope: rosterMock }))
 vi.mock('../../config/system-settings.js', () => ({
   getStudentRollCallSettings: vi.fn().mockResolvedValue({ dailyAbsenceThresholdPercent: 50 }),
 }))
@@ -37,6 +36,7 @@ const bookLabels = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  prismaMock.schoolYear.findUnique.mockResolvedValue({ code: 2026, status: 'ACTIVE' })
 })
 
 describe('loadLowGrades', () => {
@@ -48,7 +48,7 @@ describe('loadLowGrades', () => {
         { id: 'l2', label: 'Suficiente', descriptor: null, minValueHundredths: 500, maxValueHundredths: 1000, colorToken: null, iconToken: null, isPassing: true, isAlert: false },
       ],
     })
-    rosterMock.mockResolvedValue([{ studentId: 'a' }, { studentId: 'b' }, { studentId: 'c' }])
+    prismaMock.studentEnrollment.findMany.mockResolvedValue([{ studentId: 'a' }, { studentId: 'b' }, { studentId: 'c' }])
     prismaMock.gradeBook.findMany.mockResolvedValue([
       {
         ...bookLabels,
@@ -69,6 +69,44 @@ describe('loadLowGrades', () => {
 
     expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where.courseOffering).toEqual({ isOffered: true, course: { level: 'EBI' } })
     expect(result?.rows[0]).toMatchObject({ subjectName: 'Matemática', graded: 2, low: 1, percent: 50, pending: 1 })
+  })
+
+  it('un ciclo cerrado sigue teniendo reporte: libretas archivadas y el grupo de fin de año', async () => {
+    prismaMock.schoolYear.findUnique.mockResolvedValue({ code: 2025, status: 'CLOSED' })
+    prismaMock.academicPeriod.findUnique.mockResolvedValue(E1)
+    prismaMock.gradingScale.findFirst.mockResolvedValue({ levels: [] })
+    prismaMock.studentEnrollment.findMany.mockResolvedValue([{ studentId: 'a' }])
+    // Dos libretas del mismo grupo: el grupo se pide una sola vez.
+    prismaMock.gradeBook.findMany.mockResolvedValue([
+      { ...bookLabels, periods: [{ grades: [{ studentId: 'a', meetingValueHundredths: 700 }] }] },
+      { ...bookLabels, subjectId: 'his', subject: { id: 'his', name: 'Historia' }, periods: [{ grades: [] }] },
+    ])
+
+    const result = await loadLowGrades('e1')
+
+    expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where).not.toHaveProperty('status')
+    expect(prismaMock.studentEnrollment.findMany).toHaveBeenCalledTimes(1)
+    expect(prismaMock.studentEnrollment.findMany.mock.calls[0][0].where).toEqual({
+      schoolYearId: 'sy-1',
+      courseOfferingId: 'off-1',
+      OR: [
+        { enrollmentStatus: { in: ['ACTIVE', 'GRADUATED'] } },
+        { enrollmentStatus: { in: ['WITHDRAWN', 'TRANSFERRED'] }, withdrawalAcademicYear: { gt: 2025 } },
+      ],
+    })
+    expect(result?.rows.map((row) => [row.subjectName, row.graded, row.pending])).toEqual([
+      ['Historia', 0, 1],
+      ['Matemática', 1, 0],
+    ])
+  })
+
+  it('en el ciclo en curso cuentan sólo las matrículas activas', async () => {
+    prismaMock.academicPeriod.findUnique.mockResolvedValue(E1)
+    prismaMock.gradingScale.findFirst.mockResolvedValue({ levels: [] })
+    prismaMock.studentEnrollment.findMany.mockResolvedValue([])
+    prismaMock.gradeBook.findMany.mockResolvedValue([{ ...bookLabels, periods: [] }])
+    await loadLowGrades('e1')
+    expect(prismaMock.studentEnrollment.findMany.mock.calls[0][0].where).toMatchObject({ enrollmentStatus: 'ACTIVE' })
   })
 
   it('sólo acepta reuniones de boletín', async () => {

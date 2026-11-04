@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
+import { legacyAttendanceIndicatorsTarget, STUDENT_INDICATORS_PATH } from '@/lib/admin/legacy-reports'
 import JustificationRangesPanel from './JustificationRangesPanel'
 import PendingRollCallsPanel from './PendingRollCallsPanel'
 import StudentAttendanceWorkspace from './StudentAttendanceWorkspace'
@@ -42,10 +43,8 @@ export default function StudentAttendanceTabs() {
   const canIndicators = hasPermission(me, 'student-reports.read', 'all')
   const canRead = hasPermission(me, 'student-attendance.read', 'all')
   useEffect(() => {
-    if (canIndicators && (legacyIndicator || !canRead)) {
-      const next = new URLSearchParams(params?.toString())
-      router.replace(`/admin/student-attendance/indicadores?${next}`)
-    }
+    // Los avisos viejos de faltas abrían acá: ahora van a la sección Asistencia de los indicadores.
+    if (canIndicators && (legacyIndicator || !canRead)) router.replace(legacyAttendanceIndicatorsTarget(params ?? undefined))
   }, [legacyIndicator, canIndicators, canRead, params, router])
   const allowed = ATTENDANCE_TABS.filter((tab) => canRead && hasPermission(me, tab.permission, 'all'))
   if (allowed.length === 0 || (legacyIndicator && canIndicators)) return null
@@ -54,7 +53,7 @@ export default function StudentAttendanceTabs() {
 
   return (
     <div className="space-y-4">
-      {canIndicators && <div className="flex justify-end"><Link href="/admin/student-attendance/indicadores" className="text-sm font-medium text-emerald-700 hover:underline">Ver indicadores de asistencia →</Link></div>}
+      {canIndicators && <div className="flex justify-end"><Link href={`${STUDENT_INDICATORS_PATH}?seccion=asistencia`} className="text-sm font-medium text-emerald-700 hover:underline">Ver indicadores de asistencia →</Link></div>}
       {allowed.length > 1 && (
         <div role="tablist" aria-label="Asistencia de estudiantes" data-tour="student-attendance.tabs" className="flex flex-wrap gap-1 border-b border-gray-200">
           {allowed.map((tab) => (

@@ -156,13 +156,18 @@ export function triggeredAlerts(
   return fired
 }
 
+/**
+ * Estudiantes con nota de reunión hasta la de referencia: cuántos disparan alguna regla y cómo
+ * evolucionó su promedio. Ya no cuenta "evaluados": un estudiante contaba como evaluado sólo porque
+ * su libreta tenía una actividad, y daba casi siempre 100 %.
+ */
 export type StudentsBlock = {
   total: number
-  evaluated: number
-  withoutAssessments: number
   atRisk: number
   improved: number
   declined: number
+  /** Con dos o más reuniones con nota para comparar (los demás no mejoran ni bajan). */
+  compared: number
 }
 
 export function studentsBlock(
@@ -170,27 +175,45 @@ export function studentsBlock(
   rules: readonly AlertRule[],
   levels: readonly LevelRow[],
 ): StudentsBlock {
-  let evaluated = 0
   let atRisk = 0
   let improved = 0
   let declined = 0
+  let compared = 0
 
   for (const student of students) {
-    if (student.assessmentCount > 0) evaluated++
     if (triggeredAlerts(student, rules, levels).length > 0) atRisk++
     const trend = studentTrend(student.periodValues)
+    if (trend !== 'NO_DATA') compared++
     if (trend === 'IMPROVED') improved++
     if (trend === 'DECLINED') declined++
   }
 
-  return {
-    total: students.length,
-    evaluated,
-    withoutAssessments: students.length - evaluated,
-    atRisk,
-    improved,
-    declined,
+  return { total: students.length, atRisk, improved, declined, compared }
+}
+
+/** Estudiantes según cuántas materias tienen en tramo de alerta en la reunión de referencia. */
+export type LowSubjectsHistogram = {
+  /** Con al menos una R en la reunión: es el total sobre el que se cuenta. */
+  graded: number
+  none: number
+  one: number
+  two: number
+  threeOrMore: number
+}
+
+export function lowSubjectsHistogram(students: readonly StudentSnapshot[], levels: readonly LevelRow[]): LowSubjectsHistogram {
+  const histogram: LowSubjectsHistogram = { graded: 0, none: 0, one: 0, two: 0, threeOrMore: 0 }
+  for (const student of students) {
+    const graded = student.subjectValues.filter((value): value is number => value != null)
+    if (graded.length === 0) continue
+    histogram.graded++
+    const low = graded.filter((value) => resolveLevel(value, levels)?.isAlert).length
+    if (low === 0) histogram.none++
+    else if (low === 1) histogram.one++
+    else if (low === 2) histogram.two++
+    else histogram.threeOrMore++
   }
+  return histogram
 }
 
 export type PerformanceBlock = {
@@ -212,70 +235,6 @@ export function performanceBlock(
   }
 }
 
-export type GradeBookState = {
-  gradeBookId: string
-  /** Estudiantes del grupo con calificación general cargada en el período. */
-  gradedStudents: number
-  rosterSize: number
-  periodStatus: 'OPEN' | 'CLOSED' | 'REOPENED' | null
-  endorsed: boolean
-  /** El cierre ocurrió pasado el plazo del período. */
-  closedLate: boolean
-}
-
-export type ManagementBlock = {
-  gradeBooks: number
-  complete: number
-  incomplete: number
-  pendingClosures: number
-  pendingEndorsements: number
-  endorsedPercentage: number
-  lateClosures: number
-  startedPercentage: number
-}
-
-/**
- * Indicadores de gestión de libretas (§5.9).
- *
- * Una libreta está **completa** cuando todos los estudiantes del grupo tienen calificación
- * general. Un grupo vacío cuenta como completo: no hay nada pendiente en él, y contarlo como
- * incompleto inflaría el pendiente con grupos que no existen.
- *
- * El pliego aclara que estos números sirven para gestionar y **no constituyen por sí solos un
- * mecanismo de evaluación del desempeño docente**.
- */
-export function managementBlock(states: readonly GradeBookState[]): ManagementBlock {
-  const total = states.length
-  let complete = 0
-  let pendingClosures = 0
-  let pendingEndorsements = 0
-  let endorsed = 0
-  let lateClosures = 0
-  let started = 0
-
-  for (const state of states) {
-    if (state.gradedStudents >= state.rosterSize) complete++
-    if (state.periodStatus !== 'CLOSED') pendingClosures++
-    if (state.endorsed) endorsed++
-    else if (state.periodStatus === 'CLOSED') pendingEndorsements++
-    if (state.closedLate) lateClosures++
-    if (state.gradedStudents > 0) started++
-  }
-
-  const pct = (n: number) => (total === 0 ? 0 : Math.round((n / total) * 1000) / 10)
-
-  return {
-    gradeBooks: total,
-    complete,
-    incomplete: total - complete,
-    pendingClosures,
-    pendingEndorsements,
-    endorsedPercentage: pct(endorsed),
-    lateClosures,
-    startedPercentage: pct(started),
-  }
-}
-
 export type ComparisonRow = {
   key: string
   label: string
@@ -283,7 +242,8 @@ export type ComparisonRow = {
   medianHundredths: number | null
   gradedCount: number
   studentCount: number
-  /** Porcentaje de resultados en tramo de alerta (§5.5). */
+  /** Resultados en tramo de alerta (§5.5), y su porcentaje sobre `gradedCount`. */
+  alertCount: number
   alertPercentage: number
 }
 
@@ -301,6 +261,7 @@ export function buildComparison(
       medianHundredths: median(group.values),
       gradedCount: group.values.length,
       studentCount: group.studentCount,
+      alertCount: inAlert,
       alertPercentage: group.values.length === 0 ? 0 : Math.round((inAlert / group.values.length) * 1000) / 10,
     }
   })
@@ -308,29 +269,30 @@ export function buildComparison(
 
 // ─── Instantánea por reunión ────────────────────────────────────────────────
 
-export type AnalyticsPeriod = { id: string; name: string; sortOrder: number }
+/** `reportCard`: es una reunión de boletín (entrega, semestre), no una de APE o exámenes. */
+export type AnalyticsPeriod = { id: string; name: string; sortOrder: number; reportCard?: boolean }
 
 /** Un período de una libreta, ya con la nota oficial (R) resuelta. */
 export type AnalyticsState = {
   gradeBookId: string
-  status: 'OPEN' | 'CLOSED' | 'REOPENED'
-  closedLate: boolean
-  endorsed: boolean
   period: AnalyticsPeriod
   grades: ReadonlyArray<{ studentId: string; lastName: string; firstName: string; value: number | null }>
 }
 
 /**
- * Reunión de referencia: la elegida, o la última que ya tiene alguna nota de reunión.
+ * Reunión de referencia: la elegida, o el último boletín que ya tiene alguna nota de reunión.
  *
  * Sin una reunión de referencia los indicadores mezclaban todas las del año (el promedio juntaba
- * el diagnóstico con febrero) y "materias en alerta" tomaba la nota de una reunión cualquiera.
+ * el diagnóstico con febrero) y "materias en alerta" tomaba la nota de una reunión cualquiera. Y la
+ * última con nota de un año cerrado es la APE de febrero, donde sólo tienen nota los que fueron:
+ * por eso se prefiere un boletín.
  */
 export function referencePeriod(states: readonly AnalyticsState[], periodId?: string | null): AnalyticsPeriod | null {
   const periods = new Map(states.map((state) => [state.period.id, state.period]))
   if (periodId) return periods.get(periodId) ?? null
   const graded = states.filter((state) => state.grades.some((g) => g.value != null)).map((state) => state.period)
-  const pool = graded.length > 0 ? graded : [...periods.values()]
+  const candidates = [graded.filter((p) => p.reportCard), graded, [...periods.values()].filter((p) => p.reportCard), [...periods.values()]]
+  const pool = candidates.find((list) => list.length > 0) ?? []
   return pool.reduce<AnalyticsPeriod | null>((best, p) => (!best || p.sortOrder > best.sortOrder ? p : best), null)
 }
 
@@ -400,27 +362,4 @@ export function valuesAt(states: readonly AnalyticsState[], reference: Analytics
     .filter((state) => state.period.id === reference.id)
     .flatMap((state) => state.grades.map((g) => g.value))
     .filter((value): value is number => value != null)
-}
-
-/** Estado de cada libreta en la reunión de referencia, para los indicadores de gestión. */
-export function managementStates(params: {
-  gradeBookIds: readonly string[]
-  states: readonly AnalyticsState[]
-  reference: AnalyticsPeriod | null
-  rosterSizeOf: (gradeBookId: string) => number
-}): GradeBookState[] {
-  const atReference = new Map(
-    params.states.filter((state) => state.period.id === params.reference?.id).map((state) => [state.gradeBookId, state]),
-  )
-  return params.gradeBookIds.map((gradeBookId) => {
-    const state = atReference.get(gradeBookId)
-    return {
-      gradeBookId,
-      gradedStudents: state?.grades.filter((g) => g.value != null).length ?? 0,
-      rosterSize: params.rosterSizeOf(gradeBookId),
-      periodStatus: state?.status ?? null,
-      endorsed: state?.endorsed ?? false,
-      closedLate: state?.closedLate ?? false,
-    }
-  })
 }

@@ -58,14 +58,13 @@ export type ModuleId =
   | 'staff-indicators'
   | 'students'
   | 'student-attendance'
-  | 'student-attendance-indicators'
+  | 'student-indicators'
   | 'tuition'
   | 'school-years'
   | 'courses'
   | 'gradebooks'
   | 'gradebook-control'
   | 'teachers-meeting'
-  | 'academic-performance'
   | 'gradebook-config'
   | 'profile'
   | 'settings'
@@ -137,7 +136,7 @@ export const NAV_GROUP_META: Record<NavGroupId, NavGroupMeta> = {
   students: {
     title: 'Estudiantes',
     icon: GraduationCap,
-    description: 'La matrícula, la asistencia y las mensualidades de los estudiantes.',
+    description: 'La matrícula, la asistencia, las mensualidades y los indicadores de los estudiantes.',
     showChip: true,
   },
   academic: {
@@ -149,7 +148,7 @@ export const NAV_GROUP_META: Record<NavGroupId, NavGroupMeta> = {
   gradebooks: {
     title: 'Libretas',
     icon: BookMarked,
-    description: 'Las calificaciones de cada grupo y su seguimiento: control, visado, reunión y rendimiento.',
+    description: 'Las calificaciones de cada grupo y su seguimiento: control, visado y reunión de profesores.',
     showChip: true,
   },
   config: {
@@ -312,7 +311,7 @@ export const APP_MODULES: readonly AppModule[] = [
     icon: BarChart3,
     permission: 'analytics.read',
     permissionScope: 'all',
-    related: [{ id: 'academic-performance', text: '¿Buscás las notas y el rendimiento de los estudiantes?' }],
+    related: [{ id: 'student-indicators', text: '¿Buscás las notas y la asistencia de los estudiantes?' }],
   },
 
   // Estudiantes.
@@ -341,15 +340,22 @@ export const APP_MODULES: readonly AppModule[] = [
     quickAccess: 11,
   },
   {
-    id: 'student-attendance-indicators',
-    label: 'Indicadores de asistencia de estudiantes',
-    href: '/admin/student-attendance/indicadores',
-    description: 'Gráficas por curso, rachas activas y seguimiento de estudiantes con 18 o 25 faltas.',
+    // Une "Indicadores de asistencia de estudiantes" y "Rendimiento académico": sus rutas viejas
+    // redirigen a la sección que corresponde (`lib/admin/legacy-reports.ts`).
+    id: 'student-indicators',
+    label: 'Indicadores de estudiantes',
+    href: '/admin/student-indicators',
+    description: 'Cómo les va a los estudiantes: notas, asistencia, materias y APE, promoción y egreso, y quién necesita atención.',
     group: 'students',
-    icon: BarChart3,
-    permission: 'student-reports.read',
+    icon: TrendingUp,
+    // Con sólo los reportes de estudiantes (adscripción) se ven las secciones que salen de ellos.
+    permission: ['academic-analytics.read', 'student-reports.read'],
     permissionScope: 'all',
-    related: [{ id: 'student-attendance', text: 'Consultá las faltas y cargá licencias por estudiante en' }],
+    related: [
+      { id: 'staff-indicators', text: '¿Buscás la puntualidad y el ausentismo del personal?' },
+      { id: 'gradebook-control', text: '¿Buscás qué libretas faltan cargar, cerrar o visar?' },
+    ],
+    quickAccess: 7,
   },
   {
     id: 'tuition',
@@ -422,19 +428,6 @@ export const APP_MODULES: readonly AppModule[] = [
     icon: Presentation,
     permission: 'gradebook.read',
     permissionScope: 'all',
-  },
-  {
-    id: 'academic-performance',
-    label: 'Rendimiento académico',
-    href: '/libreta/indicadores',
-    description: 'Rendimiento, evolución, cobertura de evaluaciones y alertas de asistencia de estudiantes.',
-    group: 'gradebooks',
-    icon: TrendingUp,
-    // Con sólo los reportes de estudiantes (adscripción) se ve el seguimiento de notas.
-    permission: ['academic-analytics.read', 'student-reports.read'],
-    permissionScope: 'all',
-    related: [{ id: 'staff-indicators', text: '¿Buscás la puntualidad y el ausentismo del personal?' }],
-    quickAccess: 7,
   },
   {
     id: 'gradebook-config',

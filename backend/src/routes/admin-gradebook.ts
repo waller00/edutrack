@@ -78,6 +78,8 @@ r.get('/periods', async (req: any, res) => {
   try {
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
+      // Montado con alcance `all`: quien llega ve todo el centro y elige el ciclo.
+      institutionWide: true,
       requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
     })
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
@@ -123,6 +125,8 @@ r.get('/groups', async (req: any, res) => {
   try {
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
+      // Montado con alcance `all`: quien llega ve todo el centro y elige el ciclo.
+      institutionWide: true,
       requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
     })
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
@@ -940,6 +944,8 @@ r.get('/endorsements', async (req: any, res) => {
   try {
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
+      // Montado con alcance `all`: quien llega ve todo el centro y elige el ciclo.
+      institutionWide: true,
       requestedSchoolYearId: queryString(req.query.schoolYearId),
     })
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })

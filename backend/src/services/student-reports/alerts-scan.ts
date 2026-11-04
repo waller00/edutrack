@@ -9,7 +9,7 @@ import { notifyUsers } from '../notifications/notify.js'
 /**
  * Alertas de estudiantes: detecta, guarda lo nuevo y avisa **una vez** a adscripción y dirección.
  *
- * Los detectores son los mismos cargadores que usa la pantalla de Reportes. La tabla
+ * Los detectores son los mismos cargadores que usa Indicadores de estudiantes. La tabla
  * `StudentAlert` sólo recuerda qué se avisó: su unique `(tipo, alumno, clave)` hace que una racha,
  * un umbral o una baja se notifiquen una sola vez aunque el escaneo corra cada hora.
  */
@@ -28,20 +28,20 @@ export const ALERT_RECIPIENT_ROLES = ['DIRECCION', 'ADSCRIPTO'] as const
 
 /**
  * Las alertas que avisan. Las faltas seguidas y los 18/25 piden intervenir ya; una baja de nota se
- * mira en Reportes ("Bajas de boletín" y "Alertas"), que la sigue mostrando, sin llenar la campana.
+ * mira en Indicadores de estudiantes (Rendimiento, "Quiénes bajaron"), sin llenar la campana.
  */
 export const NOTIFIED_ALERT_TYPES: ReadonlySet<StudentAlertType> = new Set(['ABSENCE_STREAK', 'ABSENCE_THRESHOLD'])
 
 /** Con más alertas nuevas que esto, se manda un resumen en vez de una notificación por alerta. */
 export const MAX_INDIVIDUAL_NOTIFICATIONS = 5
 
-/** Dónde se ve cada alerta de faltas: su pestaña en Asistencia de estudiantes. */
-const ATTENDANCE_TAB: Partial<Record<StudentAlertType, string>> = {
+/** Dónde se ve cada alerta de faltas: su lista en la sección Asistencia de Indicadores de estudiantes. */
+const ATTENDANCE_LIST: Partial<Record<StudentAlertType, string>> = {
   ABSENCE_STREAK: 'seguidas',
   ABSENCE_THRESHOLD: 'faltas',
 }
 
-const attendanceUrl = (type: StudentAlertType) => `/admin/student-attendance/indicadores?tab=${ATTENDANCE_TAB[type] ?? 'faltas'}`
+const attendanceUrl = (type: StudentAlertType) => `/admin/student-indicators?seccion=asistencia&lista=${ATTENDANCE_LIST[type] ?? 'faltas'}`
 
 const fullName = (s: { firstName: string; lastName: string }) => `${s.lastName}, ${s.firstName}`
 const gradeUnits = (hundredths: number) => formatAbsenceUnits(hundredths)
@@ -117,7 +117,7 @@ export function notificationsFor(alerts: readonly AlertCandidate[]) {
     return [
       {
         title: `${notified.length} alertas nuevas de faltas`,
-        body: 'Faltas seguidas o estudiantes que llegaron a 18 o 25 faltas. Revisalas en Reportes.',
+        body: 'Faltas seguidas o estudiantes que llegaron a 18 o 25 faltas. Revisalas en Indicadores de estudiantes.',
         actionUrl: attendanceUrl('ABSENCE_THRESHOLD'),
       },
     ]

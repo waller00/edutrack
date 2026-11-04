@@ -4,7 +4,7 @@ import express from 'express'
 import cookieParser from 'cookie-parser'
 import { signAccessToken } from '../test-utils/bearer-token.js'
 
-const { prismaMock, rosterMock } = vi.hoisted(() => ({
+const { prismaMock, rosterMock, schoolYearMock, trajectoryMock } = vi.hoisted(() => ({
   prismaMock: {
     academicAlertRule: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     gradingScale: { findFirst: vi.fn() },
@@ -15,13 +15,16 @@ const { prismaMock, rosterMock } = vi.hoisted(() => ({
     academicPeriod: { findUnique: vi.fn() },
   },
   rosterMock: vi.fn(),
+  schoolYearMock: vi.fn(),
+  trajectoryMock: vi.fn(),
 }))
 
 vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
 vi.mock('../services/school-year-service.js', () => ({
-  resolveSchoolYearIdForList: vi.fn().mockResolvedValue('sy-2026'),
+  resolveSchoolYearIdForList: schoolYearMock,
 }))
 vi.mock('../services/student-attendance/roster.js', () => ({ loadRosterForScope: rosterMock }))
+vi.mock('../services/student-indicators/loaders.js', () => ({ loadTrajectory: trajectoryMock }))
 
 import adminAcademicAnalyticsRoutes from './admin-academic-analytics.js'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
@@ -61,6 +64,7 @@ beforeEach(() => {
   prismaMock.assessment.groupBy.mockResolvedValue([])
   prismaMock.periodGrade.findMany.mockResolvedValue([])
   rosterMock.mockResolvedValue([])
+  schoolYearMock.mockResolvedValue('sy-2026')
 })
 
 describe('permisos', () => {
@@ -77,16 +81,15 @@ describe('permisos', () => {
 })
 
 describe('GET /dashboard', () => {
-  it('arma los tres bloques del pliego', async () => {
+  const boletin = { isMeeting: true, requiresGeneralGrade: true, requiresConceptualJudgement: true }
+
+  it('arma estudiantes, rendimiento y materias bajas, sin el bloque de gestión', async () => {
     prismaMock.gradeBook.findMany.mockResolvedValue([BOOK])
     rosterMock.mockResolvedValue([{ studentId: 's1' }, { studentId: 's2' }])
     prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
       {
         gradeBookId: 'gb-1',
-        status: 'CLOSED',
-        closedLate: false,
-        period: { id: 'p-1', name: 'Mayo', sortOrder: 20 },
-        endorsements: [{ status: 'ENDORSED' }],
+        period: { id: 'p-1', name: 'Mayo', sortOrder: 20, ...boletin },
         grades: [
           { studentId: 's1', studentLastName: 'B', studentFirstName: 'Ana', valueHundredths: 300, meetingValueHundredths: 300 },
           { studentId: 's2', studentLastName: 'C', studentFirstName: 'Beto', valueHundredths: 900, meetingValueHundredths: 900 },
@@ -100,10 +103,29 @@ describe('GET /dashboard', () => {
       .set('Authorization', `Bearer ${tok()}`)
 
     expect(res.status).toBe(200)
-    expect(res.body.students).toMatchObject({ total: 2, evaluated: 2 })
+    expect(res.body.students).toEqual({ total: 2, atRisk: 0, improved: 0, declined: 0, compared: 0 })
     expect(res.body.performance.averageHundredths).toBe(600)
     expect(res.body.performance.medianHundredths).toBe(600)
-    expect(res.body.management).toMatchObject({ gradeBooks: 1, complete: 1, pendingClosures: 0 })
+    expect(res.body.lowSubjects).toEqual({ graded: 2, none: 1, one: 1, two: 0, threeOrMore: 0 })
+    expect(res.body).not.toHaveProperty('management')
+    // El router exige alcance all: quien llega elige el ciclo.
+    expect(schoolYearMock).toHaveBeenCalledWith(prismaMock, expect.objectContaining({ institutionWide: true }))
+  })
+
+  it('sin reunión elegida toma el último boletín con notas, no la APE de febrero', async () => {
+    prismaMock.gradeBook.findMany.mockResolvedValue([BOOK])
+    const grade = (studentId: string, value: number) => ({ studentId, studentLastName: studentId, studentFirstName: studentId, meetingValueHundredths: value })
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      { gradeBookId: 'gb-1', period: { id: 'e4', name: '4.ª Entrega', sortOrder: 100, ...boletin }, grades: [grade('s1', 800), grade('s2', 400)] },
+      { gradeBookId: 'gb-1', period: { id: 'ape', name: 'APE Febrero', sortOrder: 120, isMeeting: true, requiresGeneralGrade: false, requiresConceptualJudgement: false }, grades: [grade('s2', 600)] },
+    ])
+
+    const res = await request(app())
+      .get('/admin/academic-analytics/dashboard')
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body.referencePeriod).toEqual({ id: 'e4', name: '4.ª Entrega' })
+    expect(res.body.performance.gradedCount).toBe(2)
   })
 
   it('lleva la aclaración de que las alertas no generan decisiones administrativas', async () => {
@@ -137,7 +159,8 @@ describe('GET /dashboard', () => {
       .get('/admin/academic-analytics/dashboard')
       .set('Authorization', `Bearer ${tok()}`)
     expect(res.status).toBe(200)
-    expect(res.body.students).toMatchObject({ total: 0, evaluated: 0 })
+    expect(res.body.students).toMatchObject({ total: 0, atRisk: 0 })
+    expect(res.body.lowSubjects).toEqual({ graded: 0, none: 0, one: 0, two: 0, threeOrMore: 0 })
     expect(res.body.performance.averageHundredths).toBeNull()
   })
 })
@@ -181,7 +204,7 @@ describe('GET /comparison', () => {
       .get('/admin/academic-analytics/comparison?dimension=SUBJECT')
       .set('Authorization', `Bearer ${tok()}`)
 
-    expect(res.body.data[0]).toMatchObject({ label: 'Matemática', gradedCount: 2, studentCount: 2, alertPercentage: 50 })
+    expect(res.body.data[0]).toMatchObject({ label: 'Matemática', gradedCount: 2, studentCount: 2, alertCount: 1, alertPercentage: 50 })
   })
 })
 
@@ -348,5 +371,30 @@ describe('GET /comparison por nivel y reunión', () => {
       .get(`/admin/academic-analytics/comparison?dimension=SUBJECT&periodId=${P}`)
       .set('Authorization', `Bearer ${tok()}`)
     expect(prismaMock.periodGrade.findMany.mock.calls[0][0].where.gradeBookPeriod.period).toEqual({ isMeeting: true, id: P })
+  })
+})
+
+describe('GET /trajectory', () => {
+  it('devuelve la trayectoria del ciclo elegido', async () => {
+    trajectoryMock.mockResolvedValue({ focusYear: { code: 2025 }, byYear: [] })
+    const res = await request(app())
+      .get('/admin/academic-analytics/trajectory?schoolYearId=11111111-1111-4111-8111-111111111111')
+      .set('Authorization', `Bearer ${tok('DIRECCION', 'd-1')}`)
+    expect(res.status).toBe(200)
+    expect(res.body.focusYear).toEqual({ code: 2025 })
+    expect(schoolYearMock).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({ requestedSchoolYearId: '11111111-1111-4111-8111-111111111111', institutionWide: true }),
+    )
+    expect(trajectoryMock).toHaveBeenCalledWith('sy-2026')
+  })
+
+  it('rechaza un ciclo inválido y oculta los errores inesperados', async () => {
+    const bad = await request(app()).get('/admin/academic-analytics/trajectory?schoolYearId=x').set('Authorization', `Bearer ${tok()}`)
+    expect(bad.status).toBe(400)
+    trajectoryMock.mockRejectedValue(new Error('detalle interno'))
+    const res = await request(app()).get('/admin/academic-analytics/trajectory').set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(500)
+    expect(res.body.message).not.toContain('detalle interno')
   })
 })

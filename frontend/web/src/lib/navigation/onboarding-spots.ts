@@ -135,9 +135,24 @@ export const SCREEN_SPOTS: Partial<Record<ModuleId, Spot[]>> = {
     },
     { target: 'student-attendance.content', title: 'Buscá y abrí', text: 'Buscá al estudiante o elegí el grupo para ver lo de la pestaña elegida.' },
   ],
-  'student-attendance-indicators': [
-    { target: 'attendance-indicators.tabs', title: 'Dos alertas', text: 'Las faltas seguidas y quién llega a 18 y 25 faltas en el ciclo.' },
-    { target: 'attendance-indicators.list', title: 'Quién necesita seguimiento', text: 'Los estudiantes con la alerta elegida, para decidir a quién llamar o citar.' },
+  'student-indicators': [
+    {
+      target: 'student-indicators.sections',
+      title: 'Las secciones',
+      text: 'Resumen, rendimiento, materias y APE, asistencia, trayectoria y quién necesita atención: cada tema en la suya.',
+    },
+    {
+      target: 'student-indicators.filters',
+      title: 'Ciclo y boletín',
+      text: 'El ciclo es el del menú. Las notas salen del boletín que elijas acá; «Actualizar» vuelve a calcular todo.',
+    },
+    { target: 'student-indicators.summary', title: 'Lo esencial', text: 'Cuatro números del ciclo, cada uno con de cuántos sale.' },
+    {
+      target: 'student-indicators.risk',
+      title: 'A quién mirar',
+      text: 'Quiénes necesitan atención y por qué, por notas y por faltas. La lista completa, con filtros, está en su sección.',
+      permission: { id: 'student-reports.read', scope: 'all' },
+    },
   ],
   tuition: [
     { target: 'tuition.filters', title: 'Elegí mes y estudiante', text: 'Filtrá por período, nombre o curso.' },
@@ -182,10 +197,6 @@ export const SCREEN_SPOTS: Partial<Record<ModuleId, Spot[]>> = {
     { target: 'reunion.matrix', title: 'La matriz del grupo', text: 'Las notas de cada alumno en todas las asignaturas, con el promedio como referencia.' },
     { target: 'reunion.performance', title: 'Rendimiento', text: 'Lo elige la reunión para cada alumno: es el que va al boletín.' },
     { target: 'reunion.judgements', title: 'Juicios de la reunión', text: 'El general del grupo queda en la reunión; el de cada alumno va a su boletín.' },
-  ],
-  'academic-performance': [
-    { target: 'academic.views', title: 'Vistas', text: 'Cada vista muestra el rendimiento desde otro ángulo.' },
-    { target: 'academic.filters', title: 'Filtrá', text: 'Elegí nivel, grupo, asignatura o período.' },
   ],
   'gradebook-config': [
     { target: 'gradebook-config.tabs', title: 'Qué configurar', text: 'Períodos, escalas, tipos de actividad, alertas y libretas.' },

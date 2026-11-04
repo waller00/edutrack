@@ -21,6 +21,7 @@ import {
   photoRejectionResponse,
   validateStudentPhoto,
 } from '../services/student-photo.js'
+import { pendingResolvedAt } from '../services/student-indicators/subjects-ape.js'
 
 const r = Router()
 
@@ -1086,6 +1087,8 @@ const pendingSubjectSchema = z.object({
   origin: z.enum(['FAILED_THIS_YEAR', 'CARRIED_OVER']).default('FAILED_THIS_YEAR'),
   apeDecember: z.preprocess(clearableEmpty, z.enum(['PASSED', 'FAILED', 'NOT_TAKEN']).nullable().optional()),
   apeFebruary: z.preprocess(clearableEmpty, z.enum(['PASSED', 'FAILED', 'NOT_TAKEN']).nullable().optional()),
+  /** La salvó después de las APE (en general en julio, como previa), o se la vuelve a abrir. */
+  passedAsPrevia: z.boolean().optional(),
   notes: clearableTrimmed(2000),
 })
 
@@ -1109,7 +1112,8 @@ r.get('/:id/pending-subjects', async (req, res) => {
  * Es un upsert por `(estudiante, ciclo, materia)`: registrar el resultado de APE diciembre y luego
  * el de febrero son dos pasos sobre la misma fila, no dos filas. Cuando salva, se marca
  * `resolvedAt` y deja de mostrársele al docente — pero la fila queda, porque el historial de qué
- * se llevó es justamente lo que necesita el año siguiente.
+ * se llevó es justamente lo que necesita el año siguiente. Editarla no le borra esa fecha
+ * (`pendingResolvedAt`).
  */
 r.put('/:id/pending-subjects', async (req: any, res) => {
   const parsed = pendingSubjectSchema.safeParse(req.body)
@@ -1121,29 +1125,22 @@ r.put('/:id/pending-subjects', async (req: any, res) => {
   }
   try {
     const d = parsed.data
-    const passed = d.apeDecember === 'PASSED' || d.apeFebruary === 'PASSED'
+    const key = { studentId: req.params.id, schoolYearId: d.schoolYearId, subjectId: d.subjectId }
+    const current = await (prisma as any).studentPendingSubject.findUnique({
+      where: { studentId_schoolYearId_subjectId: key },
+      select: { resolvedAt: true, apeDecember: true, apeFebruary: true },
+    })
+    const resolvedAt = pendingResolvedAt(d, current, new Date())
     const data = {
       origin: d.origin,
       apeDecember: d.apeDecember ?? null,
       apeFebruary: d.apeFebruary ?? null,
       notes: d.notes ?? null,
-      resolvedAt: passed ? new Date() : null,
+      ...(resolvedAt === undefined ? {} : { resolvedAt }),
     }
     const saved = await (prisma as any).studentPendingSubject.upsert({
-      where: {
-        studentId_schoolYearId_subjectId: {
-          studentId: req.params.id,
-          schoolYearId: d.schoolYearId,
-          subjectId: d.subjectId,
-        },
-      },
-      create: {
-        studentId: req.params.id,
-        schoolYearId: d.schoolYearId,
-        subjectId: d.subjectId,
-        createdByUserId: req.user?.id ?? req.user?.sub ?? null,
-        ...data,
-      },
+      where: { studentId_schoolYearId_subjectId: key },
+      create: { ...key, createdByUserId: req.user?.id ?? req.user?.sub ?? null, ...data },
       update: data,
       include: { subject: { select: { id: true, name: true } }, schoolYear: { select: { id: true, code: true } } },
     })

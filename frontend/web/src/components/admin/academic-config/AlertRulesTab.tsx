@@ -35,7 +35,7 @@ const RULE_TEXT: Record<
     shortHint: 'Cantidad de asignaturas con rendimiento (R) en alerta.',
     hint:
       'El estudiante queda en alerta con esta cantidad o más de asignaturas en el tramo de alerta de la escala, ' +
-      'mirando el rendimiento (R). Es lo que marca la matriz de la reunión y lo que cuenta Rendimiento académico.',
+      'mirando el rendimiento (R). Es lo que marca la matriz de la reunión y lo que cuentan los Indicadores de estudiantes.',
     unit: 'subjects',
   },
   SCORE_DROP: {

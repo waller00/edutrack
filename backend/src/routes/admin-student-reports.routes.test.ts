@@ -4,7 +4,7 @@ import express from 'express'
 import cookieParser from 'cookie-parser'
 import { signAccessToken } from '../test-utils/bearer-token.js'
 
-const { prismaMock, reportsMock } = vi.hoisted(() => ({
+const { prismaMock, reportsMock, schoolYearMock, indicatorsMock } = vi.hoisted(() => ({
   prismaMock: {
     studentAlert: { findMany: vi.fn() },
   },
@@ -14,12 +14,15 @@ const { prismaMock, reportsMock } = vi.hoisted(() => ({
     loadAbsenceStreaks: vi.fn(),
     loadAbsenceThresholds: vi.fn(),
   },
+  schoolYearMock: vi.fn(),
+  indicatorsMock: { loadAttendanceTrend: vi.fn(), loadRisk: vi.fn(), loadSubjectsApe: vi.fn() },
 }))
 
 vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
 vi.mock('../services/student-reports/reports.js', () => reportsMock)
+vi.mock('../services/student-indicators/loaders.js', () => indicatorsMock)
 vi.mock('../services/school-year-service.js', () => ({
-  resolveSchoolYearIdForList: vi.fn().mockResolvedValue('sy-1'),
+  resolveSchoolYearIdForList: schoolYearMock,
 }))
 
 import studentReportsRoutes from './admin-student-reports.js'
@@ -39,6 +42,7 @@ const PERIOD = '22222222-2222-4222-8222-222222222222'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  schoolYearMock.mockResolvedValue('sy-1')
 })
 
 describe('reportes de estudiantes', () => {
@@ -82,6 +86,17 @@ describe('reportes de estudiantes', () => {
     expect(reportsMock.loadAbsenceStreaks).toHaveBeenCalledWith('sy-1')
   })
 
+  it('Dirección y Adscripción eligen el ciclo: el router exige alcance all', async () => {
+    reportsMock.loadAbsenceThresholds.mockResolvedValue([])
+    await request(app())
+      .get('/admin/student-reports/absence-thresholds?schoolYearId=sy-2025')
+      .set('Authorization', `Bearer ${tok('DIRECCION', 'd-1')}`)
+    expect(schoolYearMock).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({ role: 'DIRECCION', requestedSchoolYearId: 'sy-2025', institutionWide: true }),
+    )
+  })
+
   it('la bandeja de alertas filtra por tipo y por ciclo', async () => {
     prismaMock.studentAlert.findMany.mockResolvedValue([])
     await request(app()).get('/admin/student-reports/alerts?type=ABSENCE_STREAK').set('Authorization', `Bearer ${tok()}`)
@@ -89,5 +104,38 @@ describe('reportes de estudiantes', () => {
 
     const bad = await request(app()).get('/admin/student-reports/alerts?type=OTRA').set('Authorization', `Bearer ${tok()}`)
     expect(bad.status).toBe(400)
+  })
+
+  it('asistencia en el tiempo, riesgo y APE: del ciclo elegido', async () => {
+    indicatorsMock.loadAttendanceTrend.mockResolvedValue({ months: ['2026-03'] })
+    indicatorsMock.loadRisk.mockResolvedValue({ rows: [] })
+    indicatorsMock.loadSubjectsApe.mockResolvedValue({ focusYear: null })
+
+    const trend = await request(app()).get('/admin/student-reports/attendance-trend').set('Authorization', `Bearer ${tok()}`)
+    const risk = await request(app()).get(`/admin/student-reports/risk?periodId=${PERIOD}`).set('Authorization', `Bearer ${tok()}`)
+    const ape = await request(app()).get('/admin/student-reports/subjects-ape').set('Authorization', `Bearer ${tok()}`)
+
+    expect(trend.body).toEqual({ months: ['2026-03'] })
+    expect(risk.status).toBe(200)
+    expect(ape.body).toEqual({ focusYear: null })
+    expect(indicatorsMock.loadAttendanceTrend).toHaveBeenCalledWith('sy-1')
+    expect(indicatorsMock.loadRisk).toHaveBeenCalledWith('sy-1', PERIOD)
+    expect(indicatorsMock.loadSubjectsApe).toHaveBeenCalledWith('sy-1')
+  })
+
+  it('el riesgo rechaza un boletín inválido y un docente no ve los indicadores', async () => {
+    const bad = await request(app()).get('/admin/student-reports/risk?periodId=nada').set('Authorization', `Bearer ${tok()}`)
+    expect(bad.status).toBe(400)
+    for (const path of ['attendance-trend', 'risk', 'subjects-ape']) {
+      const res = await request(app()).get(`/admin/student-reports/${path}`).set('Authorization', `Bearer ${tok('TEACHER', 't-1')}`)
+      expect(res.status, path).toBe(403)
+    }
+  })
+
+  it('un error inesperado no se muestra tal cual', async () => {
+    indicatorsMock.loadRisk.mockRejectedValue(new Error('detalle interno'))
+    const res = await request(app()).get('/admin/student-reports/risk').set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(500)
+    expect(res.body.message).not.toContain('detalle interno')
   })
 })

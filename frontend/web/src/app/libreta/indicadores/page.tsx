@@ -1,20 +1,10 @@
-'use client'
-import { Suspense } from 'react'
-import RoleGuard from '@/components/auth/RoleGuard'
-import AcademicIntelligence from '@/components/admin/analytics-academic/AcademicIntelligence'
-import ModuleHeader from '@/components/common/ModuleHeader'
+import { redirect } from 'next/navigation'
+import { legacyAcademicTarget, searchParamsOf } from '@/lib/admin/legacy-reports'
 
-export default function Page() {
-  return (
-    // Adscripción entra sólo por los reportes de estudiantes: ve el seguimiento de notas.
-    <RoleGuard permission={['academic-analytics.read', 'student-reports.read']} permissionScope="all">
-      <main className="responsive-page max-w-[1500px] space-y-4">
-        <ModuleHeader id="academic-performance" />
-        {/* `?view=seguimiento` se lee de la URL: useSearchParams necesita un Suspense para prerenderizar. */}
-        <Suspense fallback={null}>
-          <AcademicIntelligence />
-        </Suspense>
-      </main>
-    </RoleGuard>
-  )
+/**
+ * "Rendimiento académico" se unió con los indicadores de asistencia en Indicadores de estudiantes.
+ * La ruta queda para que los enlaces viejos no se rompan; `?view=` abre la sección que corresponde.
+ */
+export default function Page({ searchParams }: Readonly<{ searchParams?: Record<string, string | string[] | undefined> }>) {
+  redirect(legacyAcademicTarget(searchParamsOf(searchParams)))
 }

@@ -551,12 +551,12 @@ it.each(rolePermissions)(
     expect(
       Boolean(screen.queryByRole('link', { name: /Mis asistencias/ })),
     ).toBe(withOwn)
-    const withAnalytics = permissions.some(
-      (item) => item.id === 'academic-analytics.read',
+    const withIndicators = permissions.some((item) =>
+      ['academic-analytics.read', 'student-reports.read'].includes(item.id),
     )
     expect(
-      Boolean(screen.queryByRole('link', { name: /Rendimiento académico/ })),
-    ).toBe(withAnalytics)
+      Boolean(screen.queryByRole('link', { name: /Indicadores de estudiantes/ })),
+    ).toBe(withIndicators)
     expect(
       calls.mock.calls.some(([url]) =>
         url.startsWith('/analytics/attendance-timeline'),

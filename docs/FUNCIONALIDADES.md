@@ -417,8 +417,8 @@ entienden solos. Contraído, el menú muestra la abreviatura de cada sección; e
 secciones se eligen de un selector, para no empujar el contenido una pantalla hacia abajo.
 
 **Pantallas de supervisión:** `/libreta/reunion` (matriz del grupo), `/libreta/control` (control y
-visado; `/libreta/visado` redirige a su paso de visado),
-`/libreta/indicadores`, `/libreta/estudiante/[id]` (ficha) y `/libreta/configuracion`
+visado; `/libreta/visado` redirige a su paso de visado), `/libreta/estudiante/[id]` (ficha) y
+`/libreta/configuracion`
 (parametrización académica). Entradas globales de trabajo: `/libreta/evaluaciones` y
 `/libreta/cierre-alumno` (*Cierre de períodos*: C, R e informe de todo el grupo o alumno por alumno,
 y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
@@ -695,7 +695,7 @@ adscripción, dirección, inspección y administración.
   consecutivos.
 - **Riesgo (§5.7):** se marca al estudiante con N o más asignaturas en tramo de alerta. El umbral
   es la regla *Asignaturas en alerta* del ciclo (3 por defecto), la misma que usan los indicadores,
-  así "en alerta" significa lo mismo en la reunión y en Rendimiento académico. El descenso
+  así "en alerta" significa lo mismo en la reunión y en Indicadores de estudiantes. El descenso
   sostenido exige **tres** bajas consecutivas: dos
   puntos son ruido, no tendencia. Las alertas son informativas y no generan por sí solas
   decisiones administrativas, promociones ni sanciones.
@@ -797,35 +797,103 @@ personal y las novedades de sueldos.
 - La descarga va por `fetch` + blob y no por un enlace directo, porque la API vive en otro origen
   y la sesión viaja en cookie: un `<a href>` plano daría 401.
 
-### Backoffice de inteligencia académica (§5, RF-200)
+### Indicadores de estudiantes (§5, RF-200)
 
-**Pantalla:** "Rendimiento académico" (`/libreta/indicadores`), permiso `academic-analytics.read`
-de alcance ALL. En el menú se llama así para que no se confunda con los indicadores del personal.
-Filtros de
-nivel, reunión y grupo.
+**Pantalla:** "Indicadores de estudiantes" (`/admin/student-indicators`, grupo Estudiantes). Une
+lo que eran "Rendimiento académico" (`/libreta/indicadores`) e "Indicadores de asistencia de
+estudiantes" (`/admin/student-attendance/indicadores`): las dos rutas viejas, y `/admin/reportes`,
+redirigen a la sección que corresponde (`lib/admin/legacy-reports.ts`), con el ciclo del enlace.
 
-- **Tres bloques** como pide el pliego: *Estudiantes* (total, evaluados, sin evaluaciones, en
-  alerta, con mejora, con descenso), *Rendimiento* (promedio, mediana, distribución por tramo) y
-  *Gestión de libretas* (completas, incompletas, cierres y visados pendientes, % visadas, cierres
-  fuera de plazo).
+- **Una sección por tema**, en la URL (`?seccion=`): *Resumen*, *Rendimiento*, *Materias y APE*,
+  *Asistencia*, *Trayectoria* y *Quién necesita atención*. Cada una pide el permiso de donde salen
+  sus números (`lib/admin/student-indicators-sections.ts`): Rendimiento y Trayectoria,
+  `academic-analytics.read`; Materias y APE, Asistencia y Quién necesita atención,
+  `student-reports.read`; el Resumen muestra cada mosaico según el de su fuente. Adscripción, con
+  sólo los reportes, ve esas cuatro. Una sección que no se puede ver abre la primera visible.
+- **Cada número dice de cuántos sale:** «34 de 88 (38,6 %)», nunca un porcentaje suelto. El backend
+  devuelve conteos y la pantalla los escribe con `lib/format/percent.ts` (`formatShare`,
+  `formatRatio`, `formatCount`), siempre igual.
+- **El ciclo es el del selector del menú**, también para Dirección y Adscripción: los routers
+  montados con alcance `all` le pasan `institutionWide` a `resolveSchoolYearIdForList`. **El boletín
+  de referencia** (`?boletin=`) es el elegido si es de ese ciclo; si no, el último que ya pasó.
+  Fija también el nivel.
+- **Un solo pedido por dirección** para toda la pantalla (`useIndicatorData`): el Resumen,
+  Asistencia y Quién necesita atención comparten los datos de riesgo. "Actualizar" vuelve a pedir
+  todo, y una respuesta de otro ciclo nunca pisa a la del ciclo elegido.
+
+**Resumen.** Cuatro mosaicos (quiénes necesitan atención sobre la matrícula, la asistencia del año
+con su línea por mes, los estudiantes con alguna materia baja en el boletín y la promoción del
+último año cerrado) y "Para mirar primero": los cinco primeros de Quién necesita atención.
+
+**Rendimiento** (`GET /admin/academic-analytics/dashboard` y `/comparison`):
+
 - **Por nivel, nunca mezclados.** Ciclo básico califica de 1 a 10 y bachillerato de 1 a 12: un
   promedio que junta las dos escalas no dice nada. Los tramos y las alertas salen de la escala de C
   y R del nivel (`periodScaleFor`). Si no se elige nivel y los datos tienen uno solo, se usa ese;
   con los dos, la API responde 400 `LEVEL_REQUIRED` con los niveles para elegir.
-- **Contra una reunión:** la elegida o la última que ya tiene alguna R (`referencePeriod`).
-  Promedio, mediana, distribución, materias en alerta y gestión son de esa reunión; antes se
-  mezclaban todas las del año, del diagnóstico a febrero. Se mide sobre R, la nota oficial. La
-  pantalla dice contra qué reunión y qué escala está midiendo.
+- **Contra un boletín:** el elegido o, sin elegir, el último boletín con alguna R
+  (`referencePeriod`). En un año cerrado la última reunión con notas es la APE de febrero, donde
+  sólo tienen nota los que fueron: por eso se prefiere un boletín. Se mide sobre R, la nota oficial.
+- Promedio, mediana y notas bajas («220 de 1.034 notas en Insuficiente o En proceso»); la
+  distribución por tramo, en gráfico y tabla, con «▲ alerta» en los tramos en alerta; los
+  estudiantes según cuántas materias tienen bajas (ninguna, 1, 2, 3 o más: desde la regla
+  *Asignaturas en alerta* la reunión los marca en riesgo); y la evolución desde el primer boletín
+  (subió, igual, bajó, sin comparación), con "Quiénes bajaron" respecto del boletín anterior.
 - **Con mejora / en descenso** compara, punta a punta, el promedio de las materias del alumno en
-  cada reunión hasta la de referencia. Antes la serie guardaba por reunión la nota de una materia
-  cualquiera, y comparaba Matemática de una entrega con Dibujo de otra.
+  cada boletín hasta el de referencia.
 - **Con un grupo elegido** cuentan sus libretas más las de tronco común, como en la reunión, y sólo
   sus alumnos: una libreta de tronco común trae a todo el curso.
-- **Promedio y mediana van juntos, no uno en lugar del otro:** una distribución con pocos
-  resultados muy bajos mueve el promedio y no la mediana, y esa diferencia es la señal.
-- **Comparativas** por asignatura, curso y ciclo lectivo, siempre dentro de un nivel, con el
-  porcentaje de resultados en tramo de alerta (§5.3 a §5.5). Entre años se compara la misma
-  reunión por código y nivel: la "1.ª Entrega" de cada ciclo es otro período.
+- **Comparar** por asignatura, curso y ciclo lectivo, siempre dentro de un nivel: las notas bajas de
+  cada grupo sobre sus notas (`alertCount` de `gradedCount`, §5.3 a §5.5). Entre años se compara el
+  mismo boletín por código y nivel.
+- **Se sacaron la "Cobertura de evaluaciones" y la vista "Gestión de libretas".** La cobertura daba
+  casi siempre 100 %: contaba como evaluado a cualquiera cuya libreta tuviera una actividad, sobre
+  los que ya tenían nota. Lo de gestión (faltantes, sin cerrar, para visar, cerrado fuera de plazo)
+  está en Control y visado de libretas.
+
+**Materias y APE** (`GET /admin/student-reports/low-grades` y `/subjects-ape`):
+
+- Por curso, las asignaturas con más notas bajas en el boletín: estudiantes con nota baja sobre los
+  que ya tienen la R de esa materia.
+- Qué pasó con las materias que fueron a APE en el último año con materias perdidas: se salvó en
+  diciembre, en febrero, después como previa (`resolvedAt` sin APE aprobada), o se sigue debiendo.
+  Por curso (el de la matrícula del año en que se perdió) y por asignatura.
+  `PUT /admin/students/:id/pending-subjects` conserva `resolvedAt` al editar (`pendingResolvedAt`):
+  borrarlo con cualquier cambio rompía esta cuenta. `passedAsPrevia` la marca salvada o la reabre.
+- Quiénes empezaron el ciclo debiendo materias de años anteriores.
+
+**Asistencia** (`GET /admin/student-reports/attendance-trend`, `/absence-streaks` y
+`/absence-thresholds`): asistencia del año, faltas justificadas («260 de 812 días con falta»),
+llegadas tarde, 18 o más faltas y faltas seguidas que siguen; asistencia y días con falta por mes
+(se puede destacar un curso contra todo el liceo); una tabla por curso y mes; y las listas de
+siempre, "Faltas seguidas" y "18 y 25 faltas" (`?lista=seguidas|faltas`, donde abren los avisos).
+Se cuenta **por día**, como el boletín: faltar a una clase es faltar el día, el día va a su peor
+marca (`absenceCounts`) y llegar tarde es que vino. Sólo cuentan las listas pasadas.
+
+**Trayectoria** (`GET /admin/academic-analytics/trajectory`), del ciclo elegido si ya cerró o, si
+no, del último cerrado:
+
+- Promoción, repetición, egreso (sobre los matriculados en el último grado del nivel) y
+  desvinculación (bajas en el año más los que no se reinscribieron), cada uno con su base; cómo
+  terminó el año en cada curso; y año a año.
+- **El fallo se deriva al leer** (`services/student-indicators/trajectory.ts`): manda el
+  `academicResult` cargado; si falta, sale del curso de la matrícula del año siguiente (mismo grado,
+  repitió; el siguiente, promovió, con previas si quedó alguna sin salvar en APE). En el último
+  grado, `GRADUATED` o una promoción es egreso; sin fallo ni matrícula siguiente es "sin fallo
+  cargado", y no cuenta como desvinculación. Una baja es "en el año" o "al empezar el siguiente"
+  según `withdrawalAcademicYear` o, si falta, `withdrawnAt`.
+- **Qué pasó con cada generación:** quienes entran al primer grado del nivel un año, seguidos hasta
+  hoy: egresaron en tiempo o con atraso, siguen en tiempo o atrasados, dejaron el liceo, o no hay
+  dato. Los que entran por pase a otro grado no forman generación.
+
+**Quién necesita atención** (`GET /admin/student-reports/risk`): una sola lista con los motivos de
+cada estudiante, cada uno con icono y texto: «Notas: 4 materias bajas en 2.ª Entrega» (la regla
+*Asignaturas en alerta*, como la reunión), «Debe 2 materias de años anteriores», «Faltas: 26 en el
+año (pasó las 25)» y «Faltas seguidas: 5 días, sigue faltando». Primero quienes tienen notas y
+faltas (`compareRisk`). Se filtra por búsqueda, curso y motivo (`?motivo=notas|faltas|ambos`), y el
+nombre abre la ficha de asistencia si quien mira puede verla. Reemplaza a la "Prioridad de
+seguimiento".
+
 - **Umbrales configurables (§5.7)** en `AcademicAlertRule`, desde *Configuración de libreta →
   Alertas*, con **vigencia por ciclo (RF-200)**: la regla del año pisa a la general y la general al
   valor por defecto, así una comparativa histórica se evalúa con el umbral que regía entonces y no
@@ -835,11 +903,10 @@ nivel, reunión y grupo.
 - **Sin repositorio analítico aparte.** A escala de un liceo la separación que sugiere §5.10 no
   compensa, y un agregado persistido se desactualiza sin que nadie se entere: todo se deriva al
   leer del mismo esquema transaccional.
-- **La distribución se muestra como gráfico y como tabla.** El gráfico no puede ser la única
-  lectura: sin la tabla, el dato depende del color.
-- El dashboard devuelve y muestra la aclaración del pliego: las alertas son informativas, no
-  generan automáticamente decisiones administrativas, promociones ni sanciones, y los indicadores
-  de gestión no constituyen por sí solos un mecanismo de evaluación del desempeño docente.
+- **Toda gráfica tiene su tabla** ("Ver datos de la gráfica") y una descripción para lectores de
+  pantalla: el dato nunca depende sólo del color.
+- La pantalla muestra la aclaración del pliego: las alertas son informativas y no generan
+  automáticamente decisiones administrativas, promociones ni sanciones.
 
 ### Históricos y cierre de año (RF-110, RF-111)
 
@@ -921,22 +988,16 @@ nivel, reunión y grupo.
 ### Reportes de estudiantes
 
 Permiso `student-reports.read` (administración, dirección y adscripción). Todo se deriva al leer
-(`services/student-reports/`). No tienen pantalla propia: cada reporte vive donde se trabaja su tema.
+(`services/student-reports/` y `services/student-indicators/`). Se ven en **Indicadores de
+estudiantes** (`/admin/student-indicators`): las faltas en *Asistencia*, las notas bajas por
+materia en *Materias y APE*, quiénes bajaron en *Rendimiento*, y todo junto en *Quién necesita
+atención*.
 
-- **Faltas** → **Asistencia de estudiantes** (`/admin/student-attendance`), en las pestañas "Faltas
-  seguidas" (`?tab=seguidas`) y "18 y 25 faltas" (`?tab=faltas`).
-  - Comparten pantalla con "Justificaciones" y "Listas sin pasar": quien ve que un alumno llegó a 18
-    lo justifica ahí mismo.
-  - Cada pestaña se muestra con su permiso.
-- **Notas** → **Rendimiento académico** (`/libreta/indicadores`), en la vista "Seguimiento"
-  (`?view=seguimiento`): un solo boletín para las dos listas.
-  - El tablero dice cuántos están "en alerta" o "en descenso"; el seguimiento, quiénes.
-  - Adscripción, que no tiene `academic-analytics.read`, entra con `student-reports.read` y ve sólo
-    esa vista.
-- `/admin/reportes` queda como redirección para los avisos guardados y los enlaces viejos:
-  - `faltas` → 18 y 25;
-  - `notas` y `bajas` → Seguimiento;
-  - el resto → Faltas seguidas.
+- `/admin/reportes`, `/admin/student-attendance/indicadores` y `/libreta/indicadores` quedan como
+  redirecciones para los avisos guardados y los enlaces viejos (`lib/admin/legacy-reports.ts`):
+  - `faltas` → Asistencia, lista "18 y 25 faltas"; `seguidas`, `alertas` o nada → "Faltas seguidas";
+  - `notas`, `bajas` y `?view=seguimiento` → Materias y APE;
+  - `?tab=prioridad` → Quién necesita atención, por faltas.
 
 - **Notas bajas:** % de alumnos con nota baja por materia y curso en una reunión de boletín, más el
   total por curso con alumnos distintos. Nota baja = banda de alerta (`isAlert`) de la escala del
@@ -948,7 +1009,7 @@ Permiso `student-reports.read` (administración, dirección y adscripción). Tod
 - **18 / 25 faltas:** con el mismo conteo que la libreta (por día).
 - **Alertas:** cada una se guarda en `StudentAlert` (unique tipo + alumno + clave). Las de faltas
   (seguidas y 18/25) se avisan **una sola vez** por notificación `STUDENT_ALERT` y push a DIRECCION y
-  ADSCRIPTO, con enlace a su pestaña de Asistencia de estudiantes; con más de 5 nuevas, un resumen.
+  ADSCRIPTO, con enlace a su lista en Indicadores de estudiantes; con más de 5 nuevas, un resumen.
   Las bajas de nota se registran pero no avisan. El escaneo corre cada hora y, además, unos minutos
   después de guardar una lista.
 
@@ -1027,7 +1088,7 @@ Trabajo transversal — `/libreta/inasistencias`, `/libreta/evaluaciones` y `/li
 (`/libreta/cierre-libreta` redirige ahí).
 
 Supervisión y parametrización — `/libreta/reunion`, `/libreta/control` (control y visado),
-`/libreta/indicadores`, `/libreta/estudiante/[id]`, `/libreta/configuracion`.
+`/libreta/estudiante/[id]`, `/libreta/configuracion`.
 
 ### General
 `/`, `/guia`, `/profile`, `/notifications` (`/student/attendance` es legacy y redirige a `/me/roll-call`)
@@ -1042,9 +1103,9 @@ El menú lateral (`UserNav`) muestra cada entrada según **permisos**, no por ro
 | Inicio | Inicio y la **Guía** (`/guia`) |
 | Mi trabajo | Lo propio: Mi agenda, Pase de lista, Mis libretas, Mis asistencias, Mis licencias. No lo tiene la cuenta de Administración; Personal ve sólo este grupo |
 | Personal | Asistencia del personal, Licencias, Agenda y clases, Usuarios, Indicadores del personal |
-| Estudiantes | Estudiantes, Asistencia de estudiantes, Mensualidades |
+| Estudiantes | Estudiantes, Asistencia de estudiantes, Indicadores de estudiantes, Mensualidades |
 | Académico | Ciclos lectivos, Cursos |
-| Libretas | Libretas, Control y visado, Reunión de profesores, Rendimiento académico, Configuración de libreta |
+| Libretas | Libretas, Control y visado, Reunión de profesores, Configuración de libreta |
 | Configuración | Mi perfil, Configuración del sistema, Roles / Perfiles, Auditoría |
 
 - **Nombres y descripciones:** salen de un solo catálogo (`frontend/web/src/lib/navigation/modules.ts`),

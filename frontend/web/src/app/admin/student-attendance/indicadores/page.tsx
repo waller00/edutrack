@@ -1,17 +1,10 @@
-'use client'
+import { redirect } from 'next/navigation'
+import { legacyAttendanceIndicatorsTarget, searchParamsOf } from '@/lib/admin/legacy-reports'
 
-import { Suspense } from 'react'
-import RoleGuard from '@/components/auth/RoleGuard'
-import ModuleHeader from '@/components/common/ModuleHeader'
-import AttendanceIndicators from '@/components/admin/student-attendance/AttendanceIndicators'
-
-export default function StudentAttendanceIndicatorsPage() {
-  return (
-    <RoleGuard permission="student-reports.read" permissionScope="all">
-      <main className="responsive-page max-w-[1400px] space-y-5">
-        <ModuleHeader id="student-attendance-indicators" />
-        <Suspense fallback={null}><AttendanceIndicators /></Suspense>
-      </main>
-    </RoleGuard>
-  )
+/**
+ * "Indicadores de asistencia de estudiantes" es ahora la sección Asistencia de Indicadores de
+ * estudiantes. La ruta queda por los avisos guardados: `?tab=` abre la lista de cada uno.
+ */
+export default function Page({ searchParams }: Readonly<{ searchParams?: Record<string, string | string[] | undefined> }>) {
+  redirect(legacyAttendanceIndicatorsTarget(searchParamsOf(searchParams)))
 }

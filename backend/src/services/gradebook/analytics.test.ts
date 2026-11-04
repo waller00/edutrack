@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildComparison,
   distributionByLevel,
-  managementBlock,
-  managementStates,
+  lowSubjectsHistogram,
   referencePeriod,
   studentSnapshots,
   valuesAt,
@@ -16,7 +15,6 @@ import {
   studentsBlock,
   triggeredAlerts,
   type AlertRule,
-  type GradeBookState,
   type LevelRow,
   type StudentSnapshot,
 } from './analytics.js'
@@ -154,7 +152,7 @@ describe('triggeredAlerts', () => {
 })
 
 describe('studentsBlock', () => {
-  it('cuenta evaluados, sin evaluar, en alerta y tendencias', () => {
+  it('cuenta en alerta y tendencias, y cuántos tienen con qué compararse', () => {
     const block = studentsBlock(
       [
         student({ studentId: 's1', periodValues: [600, 900] }),
@@ -164,7 +162,24 @@ describe('studentsBlock', () => {
       [{ type: 'NO_ASSESSMENTS', threshold: 0 }],
       LEVELS,
     )
-    expect(block).toEqual({ total: 3, evaluated: 2, withoutAssessments: 1, atRisk: 1, improved: 1, declined: 1 })
+    expect(block).toEqual({ total: 3, atRisk: 1, improved: 1, declined: 1, compared: 2 })
+  })
+})
+
+describe('lowSubjectsHistogram', () => {
+  it('reparte a los estudiantes con nota según cuántas materias tienen en alerta', () => {
+    const histogram = lowSubjectsHistogram(
+      [
+        student({ subjectValues: [700, 800] }),
+        student({ subjectValues: [300, 800] }),
+        student({ subjectValues: [300, 400, 900] }),
+        student({ subjectValues: [300, 400, 500, 900] }),
+        // Sin ninguna nota en la reunión: no entra en la cuenta.
+        student({ subjectValues: [null, null] }),
+      ],
+      LEVELS,
+    )
+    expect(histogram).toEqual({ graded: 4, none: 1, one: 1, two: 1, threeOrMore: 1 })
   })
 })
 
@@ -178,45 +193,6 @@ describe('performanceBlock', () => {
   })
 })
 
-describe('managementBlock', () => {
-  function state(over: Partial<GradeBookState> = {}): GradeBookState {
-    return {
-      gradeBookId: 'gb-1', gradedStudents: 10, rosterSize: 10,
-      periodStatus: 'CLOSED', endorsed: true, closedLate: false,
-      ...over,
-    }
-  }
-
-  it('separa completas de incompletas', () => {
-    const block = managementBlock([state(), state({ gradedStudents: 4 })])
-    expect(block).toMatchObject({ gradeBooks: 2, complete: 1, incomplete: 1 })
-  })
-
-  it('un grupo vacío cuenta como completo: no tiene nada pendiente', () => {
-    // Contarlo como incompleto inflaría el pendiente con grupos que no existen.
-    expect(managementBlock([state({ gradedStudents: 0, rosterSize: 0 })]).complete).toBe(1)
-  })
-
-  it('cuenta cierres y visados pendientes por separado', () => {
-    const block = managementBlock([
-      state({ periodStatus: 'OPEN', endorsed: false }),
-      state({ periodStatus: 'CLOSED', endorsed: false }),
-      state(),
-    ])
-    expect(block.pendingClosures).toBe(1)
-    expect(block.pendingEndorsements).toBe(1)
-    expect(block.endorsedPercentage).toBeCloseTo(33.3, 1)
-  })
-
-  it('cuenta los cierres fuera de plazo', () => {
-    expect(managementBlock([state({ closedLate: true }), state()]).lateClosures).toBe(1)
-  })
-
-  it('sin libretas no divide por cero', () => {
-    expect(managementBlock([])).toMatchObject({ gradeBooks: 0, endorsedPercentage: 0, startedPercentage: 0 })
-  })
-})
-
 describe('buildComparison', () => {
   it('arma la fila con promedio, mediana y % de alerta', () => {
     const rows = buildComparison(
@@ -224,23 +200,22 @@ describe('buildComparison', () => {
       LEVELS,
     )
     expect(rows[0]).toMatchObject({ label: '2026', medianHundredths: 700, gradedCount: 3 })
+    expect(rows[0]).toMatchObject({ alertCount: 1, gradedCount: 3 })
     expect(rows[0].alertPercentage).toBeCloseTo(33.3, 1)
   })
 
   it('un grupo sin notas no rompe ni inventa un 0%', () => {
     const rows = buildComparison([{ key: 'x', label: 'X', values: [], studentCount: 5 }], LEVELS)
-    expect(rows[0]).toMatchObject({ averageHundredths: null, alertPercentage: 0, gradedCount: 0 })
+    expect(rows[0]).toMatchObject({ averageHundredths: null, alertCount: 0, alertPercentage: 0, gradedCount: 0 })
   })
 })
 
 describe('instantánea por reunión', () => {
-  const P1 = { id: 'p-1', name: '1.ª Entrega', sortOrder: 10 }
-  const P2 = { id: 'p-2', name: '2.ª Entrega', sortOrder: 20 }
+  const P1 = { id: 'p-1', name: '1.ª Entrega', sortOrder: 10, reportCard: true }
+  const P2 = { id: 'p-2', name: '2.ª Entrega', sortOrder: 20, reportCard: true }
+  const APE = { id: 'p-ape', name: 'APE Febrero', sortOrder: 120, reportCard: false }
   const state = (gradeBookId: string, period: typeof P1, grades: Array<[string, number | null]>): AnalyticsState => ({
     gradeBookId,
-    status: 'CLOSED',
-    closedLate: false,
-    endorsed: false,
     period,
     grades: grades.map(([studentId, value]) => ({ studentId, lastName: studentId, firstName: studentId, value })),
   })
@@ -253,6 +228,16 @@ describe('instantánea por reunión', () => {
     // Sin ninguna nota, la última que exista.
     expect(referencePeriod([state('gb', P1, [['a', null]]), state('gb', P2, [])])).toEqual(P2)
     expect(referencePeriod([])).toBeNull()
+  })
+
+  it('sin elegir, prefiere el último boletín con notas antes que una APE', () => {
+    // En un año cerrado la última reunión con notas es la APE de febrero: sólo tienen nota los que fueron.
+    const states = [state('gb', P2, [['a', 700]]), state('gb', APE, [['a', 500]])]
+    expect(referencePeriod(states)).toEqual(P2)
+    // Si sólo la APE tiene notas, es la que hay.
+    expect(referencePeriod([state('gb', P2, [['a', null]]), state('gb', APE, [['a', 500]])])).toEqual(APE)
+    // Sin ninguna nota, el último boletín.
+    expect(referencePeriod([state('gb', P2, []), state('gb', APE, [])])).toEqual(P2)
   })
 
   it('la serie es el promedio por reunión, hasta la de referencia', () => {
@@ -272,15 +257,9 @@ describe('instantánea por reunión', () => {
     expect(only.assessmentCount).toBe(2)
   })
 
-  it('las notas, y el estado de gestión, son los de la reunión de referencia', () => {
+  it('las notas son las de la reunión de referencia', () => {
     const states = [state('mat', P1, [['a', 400], ['b', null]]), state('mat', P2, [['a', 900]])]
     expect(valuesAt(states, P1)).toEqual([400])
     expect(valuesAt(states, null)).toEqual([])
-    expect(
-      managementStates({ gradeBookIds: ['mat', 'sin-estado'], states, reference: P1, rosterSizeOf: () => 2 }),
-    ).toEqual([
-      { gradeBookId: 'mat', gradedStudents: 1, rosterSize: 2, periodStatus: 'CLOSED', endorsed: false, closedLate: false },
-      { gradeBookId: 'sin-estado', gradedStudents: 0, rosterSize: 2, periodStatus: null, endorsed: false, closedLate: false },
-    ])
   })
 })

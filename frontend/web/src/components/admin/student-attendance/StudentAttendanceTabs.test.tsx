@@ -1,7 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import StudentAttendanceTabs from './StudentAttendanceTabs'
-import AttendanceIndicators from './AttendanceIndicators'
-import { legacyReportsTarget } from '@/lib/admin/legacy-reports'
 
 const { routerMock, state } = vi.hoisted(() => ({
   routerMock: { replace: vi.fn(), push: vi.fn() },
@@ -16,8 +14,6 @@ vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ me: { id: '
 vi.mock('./JustificationRangesPanel', () => ({ default: () => <p>panel justificaciones</p> }))
 vi.mock('./StudentAttendanceWorkspace', () => ({ default: () => <p>fichas por estudiante</p> }))
 vi.mock('./PendingRollCallsPanel', () => ({ default: () => <p>panel listas sin pasar</p> }))
-vi.mock('@/components/admin/student-reports/ReportTabs', () => ({ StreaksTab: () => <p>panel faltas seguidas</p>, ThresholdsTab: () => <p>panel 18 y 25 faltas</p> }))
-vi.mock('./AttendanceOverview', () => ({ default: ({ initialView }: { initialView?: string }) => <p>panorama de asistencia: {initialView}</p> }))
 
 const READ = { id: 'student-attendance.read', scope: 'all' as const }
 const REPORTS = { id: 'student-reports.read', scope: 'all' as const }
@@ -30,8 +26,7 @@ describe('asistencia centrada en el estudiante', () => {
     render(<StudentAttendanceTabs />)
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Por estudiante', 'Carga rápida', 'Listas sin pasar'])
     expect(screen.getByText('fichas por estudiante')).toBeInTheDocument()
-    expect(screen.queryByText('panel faltas seguidas')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Ver indicadores/ })).toHaveAttribute('href', '/admin/student-attendance/indicadores')
+    expect(screen.getByRole('link', { name: /Ver indicadores/ })).toHaveAttribute('href', '/admin/student-indicators?seccion=asistencia')
   })
   it('adscripción puede cargar licencias y no ve el control de listas', () => {
     state.permissions = ADSCRIPCION
@@ -59,30 +54,15 @@ describe('asistencia centrada en el estudiante', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Carga rápida' }))
     expect(routerMock.replace).toHaveBeenCalledWith('/admin/student-attendance?schoolYearId=sy1&tab=justificaciones', { scroll: false })
   })
-  it.each(['seguidas', 'faltas'])('los avisos guardados de %s se abren en indicadores', (tab) => {
+  it.each(['seguidas', 'faltas'])('los avisos guardados de %s se abren en la lista de Indicadores de estudiantes', (tab) => {
     state.query = `tab=${tab}&schoolYearId=sy1`
     render(<StudentAttendanceTabs />)
-    expect(routerMock.replace).toHaveBeenCalledWith(`/admin/student-attendance/indicadores?tab=${tab}&schoolYearId=sy1`)
+    expect(routerMock.replace).toHaveBeenCalledWith(`/admin/student-indicators?seccion=asistencia&lista=${tab}&schoolYearId=sy1`)
     expect(screen.queryByText('fichas por estudiante')).not.toBeInTheDocument()
   })
-  it('un perfil con reportes sin lectura de fichas se deriva a indicadores', () => {
+  it('un perfil con reportes sin lectura de fichas se deriva a los indicadores de asistencia', () => {
     state.permissions = [REPORTS]
     render(<StudentAttendanceTabs />)
-    expect(routerMock.replace).toHaveBeenCalledWith('/admin/student-attendance/indicadores?')
-  })
-})
-
-describe('indicadores en su propia pantalla', () => {
-  it('abre directamente el umbral solicitado por la notificación', () => {
-    state.query = 'tab=faltas'
-    render(<AttendanceIndicators />)
-    expect(screen.getByText('panorama de asistencia: faltas')).toBeInTheDocument()
-    expect(screen.queryByText('panel justificaciones')).not.toBeInTheDocument()
-  })
-  it('los enlaces de reportes antiguos conservan la alerta solicitada', () => {
-    expect(legacyReportsTarget('faltas')).toBe('/admin/student-attendance/indicadores?tab=faltas')
-    expect(legacyReportsTarget('seguidas')).toBe('/admin/student-attendance/indicadores?tab=seguidas')
-    expect(legacyReportsTarget(null)).toBe('/admin/student-attendance/indicadores?tab=seguidas')
-    expect(legacyReportsTarget('notas')).toBe('/libreta/indicadores?view=seguimiento')
+    expect(routerMock.replace).toHaveBeenCalledWith('/admin/student-indicators?seccion=asistencia')
   })
 })

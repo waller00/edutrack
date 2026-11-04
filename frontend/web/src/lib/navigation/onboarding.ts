@@ -56,9 +56,10 @@ const CONTENT: Partial<Record<ModuleId, StepContent>> = {
       { permission: 'student-attendance.manage', scope: 'all', text: 'Controlar y gestionar las listas de asistencia del centro.' },
     ],
   },
-  'student-attendance-indicators': {
-    task: 'Revisá las alertas de asistencia', instructions: 'Consultá las faltas seguidas y los umbrales de 18 y 25 faltas. Identificá qué estudiantes necesitan seguimiento.',
-    capabilities: [{ permission: 'student-attendance.read', scope: 'all', text: 'Abrir la ficha del estudiante desde su nombre en la alerta.' }],
+  'student-indicators': {
+    task: 'Mirá cómo les va a los estudiantes',
+    instructions: 'Empezá por el Resumen y abrí cada sección: rendimiento, materias y APE, asistencia, trayectoria y quién necesita atención. Cada número dice de cuántos sale.',
+    capabilities: [{ permission: 'student-attendance.read', scope: 'all', text: 'Abrir la ficha de asistencia del estudiante desde su nombre.' }],
   },
   tuition: {
     task: 'Revisá cuotas y pagos', instructions: 'Elegí un mes y un estudiante para consultar sus cuotas y los pagos registrados.',
@@ -77,7 +78,6 @@ const CONTENT: Partial<Record<ModuleId, StepContent>> = {
     ],
   },
   'teachers-meeting': { task: 'Explorá una reunión de profesores', instructions: 'Seleccioná un grupo y una reunión para consultar la matriz de calificaciones y los juicios de los estudiantes.' },
-  'academic-performance': { task: 'Detectá qué estudiantes necesitan seguimiento', instructions: 'Filtrá por grupo, asignatura y período. Revisá las notas, los promedios y las alertas disponibles.' },
   'gradebook-config': { task: 'Revisá los criterios de evaluación', instructions: 'Ubicá los períodos, las escalas y los tipos de actividad que usan las libretas. Desde aquí podés configurar los criterios de la institución.' },
   settings: { task: 'Conocé los ajustes de la institución', instructions: 'Revisá los datos de la institución, los horarios y las tolerancias. Identificá dónde se configuran los avisos y las integraciones.' },
   profiles: { task: 'Revisá qué puede hacer cada perfil', instructions: 'Seleccioná un perfil y consultá sus permisos y alcances. Desde esta pantalla podés gestionar también los roles personalizados.' },
@@ -100,8 +100,8 @@ const GRADEBOOK_CONTENT: StepContent = {
 // Primero la cuenta y la preparación del centro; luego el trabajo cotidiano y su seguimiento.
 const ORDER: ModuleId[] = [
   'profile', 'school-years', 'courses', 'gradebook-config', 'users', 'students', 'agenda',
-  'my-agenda', 'roll-call', 'my-gradebooks', 'gradebooks', 'student-attendance', 'student-attendance-indicators',
-  'gradebook-control', 'teachers-meeting', 'academic-performance', 'my-attendance',
+  'my-agenda', 'roll-call', 'my-gradebooks', 'gradebooks', 'student-attendance',
+  'gradebook-control', 'teachers-meeting', 'student-indicators', 'my-attendance',
   'my-licenses', 'staff-attendance', 'staff-licenses', 'staff-indicators', 'tuition',
   'messages', 'settings', 'profiles', 'audit',
 ]

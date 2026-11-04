@@ -1,20 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
-import { withSchoolYear } from '@/lib/admin/school-year-query'
-import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { formatHundredths } from '@/lib/academic-config/grade-value'
 import { formatAbsenceUnits } from '@/lib/libreta/absences'
-import { todayYmdUruguay } from '@/lib/libreta/absence-day'
-import {
-  groupByLevel,
-  lastClosedMeeting,
-  LEVEL_LABEL,
-  REPORT_CARD_PERIODS_PATH,
-  type ReportCardPeriod,
-} from '@/lib/gradebook/report-card-periods'
+import { groupByLevel, LEVEL_LABEL, type ReportCardPeriod } from '@/lib/gradebook/report-card-periods'
 import ScrollRegion from '@/components/common/ScrollRegion'
 
 export type StudentRef = { studentId: string; firstName: string; lastName: string; courseName: string }
@@ -29,30 +19,6 @@ export const absencesText = (hundredths: number) => formatAbsenceUnits(hundredth
 
 /** `2026-10-05` → `05/10`. */
 export const shortDate = (ymd: string) => `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`
-
-export function useSchoolYearQuery(): string {
-  return useOptionalAdminSchoolYear()?.schoolYearScopedQuery ?? ''
-}
-
-/** Reuniones de boletín del ciclo; preselecciona la última que ya pasó (la que tiene R). */
-export function useReportCardPeriods() {
-  const query = useSchoolYearQuery()
-  const [periods, setPeriods] = useState<ReportCardPeriod[]>([])
-  const [periodId, setPeriodId] = useState('')
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    api<{ data: ReportCardPeriod[] }>(withSchoolYear(REPORT_CARD_PERIODS_PATH, query))
-      .then((res) => {
-        setPeriods(res.data)
-        // Hoy en Uruguay: con `toISOString` después de las 21 h ya era mañana.
-        setPeriodId((current) => current || lastClosedMeeting(res.data, todayYmdUruguay())?.id || '')
-      })
-      .catch(() => setError('No se pudieron cargar las reuniones de boletín'))
-  }, [query])
-
-  return { periods, periodId, setPeriodId, error }
-}
 
 export function ReportCardPeriodSelect({
   periods,
@@ -114,28 +80,6 @@ export function useReport<T>(path: string | null) {
   }, [path])
 
   return { data, loading, error }
-}
-
-export function ReportState({ loading, error, empty, emptyText }: { loading: boolean; error: string | null; empty: boolean; emptyText: string }) {
-  if (error) {
-    return (
-      <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
-        {error}
-      </p>
-    )
-  }
-  if (loading) {
-    return (
-      <p className="flex items-center gap-2 py-6 text-sm text-gray-500">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-        Calculando…
-      </p>
-    )
-  }
-  if (empty) {
-    return <p className="rounded-lg border border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">{emptyText}</p>
-  }
-  return null
 }
 
 export function Table({ head, children, minWidth = 640 }: { head: string[]; children: React.ReactNode; minWidth?: number }) {
