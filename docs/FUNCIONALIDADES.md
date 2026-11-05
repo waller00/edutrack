@@ -635,6 +635,24 @@ todavía no se habilita, está cerrado o reabierto, y si al alumno le falta comp
   indicador para ayudar a decidirlo y nunca lo llena solo. Grupo y período quedan en la URL
   (`?grupo=&periodo=`): la ficha del alumno vuelve a la misma reunión y el enlace se puede
   compartir.
+  - **Arriba, cómo va la reunión** (`lib/gradebook/meeting-board.ts`): libretas cerradas («10 de
+    12», y las que faltan con su docente: «Sin cerrar: Física (Beto R)»), rendimiento decidido,
+    conducta y juicios («12 de 30»), y cuántos están en alerta con su base.
+  - **Cada materia dice en el encabezado si su docente cerró** (Cerrada ✓, Abierta ○, Reabierta ↺,
+    Sin empezar –): con símbolo y palabra, no sólo color.
+  - **La matriz deja fijos el encabezado y la columna del alumno** al desplazarse, numera la lista
+    (el número no cambia al filtrar) y filtra por «En alerta», «Sin rendimiento» y «Sin juicio»,
+    cada uno con cuántos deja. Las columnas de la reunión (promedio de referencia, rendimiento,
+    conducta y juicio) van juntas y dicen quién las decide; la leyenda explica sólo los tramos a la
+    vista, la propuesta y el «—».
+  - **Guardar avisa:** cada casillero muestra guardando / guardado / «No se guardó». Si el servidor
+    rechaza un rendimiento o una conducta, vuelve al valor anterior y dice de quién y por qué.
+    Antes recargaba la matriz, que borraba el error: el valor volvía a «—» sin explicación.
+  - **La columna Juicio** dice si el alumno lo tiene («Escrito») y «Escribir» lleva al editor de
+    «Juicios de la reunión» ya abierto, donde al lado de cada nombre se lee lo decidido
+    («Rendimiento 7 · Conducta 8 · ▲ 3 en alerta»). Ahí se puede dejar sólo a quienes les falta.
+  - Los datos de prueba (`seed-liceo-basico`) cargan el rendimiento de cada reunión ya hecha, a
+    partir del promedio de las R: antes sólo cargaban la conducta y la columna salía vacía.
 - **Juicios de la reunión:** dos, que no se mezclan. El **general del grupo** (de su orientación)
   queda en la reunión y no se imprime. El **de cada alumno** se escribe alumno por alumno en la
   lista de la reunión, va a su boletín como «Informe reunión» y el docente lo ve en su cierre como

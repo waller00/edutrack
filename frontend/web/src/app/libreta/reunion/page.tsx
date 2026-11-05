@@ -11,8 +11,8 @@ export default function Page() {
       <main className="responsive-page max-w-[1800px] space-y-4">
         <ModuleHeader id="teachers-meeting">
           <p className="text-sm text-gray-600">
-            El <strong>juicio de cada alumno</strong> y el general del grupo se cargan más abajo, en «Juicios de la
-            reunión»: no hace falta abrir la ficha del alumno.
+            Rendimiento y conducta se eligen en la matriz; el <strong>juicio de cada alumno</strong> y el general del
+            grupo, más abajo en «Juicios de la reunión» («Escribir» en la fila lleva directo).
           </p>
         </ModuleHeader>
         {/* GroupMatrix guarda grupo y período en la URL: useSearchParams necesita un Suspense para prerenderizar. */}

@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 /**
- * Contenedor con scroll horizontal (tablas anchas) que se puede recorrer con el teclado.
+ * Contenedor con scroll (tablas anchas, o altas con el encabezado fijo) que se puede recorrer con
+ * el teclado.
  *
  * Un `div` con `overflow-x-auto` no recibe foco: quien navega con Tab no podía desplazar la tabla
  * ni llegar a las columnas de la derecha. Cuando el contenido desborda, el contenedor se vuelve
@@ -28,7 +29,8 @@ export default function ScrollRegion({
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const check = () => setScrollable(el.scrollWidth > el.clientWidth + 1)
+    // También hacia abajo: una tabla con alto máximo (encabezado fijo) se desplaza en las dos direcciones.
+    const check = () => setScrollable(el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
     check()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(check)

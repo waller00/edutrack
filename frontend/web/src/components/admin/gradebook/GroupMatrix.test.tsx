@@ -6,12 +6,30 @@ import { downloadFile } from '@/lib/api/download'
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 vi.mock('@/lib/api/download', () => ({ downloadFile: vi.fn().mockResolvedValue(undefined) }))
-vi.mock('./MeetingDecisions', () => ({ default: () => <p>decisiones</p> }))
-
-const { authState, nav } = vi.hoisted(() => ({
+const { authState, nav, decisions } = vi.hoisted(() => ({
   authState: { me: null as unknown },
   nav: { replace: vi.fn(), search: '' },
+  /** Los juicios que «carga» la sección de abajo; `null`: no avisa nada. */
+  decisions: { judged: null as { studentIds: Set<string>; group: boolean } | null, focus: vi.fn() },
 }))
+vi.mock('./MeetingDecisions', async () => {
+  const { useEffect } = await vi.importActual<typeof import('react')>('react')
+  return {
+    default: function MeetingDecisionsMock(props: {
+      onJudgementsChange?: (state: { studentIds: Set<string>; group: boolean }) => void
+      focus?: unknown
+    }) {
+      const { onJudgementsChange, focus } = props
+      useEffect(() => {
+        if (decisions.judged) onJudgementsChange?.(decisions.judged)
+      }, [onJudgementsChange])
+      useEffect(() => {
+        if (focus) decisions.focus(focus)
+      }, [focus])
+      return <p>decisiones</p>
+    },
+  }
+})
 vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => authState }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: nav.replace }),
@@ -86,6 +104,7 @@ describe('<GroupMatrix />', () => {
     vi.clearAllMocks()
     authState.me = grant('gradebook.read')
     nav.search = ''
+    decisions.judged = null
     respond()
   })
 
@@ -110,7 +129,60 @@ describe('<GroupMatrix />', () => {
   it('pide la matriz del grupo con su orientación', async () => {
     await openMatrix()
     expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/group-matrix?courseOfferingId=off-1&periodId=p-1&courseOrientationId=co-1')
-    expect(screen.getByText(/En alerta: 3 o más asignaturas/)).toBeInTheDocument()
+    expect(screen.getByText('0 de 1 (0 %) con 3 o más materias en el tramo de alerta.')).toBeInTheDocument()
+  })
+
+  it('arriba, cómo va la reunión: libretas sin cerrar con su docente y lo decidido sobre el grupo', async () => {
+    respond(
+      matrix({
+        subjects: [
+          { gradeBookId: 'gb-1', name: 'Matemática', teacher: 'Ana G', periodStatus: 'CLOSED' },
+          { gradeBookId: 'gb-2', name: 'Física', teacher: 'Beto R', periodStatus: 'OPEN' },
+        ],
+      }),
+    )
+    await openMatrix()
+    const closed = screen.getByText('Libretas cerradas').parentElement!
+    expect(within(closed).getByText('1 de 2')).toBeInTheDocument()
+    expect(within(closed).getByText('Sin cerrar: Física (Beto R).')).toBeInTheDocument()
+    // Cada materia dice en el encabezado si su docente cerró, con símbolo y palabra.
+    const header = screen.getByRole('columnheader', { name: /Física/ })
+    expect(within(header).getByText('Abierta')).toBeInTheDocument()
+    expect(within(screen.getByText('Rendimiento decidido').parentElement!).getByText('0 de 1')).toBeInTheDocument()
+    expect(within(screen.getByText('Conducta', { selector: 'p' }).parentElement!).getByText('1 de 1')).toBeInTheDocument()
+  })
+
+  it('cada fila dice si el alumno ya tiene juicio y lleva a escribirlo', async () => {
+    authState.me = grant('gradebook.read', 'gradebook.review')
+    const beto = { ...matrix().students[0], studentId: 'st-2', lastName: 'Sosa', firstName: 'Beto' }
+    respond(matrix({ students: [matrix().students[0], beto] }))
+    decisions.judged = { studentIds: new Set(['st-1']), group: false }
+    await openMatrix()
+
+    expect(await screen.findByRole('button', { name: 'Ver el juicio de Díaz, Ana' })).toHaveTextContent('Escrito')
+    const juicios = screen.getByText('Juicios').parentElement!
+    expect(within(juicios).getByText('1 de 2')).toBeInTheDocument()
+    expect(within(juicios).getByText('Falta el juicio general del grupo.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ir a escribir el juicio de Sosa, Beto' }))
+    expect(decisions.focus).toHaveBeenLastCalledWith(expect.objectContaining({ studentId: 'st-2', edit: true }))
+
+    // «Sin juicio» deja sólo a quien le falta.
+    fireEvent.click(screen.getByRole('button', { name: 'Sin juicio (1)' }))
+    expect(screen.queryByRole('link', { name: 'Díaz, Ana' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Sosa, Beto' })).toBeInTheDocument()
+  })
+
+  it('«En alerta» deja a los alumnos marcados, con su número de lista', async () => {
+    const beto = { ...matrix().students[0], studentId: 'st-2', lastName: 'Sosa', firstName: 'Beto', atRisk: true, alertCount: 3 }
+    respond(matrix({ students: [matrix().students[0], beto] }))
+    await openMatrix()
+
+    fireEvent.click(screen.getByRole('button', { name: 'En alerta (1)' }))
+    expect(screen.queryByRole('link', { name: 'Díaz, Ana' })).toBeNull()
+    const row = screen.getByRole('link', { name: 'Sosa, Beto' }).closest('tr')!
+    expect(within(row).getByText('2')).toBeInTheDocument()
+    expect(within(row).getByText('3 en alerta')).toBeInTheDocument()
   })
 
   it('sin permiso de control, la conducta se lee con el texto de la escala', async () => {
@@ -153,6 +225,29 @@ describe('<GroupMatrix />', () => {
       }),
     )
     expect(select).toHaveValue('700')
+  })
+
+  it('si no se guarda el rendimiento, vuelve a lo que tenía y dice por qué', async () => {
+    authState.me = grant('gradebook.read', 'gradebook.review')
+    respond(matrix({ performanceScale: { minValueHundredths: 100, maxValueHundredths: 1000 } }))
+    const base = mockedApi.getMockImplementation()!
+    mockedApi.mockImplementation((path: string, init?: unknown) =>
+      String(path) === '/admin/gradebook/meeting-performance'
+        ? Promise.reject(new Error('El rendimiento tiene que ser una nota entera de la escala del nivel.'))
+        : base(path, init as never),
+    )
+    await openMatrix()
+
+    const select = screen.getByLabelText('Rendimiento de Díaz, Ana')
+    fireEvent.change(select, { target: { value: '700' } })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'No se guardó el rendimiento de Díaz, Ana. El rendimiento tiene que ser una nota entera de la escala del nivel.',
+    )
+    expect(select).toHaveValue('')
+    expect(screen.getByText('No se guardó')).toBeInTheDocument()
+    // El aviso no se borra recargando la matriz: se pide una sola vez.
+    expect(mockedApi.mock.calls.filter(([path]) => String(path).startsWith('/admin/gradebook/group-matrix'))).toHaveLength(1)
   })
 
   it('sin permiso de control, el rendimiento se lee', async () => {

@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader2, Pencil } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
+import { formatGrade } from '@/lib/gradebook/grade-scale'
 
 type Decision = {
   id: string
@@ -14,7 +15,21 @@ type Decision = {
   createdBy: { id: string; name: string | null } | null
 }
 
-type StudentOption = { studentId: string; firstName: string; lastName: string }
+type StudentOption = {
+  studentId: string
+  firstName: string
+  lastName: string
+  /** Lo que la reunión ya decidió: se lee al lado del nombre mientras se escribe el juicio. */
+  performanceValueHundredths?: number | null
+  conductValueHundredths?: number | null
+  alertCount?: number
+  atRisk?: boolean
+}
+
+/** Desde la fila de la matriz: ir al juicio de un alumno y, si hace falta, abrirlo para escribir. */
+export type JudgementFocus = { studentId: string; edit: boolean; nonce: number }
+
+export const judgementAnchor = (studentId: string) => `juicio-${studentId}`
 
 /**
  * La decisión vigente de cada alumno —y la del grupo— es la más reciente. Las anteriores quedan
@@ -42,6 +57,15 @@ function currentByKey(rows: readonly Decision[]): Map<string | null, Decision> {
   return new Map(rows.filter((row) => current.has(row.id)).map((row) => [row.student?.id ?? null, row]))
 }
 
+/** «Rendimiento 7 · Conducta 8 · ▲ 3 en alerta»: lo decidido, para escribir el juicio con eso a la vista. */
+export function studentContext(student: StudentOption): string | null {
+  const parts: string[] = []
+  if (student.performanceValueHundredths != null) parts.push(`Rendimiento ${formatGrade(student.performanceValueHundredths)}`)
+  if (student.conductValueHundredths != null) parts.push(`Conducta ${formatGrade(student.conductValueHundredths)}`)
+  if (student.atRisk) parts.push(`▲ ${student.alertCount ?? 0} en alerta`)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
 /**
  * Un juicio vigente con su autor y, para quien conduce la reunión, cómo reemplazarlo. Guardar uno
  * nuevo no borra el anterior: lo sucede.
@@ -51,12 +75,15 @@ function JudgementEditor({
   current,
   canWrite,
   onSave,
+  openRequest,
 }: {
   /** Sobre quién es, con su preposición: rotula los controles ("del grupo", "de Díaz, Ana"). */
   of: string
   current: Decision | undefined
   canWrite: boolean
   onSave: (text: string) => Promise<boolean>
+  /** Cambia cada vez que la matriz pide escribir este juicio. */
+  openRequest?: number
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -66,6 +93,12 @@ function JudgementEditor({
     setDraft(current?.decision ?? '')
     setEditing(true)
   }
+
+  const startRef = useRef(start)
+  startRef.current = start
+  useEffect(() => {
+    if (openRequest && canWrite) startRef.current()
+  }, [openRequest, canWrite])
 
   async function save() {
     setSaving(true)
@@ -147,11 +180,16 @@ export default function MeetingDecisions({
   courseOrientationId,
   periodId,
   students,
+  onJudgementsChange,
+  focus,
 }: {
   courseOfferingId: string
   courseOrientationId?: string | null
   periodId: string
   students: readonly StudentOption[]
+  /** Quiénes tienen juicio vigente y si el del grupo está escrito: la matriz lo muestra por fila. */
+  onJudgementsChange?: (state: { studentIds: Set<string>; group: boolean }) => void
+  focus?: JudgementFocus | null
 }) {
   const auth = useOptionalAuth()
   const canWrite = hasPermission(auth?.me, 'gradebook.review', 'all')
@@ -199,6 +237,27 @@ export default function MeetingDecisions({
 
   const current = currentByKey(rows)
   const withJudgement = students.filter((s) => current.has(s.studentId)).length
+  const [onlyMissing, setOnlyMissing] = useState(false)
+  const visible = onlyMissing ? students.filter((s) => !current.has(s.studentId)) : students
+
+  const notify = useRef(onJudgementsChange)
+  notify.current = onJudgementsChange
+  useEffect(() => {
+    if (loading) return
+    const byKey = currentByKey(rows)
+    notify.current?.({
+      studentIds: new Set([...byKey.keys()].filter((key): key is string => key !== null)),
+      group: byKey.has(null),
+    })
+  }, [rows, loading])
+
+  // Ir desde la matriz: se muestra la fila (aunque el filtro la escondiera) y se la trae a la vista.
+  useEffect(() => {
+    if (!focus) return
+    setOnlyMissing(false)
+    const id = judgementAnchor(focus.studentId)
+    requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }))
+  }, [focus])
 
   return (
     <section
@@ -239,23 +298,40 @@ export default function MeetingDecisions({
           </div>
 
           <div className="space-y-1.5">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              Juicio de cada alumno{' '}
-              <span className="font-normal normal-case tracking-normal text-gray-500">
-                · {withJudgement} de {students.length} con juicio
-              </span>
-            </h4>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Juicio de cada alumno{' '}
+                <span className="font-normal normal-case tracking-normal text-gray-500">
+                  · {withJudgement} de {students.length} con juicio
+                </span>
+              </h4>
+              {withJudgement > 0 && withJudgement < students.length && (
+                <label className="inline-flex items-center gap-1.5 text-xs text-gray-700">
+                  <input type="checkbox" checked={onlyMissing} onChange={(e) => setOnlyMissing(e.target.checked)} />
+                  Sólo los que no tienen ({students.length - withJudgement})
+                </label>
+              )}
+            </div>
             <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100 bg-white">
-              {students.map((student) => {
+              {visible.map((student) => {
                 const name = `${student.lastName}, ${student.firstName}`
+                const context = studentContext(student)
                 return (
-                  <li key={student.studentId} className="grid gap-1 px-3 py-2 sm:grid-cols-[200px_1fr] sm:gap-3">
-                    <span className="text-sm font-medium text-gray-700">{name}</span>
+                  <li
+                    key={student.studentId}
+                    id={judgementAnchor(student.studentId)}
+                    className="grid scroll-mt-24 gap-1 px-3 py-2 sm:grid-cols-[220px_1fr] sm:gap-3"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-gray-700">{name}</span>
+                      {context && <span className="block text-[11px] text-gray-500">{context}</span>}
+                    </span>
                     <JudgementEditor
                       of={`de ${name}`}
                       current={current.get(student.studentId)}
                       canWrite={canWrite}
                       onSave={(text) => save(student.studentId, text)}
+                      openRequest={focus?.edit && focus.studentId === student.studentId ? focus.nonce : undefined}
                     />
                   </li>
                 )

@@ -1,7 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { FileText, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
@@ -10,13 +9,20 @@ import { useOptionalAuth } from '@/contexts/AuthContext'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import { hasPermission } from '@/lib/auth/permissions'
-import { formatHundredths } from '@/lib/academic-config/grade-value'
-import { levelStyle } from '@/lib/academic-config/level-tokens'
-import { formatAbsenceUnits } from '@/lib/libreta/absences'
-import MeetingDecisions from './MeetingDecisions'
-import ScrollRegion from '@/components/common/ScrollRegion'
-import ConductSelect, { conductText, type ConductOption } from '@/components/gradebook/ConductSelect'
-import { formatGrade, gradeSelectOptions, type GradeRange } from '@/lib/gradebook/grade-scale'
+import {
+  filterMeetingRows,
+  levelLegend,
+  meetingFilters,
+  meetingTally,
+  saveErrorText,
+  type JudgementState,
+  type MeetingField,
+  type MeetingFilter,
+} from '@/lib/gradebook/meeting-board'
+import MeetingDecisions, { type JudgementFocus } from './MeetingDecisions'
+import MeetingSummary from './meeting/MeetingSummary'
+import MatrixTable, { saveKey } from './meeting/MatrixTable'
+import type { Matrix, MatrixRow, SaveStatus } from './meeting/types'
 
 export { conductText } from '@/components/gradebook/ConductSelect'
 
@@ -38,52 +44,6 @@ type Period = {
   requiresConceptualJudgement?: boolean
 }
 
-type Descriptor = { label: string; descriptor: string | null; colorToken: string | null; iconToken: string | null; isAlert: boolean } | null
-
-type Cell = {
-  gradeBookId: string
-  /** R, el rendimiento: la nota oficial. */
-  valueHundredths: number | null
-  /** C, la del docente. Se muestra como propuesta mientras no hay R; no promedia. */
-  proposedValueHundredths?: number | null
-  conceptualJudgement: string | null
-  descriptor: Descriptor
-  periodStatus: 'OPEN' | 'CLOSED' | 'REOPENED' | null
-  pending: boolean
-}
-
-type Row = {
-  studentId: string
-  lastName: string
-  firstName: string
-  cells: Cell[]
-  averageHundredths: number | null
-  /** Conducta institucional del período, la que pone adscripción. */
-  conductValueHundredths?: number | null
-  /** Rendimiento general que eligió la reunión. El promedio es sólo su referencia. */
-  performanceValueHundredths?: number | null
-  /** Faltas del ciclo en todo el liceo, en centésimos. */
-  absenceHundredths?: number
-  pendingCount: number
-  alertCount: number
-  atRisk: boolean
-}
-
-type Matrix = {
-  group: { courseName: string; schoolYear: { id?: string; label: string } }
-  subjects: Array<{ gradeBookId: string; name: string; teacher: string | null; periodStatus: string | null }>
-  students: Row[]
-  averageLabel: string
-  /** Decimales del promedio. El liceo lo pide con al menos uno: escolaridad y abanderados. */
-  averageDecimals?: number
-  /** Asignaturas en alerta que marcan al estudiante; `null` si la regla está apagada. */
-  alertSubjectsThreshold?: number | null
-  /** Tramos de la escala de conducta: rotulan la columna y son las opciones al cargarla. */
-  conductLevels?: ConductOption[]
-  /** Rango del rendimiento de la reunión: la escala del nivel (1–10 EBI, 1–12 EMS). */
-  performanceScale?: GradeRange | null
-}
-
 function groupKey(g: Group) {
   return `${g.courseOfferingId}::${g.courseOrientationId ?? ''}`
 }
@@ -103,156 +63,6 @@ export function reportCardsPath(group: Group, periodId: string): string {
   return `/admin/gradebook/report-cards?${params}`
 }
 
-/**
- * Celda de la matriz: color, símbolo y valor de R. El símbolo evita depender del color (RNF 7.2).
- * Sin R, muestra la calificación que el docente cargó con el sistema anterior (antes de que C
- * pasara a ser la conducta) como propuesta, rotulada con texto y sin color de tramo, porque
- * todavía no es una nota.
- */
-function MatrixCell({ cell, decimals }: { cell: Cell; decimals: number }) {
-  if (cell.pending) {
-    if (cell.proposedValueHundredths != null) {
-      return (
-        <span
-          className="inline-flex items-center gap-1 rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-xs text-gray-600"
-          title="Calificación propuesta por el docente; todavía sin rendimiento (R)"
-        >
-          <span className="text-[10px] uppercase text-gray-400">Prop.</span>
-          {formatHundredths(cell.proposedValueHundredths, decimals)}
-        </span>
-      )
-    }
-    return <span className="text-xs text-gray-400" title="Sin calificación del período">—</span>
-  }
-  const style = cell.descriptor ? levelStyle(cell.descriptor) : null
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ${style?.badgeClass ?? 'bg-gray-50 text-gray-700'}`}
-      title={[cell.descriptor?.label, cell.conceptualJudgement].filter(Boolean).join(' — ') || undefined}
-    >
-      {style && <span aria-hidden>{style.symbol}</span>}
-      {formatHundredths(cell.valueHundredths, decimals)}
-    </span>
-  )
-}
-
-function ConductCell({
-  row,
-  levels,
-  editable,
-  onChange,
-}: {
-  row: Row
-  levels: readonly ConductOption[]
-  editable: boolean
-  onChange: (value: number | null) => void
-}) {
-  if (!editable) return <>{conductText(row.conductValueHundredths, levels)}</>
-  return (
-    <ConductSelect
-      aria-label={`Conducta de ${row.lastName}, ${row.firstName}`}
-      value={row.conductValueHundredths == null ? '' : String(row.conductValueHundredths)}
-      options={levels}
-      onChange={(value) => onChange(value === '' ? null : Number(value))}
-      className="rounded border border-gray-300 px-1 py-0.5 text-xs"
-    />
-  )
-}
-
-/**
- * Rendimiento general del alumno: lo elige la reunión, con la escala del nivel. El promedio de la
- * columna de al lado es una estadística para ayudar a decidirlo; nunca llena este casillero.
- */
-function PerformanceCell({
-  row,
-  scale,
-  editable,
-  onChange,
-}: {
-  row: Row
-  scale: GradeRange | null
-  editable: boolean
-  onChange: (value: number | null) => void
-}) {
-  const value = row.performanceValueHundredths ?? null
-  if (!editable) return <>{formatGrade(value)}</>
-  return (
-    <select
-      aria-label={`Rendimiento de ${row.lastName}, ${row.firstName}`}
-      value={value == null ? '' : String(value)}
-      onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
-      className="rounded border border-gray-300 px-1 py-0.5 text-xs"
-    >
-      <option value="">—</option>
-      {gradeSelectOptions(scale, value).map((option) => (
-        <option key={option} value={String(option)}>
-          {formatGrade(option)}
-        </option>
-      ))}
-    </select>
-  )
-}
-
-function StudentCell({
-  row,
-  backTo,
-  reportCard,
-  busy,
-  onReportCard,
-}: {
-  row: Row
-  /** Esta reunión con su grupo y período: la ficha vuelve acá sin hacer elegir todo de nuevo. */
-  backTo: string
-  /** ¿Se ofrece el boletín? Sólo en reuniones de boletín y con permiso para exportar. */
-  reportCard: boolean
-  /** Descarga en curso: la de este alumno muestra el spinner y las demás quedan en espera. */
-  busy: string | null
-  onReportCard: () => void
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <Link
-        href={`/libreta/estudiante/${row.studentId}?volver=${encodeURIComponent(backTo)}`}
-        className="text-emerald-700 hover:underline"
-      >
-        {row.lastName}, {row.firstName}
-      </Link>
-      {reportCard && (
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={onReportCard}
-          aria-label={`Boletín de ${row.lastName}, ${row.firstName}`}
-          title="Descargar el boletín"
-          className="text-gray-400 hover:text-emerald-700 disabled:opacity-40"
-        >
-          {busy === row.studentId ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-          ) : (
-            <FileText className="h-3.5 w-3.5" aria-hidden />
-          )}
-        </button>
-      )}
-    </span>
-  )
-}
-
-function AlertCell({ row }: { row: Row }) {
-  return (
-    <>
-      {row.atRisk ? (
-        <span className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-red-800">
-          <span aria-hidden>▲ </span>
-          {row.alertCount} en alerta
-        </span>
-      ) : (
-        <span className="text-gray-500">{row.alertCount}</span>
-      )}
-      {row.pendingCount > 0 && <span className="ml-1 text-gray-500">· {row.pendingCount} pend.</span>}
-    </>
-  )
-}
-
 /** La reunión con su grupo y período en la URL: se puede volver, recargar o compartir el enlace. */
 export function meetingUrl(pathname: string, group: Group | null, periodId: string): string {
   const params = new URLSearchParams()
@@ -262,6 +72,121 @@ export function meetingUrl(pathname: string, group: Group | null, periodId: stri
   return qs ? `${pathname}?${qs}` : pathname
 }
 
+const FIELD_PATH: Record<MeetingField, string> = {
+  performance: '/admin/gradebook/meeting-performance',
+  conduct: '/admin/gradebook/conduct',
+}
+
+const FIELD_OF: Record<MeetingField, 'performanceValueHundredths' | 'conductValueHundredths'> = {
+  performance: 'performanceValueHundredths',
+  conduct: 'conductValueHundredths',
+}
+
+function saveBody(field: MeetingField, schoolYearId: string, periodId: string, studentId: string, value: number | null) {
+  if (field === 'performance') return { schoolYearId, periodId, studentId, valueHundredths: value }
+  return { schoolYearId, periodId, entries: [{ studentId, valueHundredths: value }] }
+}
+
+/** El grupo y la reunión que se trabajan; arriba de todo, para cambiar de grupo sin volver a buscar. */
+function MeetingFilters({
+  groups,
+  periods,
+  group,
+  periodId,
+  onGroup,
+  onPeriod,
+  boletines,
+}: Readonly<{
+  groups: Group[]
+  periods: Period[]
+  group: Group | null
+  periodId: string
+  onGroup: (group: Group | null) => void
+  onPeriod: (periodId: string) => void
+  boletines: ReactNode
+}>) {
+  return (
+    <div data-tour="reunion.filters" className="flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-3">
+      <label>
+        <span className="mb-1 block text-xs font-medium text-gray-600">Grupo</span>
+        <select
+          value={group ? groupKey(group) : ''}
+          onChange={(e) => onGroup(groups.find((g) => groupKey(g) === e.target.value) ?? null)}
+          className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+        >
+          <option value="">Elegí un grupo…</option>
+          {groups.map((g) => (
+            <option key={groupKey(g)} value={groupKey(g)}>{groupLabel(g)}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-1 block text-xs font-medium text-gray-600">Período</span>
+        <select value={periodId} onChange={(e) => onPeriod(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+          <option value="">Elegí un período…</option>
+          {periods.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      </label>
+      {boletines}
+    </div>
+  )
+}
+
+function FilterBar({
+  options,
+  value,
+  onChange,
+}: Readonly<{ options: ReturnType<typeof meetingFilters>; value: MeetingFilter; onChange: (filter: MeetingFilter) => void }>) {
+  return (
+    <div role="group" aria-label="Mostrar" className="inline-flex flex-wrap gap-1 rounded-lg border border-gray-200 bg-white p-1">
+      {options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          aria-pressed={value === option.id}
+          onClick={() => onChange(option.id)}
+          className={`rounded-md px-2.5 py-1 text-sm ${
+            value === option.id ? 'bg-emerald-600 font-medium text-white' : 'text-gray-700 hover:bg-gray-100'
+          }`}
+        >
+          {option.label} <span className={value === option.id ? 'text-emerald-50' : 'text-gray-500'}>({option.count})</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Qué quiere decir cada marca de la matriz: los tramos a la vista, la propuesta y el promedio. */
+function MatrixLegend({ matrix }: Readonly<{ matrix: Matrix }>) {
+  const legend = levelLegend(matrix.students.flatMap((row) => row.cells))
+  return (
+    <div className="space-y-1.5 text-xs text-gray-600">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {legend.length > 0 && <span className="font-medium text-gray-700">Tramos:</span>}
+        {legend.map((item) => (
+          <span key={item.label} className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 ${item.badgeClass}`}>
+            <span aria-hidden>{item.symbol}</span>
+            {item.label}
+            {item.isAlert && ' (alerta)'}
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-1">
+          <span className="rounded border border-dashed border-gray-300 px-1 text-gray-500">Prop.</span>
+          propuesta del docente, todavía sin R
+        </span>
+        <span>· — sin nota</span>
+      </p>
+      <p>
+        <strong>{matrix.averageLabel}.</strong> El promedio sale de las R y es una referencia: el{' '}
+        <strong>rendimiento</strong> lo elige la reunión, y es el que va al boletín con la conducta y el juicio. Las
+        alertas son informativas y no generan por sí solas decisiones administrativas.
+      </p>
+    </div>
+  )
+}
+
 export default function GroupMatrix({ projection = false }: { projection?: boolean }) {
   const router = useRouter()
   const pathname = usePathname() ?? '/libreta/reunion'
@@ -269,7 +194,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
   const fromUrl = useRef({ grupo: searchParams?.get('grupo') ?? '', periodo: searchParams?.get('periodo') ?? '' })
   const auth = useOptionalAuth()
   const canExport = hasPermission(auth?.me, 'gradebook.export')
-  const canEditConduct = hasPermission(auth?.me, 'gradebook.review', 'all')
+  const canEdit = hasPermission(auth?.me, 'gradebook.review', 'all')
   const schoolYear = useOptionalAdminSchoolYear()
   const query = schoolYear?.schoolYearScopedQuery ?? ''
   const [groups, setGroups] = useState<Group[]>([])
@@ -277,9 +202,14 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
   const [group, setGroup] = useState<Group | null>(null)
   const [periodId, setPeriodId] = useState('')
   const [matrix, setMatrix] = useState<Matrix | null>(null)
+  const [matrixLoading, setMatrixLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [downloading, setDownloading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [saves, setSaves] = useState<Record<string, SaveStatus>>({})
+  const [filter, setFilter] = useState<MeetingFilter>('all')
+  const [judgements, setJudgements] = useState<JudgementState>(null)
+  const [focus, setFocus] = useState<JudgementFocus | null>(null)
 
   useEffect(() => {
     ;(async () => {
@@ -305,12 +235,17 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
   const loadMatrix = useCallback(async () => {
     if (!group || !periodId) return
     setError(null)
+    setSaves({})
+    setJudgements(null)
+    setMatrixLoading(true)
     try {
       const params = new URLSearchParams({ courseOfferingId: group.courseOfferingId, periodId })
       if (group.courseOrientationId) params.set('courseOrientationId', group.courseOrientationId)
       setMatrix(await api<Matrix>(`/admin/gradebook/group-matrix?${params}`))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo cargar la matriz')
+    } finally {
+      setMatrixLoading(false)
     }
   }, [group, periodId])
 
@@ -331,11 +266,30 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
   const period = periods.find((p) => p.id === periodId)
   const offersReportCards = canExport && isReportCardPeriod(period)
 
+  const tally = useMemo(
+    () => (matrix ? meetingTally(matrix.students, matrix.subjects, judgements) : null),
+    [matrix, judgements],
+  )
+  const numberOf = useMemo(
+    () => new Map((matrix?.students ?? []).map((row, index) => [row.studentId, index + 1])),
+    [matrix],
+  )
+  const onJudgementsChange = useCallback((state: { studentIds: Set<string>; group: boolean }) => setJudgements(state), [])
+
   function selectGroup(next: Group | null) {
     setGroup(next)
     setMatrix(null)
+    setFilter('all')
+    setFocus(null)
     const current = periods.find((p) => p.id === periodId)
     if (next?.level && current?.level && current.level !== next.level) setPeriodId('')
+  }
+
+  function selectPeriod(next: string) {
+    setPeriodId(next)
+    setMatrix(null)
+    setFilter('all')
+    setFocus(null)
   }
 
   async function download(key: string, path: string, fallbackName: string) {
@@ -350,40 +304,46 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
     }
   }
 
-  async function savePerformance(studentId: string, value: number | null) {
+  function patchRow(studentId: string, field: MeetingField, value: number | null) {
+    setMatrix((prev) =>
+      prev && {
+        ...prev,
+        students: prev.students.map((row) => (row.studentId === studentId ? { ...row, [FIELD_OF[field]]: value } : row)),
+      },
+    )
+  }
+
+  /**
+   * Guarda un casillero de la reunión. Si el servidor lo rechaza, vuelve al valor anterior y dice
+   * qué no se guardó y por qué: antes recargaba la matriz, que borraba el error, y el rendimiento
+   * elegido volvía a «—» sin explicación.
+   */
+  async function saveField(field: MeetingField, row: MatrixRow, value: number | null) {
+    const key = saveKey(field, row.studentId)
     const schoolYearId = matrix?.group.schoolYear.id
-    if (!matrix || !schoolYearId) return
-    setMatrix({
-      ...matrix,
-      students: matrix.students.map((row) => (row.studentId === studentId ? { ...row, performanceValueHundredths: value } : row)),
-    })
+    if (!schoolYearId) {
+      setSaves((s) => ({ ...s, [key]: 'error' }))
+      setError(saveErrorText(field, row, 'Falta el ciclo lectivo del grupo: recargá la página.'))
+      return
+    }
+    const previous = row[FIELD_OF[field]] ?? null
+    patchRow(row.studentId, field, value)
+    setSaves((s) => ({ ...s, [key]: 'saving' }))
     try {
-      await api('/admin/gradebook/meeting-performance', {
+      await api(FIELD_PATH[field], {
         method: 'PUT',
-        body: JSON.stringify({ schoolYearId, periodId, studentId, valueHundredths: value }),
+        body: JSON.stringify(saveBody(field, schoolYearId, periodId, row.studentId, value)),
       })
+      setSaves((s) => ({ ...s, [key]: 'saved' }))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo guardar el rendimiento')
-      void loadMatrix()
+      patchRow(row.studentId, field, previous)
+      setSaves((s) => ({ ...s, [key]: 'error' }))
+      setError(saveErrorText(field, row, err instanceof Error ? err.message : ''))
     }
   }
 
-  async function saveConduct(studentId: string, value: number | null) {
-    const schoolYearId = matrix?.group.schoolYear.id
-    if (!matrix || !schoolYearId) return
-    setMatrix({
-      ...matrix,
-      students: matrix.students.map((row) => (row.studentId === studentId ? { ...row, conductValueHundredths: value } : row)),
-    })
-    try {
-      await api('/admin/gradebook/conduct', {
-        method: 'PUT',
-        body: JSON.stringify({ schoolYearId, periodId, entries: [{ studentId, valueHundredths: value }] }),
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo guardar la conducta')
-      void loadMatrix()
-    }
+  function openJudgement(studentId: string, edit: boolean) {
+    setFocus((prev) => ({ studentId, edit, nonce: (prev?.nonce ?? 0) + 1 }))
   }
 
   if (loading) {
@@ -395,153 +355,70 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
     )
   }
 
-  const conductLevels = matrix?.conductLevels ?? []
+  const boletines = matrix && group && offersReportCards && (
+    <button
+      type="button"
+      disabled={downloading !== null}
+      onClick={() => void download('group', reportCardsPath(group, periodId), 'boletines.pdf')}
+      className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+    >
+      {downloading === 'group' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <FileText className="h-4 w-4" aria-hidden />}
+      Boletines del grupo
+    </button>
+  )
 
   return (
     <div className="space-y-4">
-      <div data-tour="reunion.filters" className="flex flex-wrap items-end gap-2">
-        <label>
-          <span className="mb-1 block text-xs text-gray-600">Grupo</span>
-          <select
-            value={group ? groupKey(group) : ''}
-            onChange={(e) => selectGroup(groups.find((g) => groupKey(g) === e.target.value) ?? null)}
-            className="rounded border border-gray-300 px-2 py-1.5 text-sm"
-          >
-            <option value="">Elegí un grupo…</option>
-            {groups.map((g) => (
-              <option key={groupKey(g)} value={groupKey(g)}>{groupLabel(g)}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span className="mb-1 block text-xs text-gray-600">Período</span>
-          <select
-            value={periodId}
-            onChange={(e) => setPeriodId(e.target.value)}
-            className="rounded border border-gray-300 px-2 py-1.5 text-sm"
-          >
-            <option value="">Elegí un período…</option>
-            {visiblePeriods.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </label>
-        {matrix && group && offersReportCards && (
-          <button
-            type="button"
-            disabled={downloading !== null}
-            onClick={() => void download('group', reportCardsPath(group, periodId), 'boletines.pdf')}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            {downloading === 'group' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <FileText className="h-4 w-4" aria-hidden />}
-            Boletines del grupo
-          </button>
-        )}
-      </div>
+      <MeetingFilters
+        groups={groups}
+        periods={visiblePeriods}
+        group={group}
+        periodId={periodId}
+        onGroup={selectGroup}
+        onPeriod={selectPeriod}
+        boletines={boletines}
+      />
 
       {error && (
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
       )}
 
-      {!matrix ? (
-        <p className="rounded-xl border border-gray-200 bg-white px-4 py-6 text-sm text-gray-500">
-          Elegí un grupo y un período para ver la matriz.
+      {!matrix || !tally ? (
+        <p className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-6 text-sm text-gray-500">
+          {matrixLoading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+          {matrixLoading ? 'Cargando la matriz…' : 'Elegí un grupo y un período para ver la matriz.'}
         </p>
       ) : (
         <>
-          <ScrollRegion label="Matriz de calificaciones del grupo" tour="reunion.matrix" className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-            <table className={`w-full ${projection ? 'text-base' : 'text-sm'}`}>
-              <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
-                <tr>
-                  <th scope="col" className="sticky left-0 bg-white px-3 py-2 text-left font-medium">Estudiante</th>
-                  {matrix.subjects.map((s) => (
-                    <th key={s.gradeBookId} scope="col" className="px-2 py-2 text-left font-medium" title={s.teacher ?? undefined}>
-                      {s.name}
-                    </th>
-                  ))}
-                  <th scope="col" className="px-2 py-2 text-left font-medium" title={matrix.averageLabel}>
-                    Promedio
-                  </th>
-                  <th
-                    scope="col"
-                    data-tour="reunion.performance"
-                    className="px-2 py-2 text-left font-medium"
-                    title="Lo elige la reunión; el promedio es sólo una referencia"
-                  >
-                    Rendimiento
-                  </th>
-                  <th scope="col" className="px-2 py-2 text-left font-medium" title="La pone adscripción, para todo el liceo">
-                    Conducta
-                  </th>
-                  <th scope="col" className="px-2 py-2 text-left font-medium" title="Faltas del ciclo en todo el liceo">
-                    Faltas
-                  </th>
-                  <th scope="col" className="px-2 py-2 text-left font-medium">Alertas</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {matrix.students.map((row) => (
-                  <tr key={row.studentId} className={row.atRisk ? 'bg-red-50/40' : undefined}>
-                    <td className="sticky left-0 bg-inherit px-3 py-1.5">
-                      <StudentCell
-                        row={row}
-                        backTo={here}
-                        reportCard={offersReportCards}
-                        busy={downloading}
-                        onReportCard={() =>
-                          void download(
-                            row.studentId,
-                            `/admin/gradebook/report-card/${row.studentId}?periodId=${periodId}`,
-                            'boletin.pdf',
-                          )
-                        }
-                      />
-                    </td>
-                    {row.cells.map((cell) => (
-                      <td key={cell.gradeBookId} className="px-2 py-1.5">
-                        <MatrixCell cell={cell} decimals={0} />
-                      </td>
-                    ))}
-                    <td className="px-2 py-1.5 text-gray-700">
-                      {formatHundredths(row.averageHundredths, matrix.averageDecimals ?? 1)}
-                    </td>
-                    <td className="px-2 py-1.5 text-gray-700">
-                      <PerformanceCell
-                        row={row}
-                        scale={matrix.performanceScale ?? null}
-                        editable={canEditConduct}
-                        onChange={(value) => void savePerformance(row.studentId, value)}
-                      />
-                    </td>
-                    <td className="px-2 py-1.5 text-gray-700">
-                      <ConductCell
-                        row={row}
-                        levels={conductLevels}
-                        editable={canEditConduct}
-                        onChange={(value) => void saveConduct(row.studentId, value)}
-                      />
-                    </td>
-                    <td className="px-2 py-1.5 text-gray-700">
-                      {formatAbsenceUnits(row.absenceHundredths ?? 0)}
-                    </td>
-                    <td className="px-2 py-1.5 text-xs">
-                      <AlertCell row={row} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </ScrollRegion>
+          <MeetingSummary tally={tally} judgements={judgements} alertSubjectsThreshold={matrix.alertSubjectsThreshold ?? null} />
 
-          <p className="text-xs text-gray-500">
-            <strong>{matrix.averageLabel}.</strong> Se calcula con el rendimiento (R); una celda con{' '}
-            <span className="rounded border border-dashed border-gray-300 px-1">C</span> es la propuesta del
-            docente y todavía no cuenta. Es una referencia: el <strong>rendimiento</strong> del alumno lo elige la
-            reunión, y ése es el que va al boletín junto con la conducta y el juicio.
-            {matrix.alertSubjectsThreshold != null &&
-              ` En alerta: ${matrix.alertSubjectsThreshold} o más asignaturas en el tramo de alerta.`}{' '}
-            Las alertas son informativas y no generan por sí solas decisiones administrativas.
-          </p>
+          {matrix.students.length === 0 ? (
+            <p className="rounded-xl border border-gray-200 bg-white px-4 py-6 text-sm text-gray-500">
+              El grupo no tiene estudiantes matriculados en este período.
+            </p>
+          ) : (
+            <>
+              <FilterBar options={meetingFilters(tally)} value={filter} onChange={setFilter} />
+              <MatrixTable
+                matrix={matrix}
+                rows={filterMeetingRows(matrix.students, filter, judgements)}
+                numberOf={numberOf}
+                projection={projection}
+                backTo={here}
+                canEdit={canEdit}
+                judgements={judgements}
+                reportCard={offersReportCards}
+                downloading={downloading}
+                saves={saves}
+                onReportCard={(row) =>
+                  void download(row.studentId, `/admin/gradebook/report-card/${row.studentId}?periodId=${periodId}`, 'boletin.pdf')
+                }
+                onSave={(field, row, value) => void saveField(field, row, value)}
+                onOpenJudgement={openJudgement}
+              />
+              <MatrixLegend matrix={matrix} />
+            </>
+          )}
 
           {/* Juicio de reunión: se carga acá (no en la ficha del alumno ni en el cierre del docente). */}
           {group && periodId && (
@@ -550,6 +427,8 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
               courseOrientationId={group.courseOrientationId}
               periodId={periodId}
               students={matrix.students}
+              onJudgementsChange={onJudgementsChange}
+              focus={focus}
             />
           )}
         </>

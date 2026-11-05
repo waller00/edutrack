@@ -23,6 +23,21 @@ describe('ScrollRegion', () => {
     restore()
   })
 
+  it('una tabla con alto máximo que desborda hacia abajo también se enfoca', () => {
+    const restore = mockWidths(400, 400)
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(2000)
+    const client = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
+    render(
+      <ScrollRegion label="Matriz del grupo" className="max-h-[75vh] overflow-auto">
+        <table><tbody><tr><td>dato</td></tr></tbody></table>
+      </ScrollRegion>,
+    )
+    expect(screen.getByRole('region', { name: 'Matriz del grupo' })).toHaveAttribute('tabindex', '0')
+    scroll.mockRestore()
+    client.mockRestore()
+    restore()
+  })
+
   it('si entra entera no agrega una parada de Tab', () => {
     const restore = mockWidths(400, 400)
     const { container } = render(

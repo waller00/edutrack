@@ -1978,7 +1978,32 @@ async function writeBookOutput(out: BookOutput) {
   await inChunks(out.notifications, 2000, (c) => prisma.inAppNotification.createMany({ data: c }))
 }
 
-/** Reuniones de profesores y conducta institucional de adscripción en cada entrega cerrada. */
+/** R de cada alumno en una entrega, de todas sus materias: una pasada por el mapa, no una por alumno. */
+function rByStudent(keeper: GradeKeeper, entregaCode: string): Map<string, number[]> {
+  const out = new Map<string, number[]>()
+  for (const [key, value] of keeper.r) {
+    const [, code, studentId] = key.split('|')
+    if (code !== entregaCode) continue
+    out.set(studentId, [...(out.get(studentId) ?? []), value])
+  }
+  return out
+}
+
+/**
+ * Rendimiento general que decide la reunión: parte del promedio de las R y a veces lo corre un
+ * punto (la reunión pesa el esfuerzo o la trayectoria). Sin ninguna R no hay qué decidir.
+ */
+function meetingPerformance(rValues: readonly number[] | undefined, r: Rng): number | null {
+  if (!rValues?.length) return null
+  const mean = rValues.reduce((sum, v) => sum + v, 0) / rValues.length
+  return clamp(Math.round(mean + r.normal(0, 0.35)), 1, 10) * 100
+}
+
+/**
+ * Reuniones de profesores en cada entrega cerrada: los juicios, la conducta institucional de
+ * adscripción y el rendimiento general que elige la reunión (sin él, la columna «Rendimiento» de la
+ * reunión y la «R» del informe del boletín salían vacías).
+ */
 async function createMeetingsAndConduct(ctx: YearCtx, periods: PeriodRec[], yearEnrollments: EnrollmentRec[], keeper: GradeKeeper) {
   const meetings: Prisma.TeacherMeetingRecordCreateManyInput[] = []
   const conduct: Prisma.StudentConductRecordCreateManyInput[] = []
@@ -1989,13 +2014,14 @@ async function createMeetingsAndConduct(ctx: YearCtx, periods: PeriodRec[], year
     for (const course of D.COURSE_CODES) {
       const rng = rngFor(`meeting-${ctx.year}-${entrega.code}-${course}`)
       const roster = yearEnrollments.filter((e) => e.course === course && activeOn(e, entrega.endYmd!))
+      const rValues = rByStudent(keeper, entrega.code)
       const ads = person(course === '9-EBI' ? 'ADS2' : 'ADS1')
       const director = person('DIR')
       for (const decision of rng.shuffle(D.MEETING_GROUP_DECISIONS).slice(0, 2)) {
         meetings.push({ schoolYearId: ctx.schoolYearId, courseOfferingId: ctx.offeringByCourse.get(course)!, periodId: entrega.id, decision, createdByUserId: director.id, createdAt: at })
       }
       const struggling = roster
-        .map((e) => ({ e, low: [...keeper.r.entries()].filter(([k, v]) => k.includes(`|${entrega.code}|${e.student.id}`) && v < 5).length }))
+        .map((e) => ({ e, low: (rValues.get(e.student.id) ?? []).filter((v) => v < 5).length }))
         .filter((x) => x.low >= 2)
         .slice(0, 4)
       for (const { e } of struggling) {
@@ -2004,7 +2030,8 @@ async function createMeetingsAndConduct(ctx: YearCtx, periods: PeriodRec[], year
       for (const e of roster) {
         const r = rngFor(`conduct-${entrega.id}-${e.student.id}`)
         const value = clamp(Math.round(e.student.conduct + r.normal(0, 0.5)), 1, 10)
-        conduct.push({ studentId: e.student.id, schoolYearId: ctx.schoolYearId, periodId: entrega.id, valueHundredths: value * 100, notes: value <= 5 ? r.pick(['Llamadas de atención reiteradas en el período.', 'Se trabajó con la familia acuerdos de convivencia.']) : null, updatedByUserId: ads.id, createdAt: minDate(plusMinutes(at, -60 * 24), NOW), updatedAt: minDate(plusMinutes(at, -60 * 24), NOW) })
+        const notes = value <= 5 ? r.pick(['Llamadas de atención reiteradas en el período.', 'Se trabajó con la familia acuerdos de convivencia.']) : null
+        conduct.push({ studentId: e.student.id, schoolYearId: ctx.schoolYearId, periodId: entrega.id, valueHundredths: value * 100, notes, performanceValueHundredths: meetingPerformance(rValues.get(e.student.id), r), updatedByUserId: ads.id, createdAt: minDate(plusMinutes(at, -60 * 24), NOW), updatedAt: minDate(plusMinutes(at, -60 * 24), NOW) })
       }
     }
   }
