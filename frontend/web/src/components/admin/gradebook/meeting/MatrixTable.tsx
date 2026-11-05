@@ -13,7 +13,7 @@ import type { Matrix, MatrixCellData, MatrixRow, MatrixSubject, SaveStatus } fro
 
 /** Encabezado fijo al desplazar la tabla; cada uso pone su capa (`z-10`, o `z-20` en la esquina). */
 const HEAD_CELL = 'sticky top-0 border-b border-gray-200 bg-white px-2 py-2 text-left align-bottom'
-const BODY_CELL = 'border-b border-gray-100 px-2 py-1.5'
+const BODY_CELL = 'whitespace-nowrap border-b border-gray-100 px-2 py-1.5'
 
 /**
  * Celda de una materia: color, símbolo y valor de R. El símbolo evita depender del color (RNF 7.2).
@@ -206,10 +206,14 @@ function AlertCell({ row }: Readonly<{ row: MatrixRow }>) {
 function SubjectHeader({ subject }: Readonly<{ subject: MatrixSubject }>) {
   const status = subjectStatus(subject.periodStatus)
   return (
-    <span className="flex min-w-[6.5rem] flex-col gap-0.5">
-      <span className="text-xs font-semibold text-gray-800">{subject.name}</span>
-      {subject.teacher && <span className="truncate text-[11px] font-normal text-gray-500">{subject.teacher}</span>}
-      <span className={`inline-flex w-fit items-center gap-1 rounded px-1 text-[11px] font-medium ${status.className}`}>
+    <span className="flex w-[7.5rem] flex-col gap-0.5">
+      <span className="text-xs font-semibold leading-tight text-gray-800">{subject.name}</span>
+      {subject.teacher && (
+        <span className="truncate text-[11px] font-normal text-gray-500" title={subject.teacher}>
+          {subject.teacher}
+        </span>
+      )}
+      <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded px-1 text-[11px] font-medium ${status.className}`}>
         <span aria-hidden>{status.symbol}</span>
         {status.label}
       </span>
@@ -220,7 +224,7 @@ function SubjectHeader({ subject }: Readonly<{ subject: MatrixSubject }>) {
 /** Encabezado de una columna de la reunión: qué es y quién la decide. */
 function MeetingHeader({ label, hint, tour }: Readonly<{ label: string; hint: string; tour?: string }>) {
   return (
-    <th scope="col" data-tour={tour} className={`${HEAD_CELL} z-10 !bg-emerald-50`}>
+    <th scope="col" data-tour={tour} className={`${HEAD_CELL} z-10 whitespace-nowrap !bg-emerald-50`}>
       <span className="flex flex-col gap-0.5">
         <span className="text-xs font-semibold text-gray-800">{label}</span>
         <span className="text-[11px] font-normal text-gray-500">{hint}</span>
@@ -261,12 +265,19 @@ export default function MatrixTable(props: Readonly<MatrixTableProps>) {
     <ScrollRegion
       label="Matriz de calificaciones del grupo"
       tour="reunion.matrix"
-      className="max-h-[75vh] overflow-auto rounded-xl border border-gray-200 bg-white"
+      className="relative max-h-[75vh] overflow-auto rounded-xl border border-gray-200 bg-white"
     >
-      <table className={`w-full border-separate border-spacing-0 ${projection ? 'text-base' : 'text-sm'}`}>
+      {/*
+        La página corta palabras en cualquier letra (`overflow-wrap: anywhere` de `.responsive-page`,
+        y en el teléfono además `white-space: normal` en toda celda): en una tabla eso deja cada
+        columna del ancho de una letra y la tabla se aprieta en vez de desplazarse.
+        `table-keep-words` (globals.css) corta sólo entre palabras y respeta `whitespace-nowrap`.
+        `border-separate` (que la página pisa con `collapse`) mantiene el borde del encabezado fijo.
+      */}
+      <table className={`table-keep-words w-full !border-separate border-spacing-0 ${projection ? 'text-base' : 'text-sm'}`}>
         <thead>
           <tr>
-            <th scope="col" className={`${HEAD_CELL} left-0 z-20 min-w-[12rem]`}>
+            <th scope="col" className={`${HEAD_CELL} left-0 z-20`}>
               <span className="text-xs font-semibold text-gray-800">Estudiante</span>
             </th>
             {matrix.subjects.map((s) => (
@@ -278,13 +289,13 @@ export default function MatrixTable(props: Readonly<MatrixTableProps>) {
             <MeetingHeader label="Rendimiento" hint="lo decide la reunión" tour="reunion.performance" />
             <MeetingHeader label="Conducta" hint="adscripción" />
             <MeetingHeader label="Juicio" hint="va al boletín" />
-            <th scope="col" className={`${HEAD_CELL} z-10`}>
+            <th scope="col" className={`${HEAD_CELL} z-10 whitespace-nowrap`}>
               <span className="flex flex-col gap-0.5">
                 <span className="text-xs font-semibold text-gray-800">Faltas</span>
                 <span className="text-[11px] font-normal text-gray-500">del ciclo, en el liceo</span>
               </span>
             </th>
-            <th scope="col" className={`${HEAD_CELL} z-10`}>
+            <th scope="col" className={`${HEAD_CELL} z-10 whitespace-nowrap`}>
               <span className="text-xs font-semibold text-gray-800">Alertas</span>
             </th>
           </tr>

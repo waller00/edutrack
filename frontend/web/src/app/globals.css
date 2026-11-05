@@ -218,6 +218,14 @@ input[type="password"]::-ms-clear {
   .responsive-page :is(table) {
     border-collapse: collapse;
   }
+
+  /* Una tabla ancha que se desplaza (la matriz de la reunión) corta sólo entre palabras. Con
+     `anywhere`, cada columna se achicaba al ancho de una letra y la tabla se apretaba en la
+     pantalla en vez de desplazarse: «Promedio» y «5,5» quedaban una letra por renglón. */
+  .responsive-page .table-keep-words,
+  .responsive-page .table-keep-words :is(button, a, span, code, th, td, p, label) {
+    overflow-wrap: normal;
+  }
 }
 
 @media (max-width: 640px) {
@@ -276,6 +284,12 @@ input[type="password"]::-ms-clear {
     padding-left: 0.75rem !important;
     padding-right: 0.75rem !important;
     white-space: normal !important;
+  }
+
+  /* La celda que pide no partirse (una nota, un selector, un nombre) sigue sin partirse en el
+     teléfono: la tabla se desplaza. */
+  .responsive-page .table-keep-words :is(th, td).whitespace-nowrap {
+    white-space: nowrap !important;
   }
 
   .mobile-full-width {
