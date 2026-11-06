@@ -26,6 +26,7 @@ const { prismaMock, rosterMock, scopeMock } = vi.hoisted(() => ({
     institutionBranding: { findUnique: vi.fn() },
     studentConductRecord: { findMany: vi.fn(), upsert: vi.fn() },
     studentAttendanceEntry: { findMany: vi.fn() },
+    assessment: { findMany: vi.fn() },
     $transaction: vi.fn(),
   },
   rosterMock: vi.fn(),
@@ -338,6 +339,11 @@ describe('GET /students/:studentId', () => {
 })
 
 describe('reunión de profesores', () => {
+  beforeEach(() => {
+    prismaMock.academicPeriod.findFirst.mockResolvedValue({ id: PERIOD_ID })
+    rosterMock.mockResolvedValue([{ studentId: STUDENT_ID, studentEnrollmentId: 'e-1', firstName: 'Ana', lastName: 'Díaz', documentId: null }])
+  })
+
   it('registra una decisión sobre un estudiante', async () => {
     prismaMock.teacherMeetingRecord.create.mockResolvedValue({ id: 'm-1' })
 
@@ -363,6 +369,50 @@ describe('reunión de profesores', () => {
 
     expect(res.status).toBe(201)
     expect(prismaMock.teacherMeetingRecord.create.mock.calls[0][0].data.studentId).toBeNull()
+    // El del grupo no necesita alumno: no se busca en la lista.
+    expect(rosterMock).not.toHaveBeenCalled()
+  })
+
+  it('el alumno tiene que ser del grupo: si no, el juicio no aparecería en ningún lado', async () => {
+    rosterMock.mockResolvedValue([])
+    const res = await request(app())
+      .post('/admin/gradebook/meeting-records')
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ courseOfferingId: OFFERING_ID, courseOrientationId: CO_ID, periodId: PERIOD_ID, studentId: STUDENT_ID, decision: 'Se cita a la familia.' })
+    expect(res.status).toBe(404)
+    expect(res.body.code).toBe('STUDENT_NOT_IN_GROUP')
+    expect(rosterMock.mock.calls[0][0]).toMatchObject({ courseOfferingId: OFFERING_ID, courseOrientationId: CO_ID })
+    expect(prismaMock.teacherMeetingRecord.create).not.toHaveBeenCalled()
+  })
+
+  it('la reunión tiene que ser del ciclo del grupo', async () => {
+    prismaMock.academicPeriod.findFirst.mockResolvedValue(null)
+    const res = await request(app())
+      .post('/admin/gradebook/meeting-records')
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ courseOfferingId: OFFERING_ID, periodId: PERIOD_ID, decision: 'Se refuerza la convivencia.' })
+    expect(res.status).toBe(404)
+    expect(res.body.code).toBe('PERIOD_NOT_FOUND')
+    expect(prismaMock.academicPeriod.findFirst.mock.calls[0][0].where).toEqual({ id: PERIOD_ID, schoolYearId: 'sy-1' })
+  })
+
+  it('un docente no escribe juicios de la reunión', async () => {
+    const res = await request(app())
+      .post('/admin/gradebook/meeting-records')
+      .set('Authorization', `Bearer ${tok('TEACHER', 't-1')}`)
+      .send({ courseOfferingId: OFFERING_ID, periodId: PERIOD_ID, decision: 'Algo.' })
+    expect(res.status).toBe(403)
+  })
+
+  it('una reunión trae todos sus juicios: sin tope, ninguno queda afuera tras muchas correcciones', async () => {
+    prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([])
+    await request(app())
+      .get(`/admin/gradebook/meeting-records?courseOfferingId=${OFFERING_ID}&periodId=${PERIOD_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+    expect(prismaMock.teacherMeetingRecord.findMany.mock.calls[0][0].take).toBeUndefined()
+
+    await request(app()).get('/admin/gradebook/meeting-records').set('Authorization', `Bearer ${tok()}`)
+    expect(prismaMock.teacherMeetingRecord.findMany.mock.calls[1][0].take).toBe(200)
   })
 
   it('rechaza una decisión vacía', async () => {
@@ -1533,6 +1583,110 @@ describe('registro de accesos a la libreta (RF-100)', () => {
     const res = await request(app())
       .get('/admin/gradebook/gradebooks/gb-1/access-log')
       .set('Authorization', `Bearer ${tok('TEACHER', 't-1')}`)
+    expect(res.status).toBe(403)
+  })
+})
+
+describe('GET /group-matrix/students/:studentId (panel del alumno en la reunión)', () => {
+  const url = (studentId = STUDENT_ID) =>
+    `/admin/gradebook/group-matrix/students/${studentId}?courseOfferingId=${OFFERING_ID}&periodId=${PERIOD_ID}`
+  const ENTREGA = {
+    id: PERIOD_ID,
+    name: '2.ª Entrega',
+    kind: 'ENTREGA',
+    sortOrder: 25,
+    startsOn: new Date('2026-06-16T12:00:00.000Z'),
+    endsOn: new Date('2026-06-20T12:00:00.000Z'),
+    isMeeting: true,
+    requiresGeneralGrade: true,
+    requiresConceptualJudgement: true,
+  }
+
+  beforeEach(() => {
+    rosterMock.mockResolvedValue([{ studentId: STUDENT_ID, lastName: 'García', firstName: 'Marcos', studentEnrollmentId: 'e-1', documentId: null }])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([ENTREGA])
+    prismaMock.gradeBook.findMany.mockResolvedValue([book()])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      {
+        gradeBookId: 'gb-1',
+        periodId: PERIOD_ID,
+        status: 'CLOSED',
+        grades: [{ valueHundredths: null, meetingValueHundredths: 300, conductValueHundredths: 800, conceptualJudgement: 'No entrega.' }],
+      },
+    ])
+    prismaMock.assessment.findMany.mockResolvedValue([])
+    // La misma lectura sirve a las faltas del liceo y a las de cada materia.
+    prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([
+      {
+        studentId: STUDENT_ID,
+        status: 'ABSENT',
+        absenceWeightHundredths: null,
+        session: { occurrenceYmd: '2026-06-17', subjectId: 's-1', orientationId: null, courseOrientationId: null },
+      },
+    ])
+  })
+
+  it('cada materia con su detalle y las faltas del liceo desglosadas', async () => {
+    const res = await request(app()).get(url()).set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(200)
+    expect(res.body.student).toEqual({ studentId: STUDENT_ID, lastName: 'García', firstName: 'Marcos' })
+    expect(res.body.subjects).toHaveLength(1)
+    expect(res.body.subjects[0]).toMatchObject({
+      gradeBookId: 'gb-1',
+      name: 'Matemática',
+      teacher: 'Ana G',
+      valueHundredths: 300,
+      conductValueHundredths: 800,
+      conceptualJudgement: 'No entrega.',
+      attendance: { year: { absent: 1, justified: 0, late: 0, classes: 1 } },
+    })
+    expect(res.body.subjects[0].descriptor).toMatchObject({ label: 'Insuficiente' })
+    expect(res.body.absences).toMatchObject({ hundredths: 100, whole: 1, unjustified: 1 })
+    // Las marcas son sólo del alumno pedido.
+    expect(prismaMock.studentAttendanceEntry.findMany.mock.calls[0][0].where.studentId).toBe(STUDENT_ID)
+  })
+
+  it('la cantidad de consultas no crece con las materias del grupo', async () => {
+    const count = () =>
+      Object.values(prismaMock).reduce(
+        (sum, model: any) =>
+          sum + (typeof model === 'object' ? Object.values(model).reduce((n: number, fn: any) => n + (fn.mock?.calls.length ?? 0), 0) : 0),
+        0,
+      )
+    await request(app()).get(url()).set('Authorization', `Bearer ${tok()}`)
+    const withOne = count()
+    vi.clearAllMocks()
+    prismaMock.gradeBook.findMany.mockResolvedValue([
+      book(),
+      book({ id: 'gb-2', subjectId: 's-2', subject: { id: 's-2', name: 'Física', sortOrder: 20 } }),
+      book({ id: 'gb-3', subjectId: 's-3', subject: { id: 's-3', name: 'Química', sortOrder: 30 } }),
+    ])
+    const res = await request(app()).get(url()).set('Authorization', `Bearer ${tok()}`)
+    expect(res.body.subjects.map((s: any) => s.name)).toEqual(['Matemática', 'Física', 'Química'])
+    expect(count()).toBe(withOne)
+  })
+
+  it('un alumno que no es del grupo da 404', async () => {
+    rosterMock.mockResolvedValue([])
+    const res = await request(app()).get(url()).set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(404)
+    expect(res.body.code).toBe('STUDENT_NOT_IN_GROUP')
+  })
+
+  it('una reunión que no es del ciclo del grupo da 404', async () => {
+    prismaMock.academicPeriod.findMany.mockResolvedValue([])
+    const res = await request(app()).get(url()).set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(404)
+    expect(res.body.code).toBe('PERIOD_NOT_FOUND')
+  })
+
+  it('parámetros inválidos dan 400', async () => {
+    const res = await request(app()).get(url('no-es-un-id')).set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(400)
+  })
+
+  it('un docente no lo abre', async () => {
+    const res = await request(app()).get(url()).set('Authorization', `Bearer ${tok('TEACHER', 't-1')}`)
     expect(res.status).toBe(403)
   })
 })

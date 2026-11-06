@@ -1,19 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loader2, Pencil } from 'lucide-react'
-import { api } from '@/lib/api/client'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
 import { formatGrade } from '@/lib/gradebook/grade-scale'
-
-type Decision = {
-  id: string
-  decision: string
-  createdAt: string
-  student: { id: string; firstName: string; lastName: string } | null
-  createdBy: { id: string; name: string | null } | null
-}
+import type { MeetingDecision as Decision } from '@/lib/gradebook/meeting-records'
+import type { MeetingRecords } from './meeting/useMeetingRecords'
 
 type StudentOption = {
   studentId: string
@@ -31,32 +24,6 @@ export type JudgementFocus = { studentId: string; edit: boolean; nonce: number }
 
 export const judgementAnchor = (studentId: string) => `juicio-${studentId}`
 
-/**
- * La decisión vigente de cada alumno —y la del grupo— es la más reciente. Las anteriores quedan
- * como historia, no se borran.
- */
-export function currentDecisionIds(rows: readonly Decision[]): Set<string> {
-  const newest = new Map<string, Decision>()
-  for (const row of rows) {
-    const key = row.student?.id ?? 'grupo'
-    const current = newest.get(key)
-    if (!current || row.createdAt > current.createdAt) newest.set(key, row)
-  }
-  return new Set([...newest.values()].map((row) => row.id))
-}
-
-export function meetingRecordsPath(courseOfferingId: string, courseOrientationId: string | null | undefined, periodId: string) {
-  const params = new URLSearchParams({ courseOfferingId, periodId })
-  if (courseOrientationId) params.set('courseOrientationId', courseOrientationId)
-  return `/admin/gradebook/meeting-records?${params}`
-}
-
-/** El juicio vigente de cada alumno y el del grupo (clave `null`). */
-function currentByKey(rows: readonly Decision[]): Map<string | null, Decision> {
-  const current = currentDecisionIds(rows)
-  return new Map(rows.filter((row) => current.has(row.id)).map((row) => [row.student?.id ?? null, row]))
-}
-
 /** «Rendimiento 7 · Conducta 8 · ▲ 3 en alerta»: lo decidido, para escribir el juicio con eso a la vista. */
 export function studentContext(student: StudentOption): string | null {
   const parts: string[] = []
@@ -68,14 +35,15 @@ export function studentContext(student: StudentOption): string | null {
 
 /**
  * Un juicio vigente con su autor y, para quien conduce la reunión, cómo reemplazarlo. Guardar uno
- * nuevo no borra el anterior: lo sucede.
+ * nuevo no borra el anterior: lo sucede. Lo usan «Juicios de la reunión» y el panel del alumno.
  */
-function JudgementEditor({
+export function JudgementEditor({
   of,
   current,
   canWrite,
   onSave,
   openRequest,
+  onDirtyChange,
 }: {
   /** Sobre quién es, con su preposición: rotula los controles ("del grupo", "de Díaz, Ana"). */
   of: string
@@ -84,10 +52,20 @@ function JudgementEditor({
   onSave: (text: string) => Promise<boolean>
   /** Cambia cada vez que la matriz pide escribir este juicio. */
   openRequest?: number
+  /** Avisa si hay texto escrito sin guardar: el panel del alumno pregunta antes de perderlo. */
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
+  const dirty = editing && draft.trim() !== (current?.decision ?? '').trim()
+
+  const dirtyRef = useRef(onDirtyChange)
+  dirtyRef.current = onDirtyChange
+  useEffect(() => {
+    dirtyRef.current?.(dirty)
+  }, [dirty])
+  useEffect(() => () => dirtyRef.current?.(false), [])
 
   function start() {
     setDraft(current?.decision ?? '')
@@ -173,83 +151,24 @@ function JudgementEditor({
  * - el **de cada alumno**, que se escribe alumno por alumno durante la reunión: va a su boletín
  *   como «Informe reunión» y el docente lo ve en su cierre como «Juicio Reu.».
  *
- * Los escriben adscripción y dirección (`gradebook.review`); el resto los lee.
+ * Los escriben adscripción y dirección (`gradebook.review`); el resto los lee. Los juicios llegan de
+ * `useMeetingRecords`, el mismo estado que usan la tabla y el panel del alumno.
  */
 export default function MeetingDecisions({
-  courseOfferingId,
-  courseOrientationId,
-  periodId,
+  records,
   students,
-  onJudgementsChange,
   focus,
 }: {
-  courseOfferingId: string
-  courseOrientationId?: string | null
-  periodId: string
+  records: MeetingRecords
   students: readonly StudentOption[]
-  /** Quiénes tienen juicio vigente y si el del grupo está escrito: la matriz lo muestra por fila. */
-  onJudgementsChange?: (state: { studentIds: Set<string>; group: boolean }) => void
   focus?: JudgementFocus | null
 }) {
   const auth = useOptionalAuth()
   const canWrite = hasPermission(auth?.me, 'gradebook.review', 'all')
-  const [rows, setRows] = useState<Decision[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await api<{ data: Decision[] }>(meetingRecordsPath(courseOfferingId, courseOrientationId, periodId))
-      setRows(res.data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudieron cargar los juicios')
-    } finally {
-      setLoading(false)
-    }
-  }, [courseOfferingId, courseOrientationId, periodId])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  /** `studentId` null es el juicio general del grupo. */
-  async function save(studentId: string | null, text: string): Promise<boolean> {
-    setError(null)
-    try {
-      await api('/admin/gradebook/meeting-records', {
-        method: 'POST',
-        body: JSON.stringify({
-          courseOfferingId,
-          courseOrientationId: courseOrientationId ?? undefined,
-          periodId,
-          studentId: studentId ?? undefined,
-          decision: text.trim(),
-        }),
-      })
-      await load()
-      return true
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo guardar el juicio')
-      return false
-    }
-  }
-
-  const current = currentByKey(rows)
+  const { current, loading, error, save } = records
   const withJudgement = students.filter((s) => current.has(s.studentId)).length
   const [onlyMissing, setOnlyMissing] = useState(false)
   const visible = onlyMissing ? students.filter((s) => !current.has(s.studentId)) : students
-
-  const notify = useRef(onJudgementsChange)
-  notify.current = onJudgementsChange
-  useEffect(() => {
-    if (loading) return
-    const byKey = currentByKey(rows)
-    notify.current?.({
-      studentIds: new Set([...byKey.keys()].filter((key): key is string => key !== null)),
-      group: byKey.has(null),
-    })
-  }, [rows, loading])
 
   // Ir desde la matriz: se muestra la fila (aunque el filtro la escondiera) y se la trae a la vista.
   useEffect(() => {

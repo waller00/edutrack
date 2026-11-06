@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import MeetingDecisions, { currentDecisionIds, meetingRecordsPath, studentContext } from './MeetingDecisions'
+import MeetingDecisions, { studentContext, type JudgementFocus } from './MeetingDecisions'
+import { useMeetingRecords, type MeetingRecords } from './meeting/useMeetingRecords'
 import { api } from '@/lib/api/client'
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
@@ -16,9 +17,26 @@ const STUDENTS = [
 
 const ANA = { id: 's1', firstName: 'Ana', lastName: 'Díaz' }
 
+/** Los juicios llegan de `useMeetingRecords`, como en la reunión. */
+function Harness({
+  students = STUDENTS,
+  courseOrientationId,
+  focus,
+  onRecords,
+}: {
+  students?: Array<(typeof STUDENTS)[number] & Record<string, unknown>>
+  courseOrientationId?: string
+  focus?: JudgementFocus
+  onRecords?: (records: MeetingRecords) => void
+}) {
+  const records = useMeetingRecords({ courseOfferingId: 'off-1', courseOrientationId, periodId: 'p-1' })
+  onRecords?.(records)
+  return <MeetingDecisions records={records} students={students} focus={focus} />
+}
+
 function setup(rows: unknown[] = []) {
   mockedApi.mockResolvedValue({ data: rows })
-  return render(<MeetingDecisions courseOfferingId="off-1" periodId="p-1" students={STUDENTS} />)
+  return render(<Harness />)
 }
 
 const rowOf = (name: string) => screen.getByText(name).closest('li')!
@@ -99,7 +117,7 @@ describe('<MeetingDecisions />', () => {
 
   it('muestra el error del backend y deja el texto para reintentar', async () => {
     mockedApi.mockResolvedValueOnce({ data: [] }).mockRejectedValueOnce(new Error('Período cerrado'))
-    render(<MeetingDecisions courseOfferingId="off-1" periodId="p-1" students={STUDENTS} />)
+    render(<Harness />)
     await screen.findByText(/0 de 2 con juicio/)
 
     fireEvent.click(screen.getByRole('button', { name: 'Escribir el juicio de Díaz, Ana' }))
@@ -112,26 +130,81 @@ describe('<MeetingDecisions />', () => {
 
   it('pide los juicios del grupo con su orientación', async () => {
     mockedApi.mockResolvedValue({ data: [] })
-    render(<MeetingDecisions courseOfferingId="off-1" courseOrientationId="co-1" periodId="p-1" students={STUDENTS} />)
+    render(<Harness courseOrientationId="co-1" />)
     await screen.findByText(/0 de 2 con juicio/)
     expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/meeting-records?courseOfferingId=off-1&periodId=p-1&courseOrientationId=co-1')
   })
 
-  it('le avisa a la matriz quién tiene juicio y si está el del grupo', async () => {
-    const onJudgementsChange = vi.fn()
+  it('los juicios se comparten con la matriz: quién tiene y si está el del grupo', async () => {
+    let latest: MeetingRecords | null = null
     mockedApi.mockResolvedValue({
       data: [{ id: 'a', decision: 'Trabaja bien.', createdAt: '2026-06-10T12:00:00.000Z', student: ANA, createdBy: null }],
     })
-    render(<MeetingDecisions courseOfferingId="off-1" periodId="p-1" students={STUDENTS} onJudgementsChange={onJudgementsChange} />)
-    await waitFor(() => expect(onJudgementsChange).toHaveBeenLastCalledWith({ studentIds: new Set(['s1']), group: false }))
+    render(<Harness onRecords={(records) => (latest = records)} />)
+    await waitFor(() => expect(latest?.judgements).toEqual({ studentIds: new Set(['s1']), group: false }))
+  })
+
+  it('guardar un juicio no borra el que se está escribiendo para otro alumno', async () => {
+    mockedApi.mockResolvedValue({ data: [] })
+    render(<Harness />)
+    await screen.findByText(/0 de 2 con juicio/)
+    fireEvent.click(screen.getByRole('button', { name: 'Escribir el juicio de Díaz, Ana' }))
+    fireEvent.change(screen.getByLabelText('Juicio de Díaz, Ana'), { target: { value: 'Mejoró mucho.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Escribir el juicio de Sosa, Beto' }))
+    fireEvent.change(screen.getByLabelText('Juicio de Sosa, Beto'), { target: { value: 'Se cita a la familia.' } })
+
+    // Guarda el de Ana; al releer ya lo trae.
+    mockedApi.mockImplementation(async (path: string, init?: any) => {
+      if (init?.method === 'POST') return { data: {} }
+      return { data: [{ id: 'n1', decision: 'Mejoró mucho.', createdAt: '2026-06-10T12:00:00.000Z', student: ANA, createdBy: null }] }
+    })
+    fireEvent.click(within(rowOf('Díaz, Ana')).getByRole('button', { name: 'Guardar' }))
+
+    // Se cierra el editor de Ana y queda el juicio guardado (el textarea también contiene el texto).
+    await waitFor(() => expect(screen.queryByLabelText('Juicio de Díaz, Ana')).toBeNull())
+    expect(within(rowOf('Díaz, Ana')).getByText('Mejoró mucho.', { selector: 'p' })).toBeInTheDocument()
+    // Lo de Beto sigue ahí, sin guardar.
+    expect(screen.getByLabelText('Juicio de Sosa, Beto')).toHaveValue('Se cita a la familia.')
+    expect(screen.getByText(/1 de 2 con juicio/)).toBeInTheDocument()
+  })
+
+  it('al cambiar de reunión, una respuesta vieja que llega tarde no pisa la nueva', async () => {
+    let releaseOld: (value: unknown) => void = () => {}
+    mockedApi.mockImplementation((path: string) => {
+      if (String(path).includes('periodId=p-1')) return new Promise((resolve) => (releaseOld = resolve))
+      return Promise.resolve({ data: [{ id: 'b', decision: 'De la reunión nueva.', createdAt: '2026-06-10T12:00:00.000Z', student: ANA, createdBy: null }] })
+    })
+    function Switcher({ periodId }: { periodId: string }) {
+      const records = useMeetingRecords({ courseOfferingId: 'off-1', periodId })
+      return <MeetingDecisions records={records} students={STUDENTS} />
+    }
+    const { rerender } = render(<Switcher periodId="p-1" />)
+    rerender(<Switcher periodId="p-2" />)
+    expect(await screen.findByText('De la reunión nueva.')).toBeInTheDocument()
+    await act(async () => releaseOld({ data: [{ id: 'a', decision: 'De la reunión vieja.', createdAt: '2026-06-10T12:00:00.000Z', student: ANA, createdBy: null }] }))
+    expect(screen.getByText('De la reunión nueva.')).toBeInTheDocument()
+    expect(screen.queryByText('De la reunión vieja.')).toBeNull()
+  })
+
+  it('después de guardar no vuelve a «cargando»: la tabla no parpadea', async () => {
+    const seen: boolean[] = []
+    mockedApi.mockResolvedValue({ data: [] })
+    render(<Harness onRecords={(records) => seen.push(records.loading)} />)
+    await screen.findByText(/0 de 2 con juicio/)
+    const settled = seen.lastIndexOf(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Escribir el juicio de Díaz, Ana' }))
+    fireEvent.change(screen.getByLabelText('Juicio de Díaz, Ana'), { target: { value: 'Mejoró mucho.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(mockedApi.mock.calls.some(([path]) => path === '/admin/gradebook/meeting-records')).toBe(true))
+    expect(seen.lastIndexOf(true)).toBe(settled)
   })
 
   it('desde la fila de la matriz abre el juicio de ese alumno para escribir', async () => {
     mockedApi.mockResolvedValue({ data: [] })
-    const { rerender } = render(<MeetingDecisions courseOfferingId="off-1" periodId="p-1" students={STUDENTS} />)
+    const { rerender } = render(<Harness />)
     await screen.findByText(/0 de 2 con juicio/)
     rerender(
-      <MeetingDecisions courseOfferingId="off-1" periodId="p-1" students={STUDENTS} focus={{ studentId: 's2', edit: true, nonce: 1 }} />,
+      <Harness focus={{ studentId: 's2', edit: true, nonce: 1 }} />,
     )
     expect(await screen.findByLabelText('Juicio de Sosa, Beto')).toBeInTheDocument()
     expect(screen.queryByLabelText('Juicio de Díaz, Ana')).toBeNull()
@@ -145,7 +218,7 @@ describe('<MeetingDecisions />', () => {
     mockedApi.mockResolvedValue({
       data: [{ id: 'a', decision: 'Trabaja bien.', createdAt: '2026-06-10T12:00:00.000Z', student: ANA, createdBy: null }],
     })
-    render(<MeetingDecisions courseOfferingId="off-1" periodId="p-1" students={students} />)
+    render(<Harness students={students} />)
     expect(await screen.findByText('Rendimiento 7 · Conducta 8 · ▲ 3 en alerta')).toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Sólo los que no tienen (1)'))
@@ -162,21 +235,8 @@ describe('<MeetingDecisions />', () => {
 })
 
 describe('auxiliares de juicios', () => {
-  it('el vigente es el más reciente por alumno y el del grupo aparte', () => {
-    const rows = [
-      { id: 'g1', decision: 'a', createdAt: '2026-06-01', student: null, createdBy: null },
-      { id: 'g2', decision: 'b', createdAt: '2026-06-05', student: null, createdBy: null },
-      { id: 'a1', decision: 'c', createdAt: '2026-06-02', student: { id: 's1', firstName: 'A', lastName: 'B' }, createdBy: null },
-    ]
-    expect([...currentDecisionIds(rows)].sort()).toEqual(['a1', 'g2'])
-  })
-
   it('el contexto del alumno sólo dice lo que hay', () => {
     expect(studentContext({ studentId: 's', firstName: 'A', lastName: 'B' })).toBeNull()
     expect(studentContext({ studentId: 's', firstName: 'A', lastName: 'B', conductValueHundredths: 900 })).toBe('Conducta 9')
-  })
-
-  it('la ruta lleva la orientación sólo si la hay', () => {
-    expect(meetingRecordsPath('off-1', null, 'p-1')).toBe('/admin/gradebook/meeting-records?courseOfferingId=off-1&periodId=p-1')
   })
 })

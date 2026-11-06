@@ -1,149 +1,27 @@
 'use client'
 
-import Link from 'next/link'
-import { AlertTriangle, Check, FileText, Loader2, PenLine } from 'lucide-react'
+import { Check, FileText, Loader2, PenLine } from 'lucide-react'
 import ScrollRegion from '@/components/common/ScrollRegion'
-import ConductSelect, { conductText, type ConductOption } from '@/components/gradebook/ConductSelect'
+import type { ConductOption } from '@/components/gradebook/ConductSelect'
 import { formatHundredths } from '@/lib/academic-config/grade-value'
-import { levelStyle } from '@/lib/academic-config/level-tokens'
-import { formatGrade, gradeSelectOptions, type GradeRange } from '@/lib/gradebook/grade-scale'
 import { studentName, subjectStatus, type JudgementState, type MeetingField } from '@/lib/gradebook/meeting-board'
 import { formatAbsenceUnits } from '@/lib/libreta/absences'
+import { ConductInput, GradeBadge, PerformanceInput } from './cells'
 import type { Matrix, MatrixCellData, MatrixRow, MatrixSubject, SaveStatus } from './types'
 
 /** Encabezado fijo al desplazar la tabla; cada uso pone su capa (`z-10`, o `z-20` en la esquina). */
 const HEAD_CELL = 'sticky top-0 border-b border-gray-200 bg-white px-2 py-2 text-left align-bottom'
 const BODY_CELL = 'whitespace-nowrap border-b border-gray-100 px-2 py-1.5'
 
-/**
- * Celda de una materia: color, símbolo y valor de R. El símbolo evita depender del color (RNF 7.2).
- * Sin R, muestra la calificación que el docente cargó con el sistema anterior (antes de que C
- * pasara a ser la conducta) como propuesta, rotulada con texto y sin color de tramo, porque
- * todavía no es una nota.
- */
-function SubjectCell({ cell }: Readonly<{ cell: MatrixCellData }>) {
-  if (cell.pending) {
-    if (cell.proposedValueHundredths != null) {
-      return (
-        <span
-          className="inline-flex items-center gap-1 rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-xs text-gray-600"
-          title="Calificación propuesta por el docente; todavía sin rendimiento (R)"
-        >
-          <span className="text-[10px] uppercase text-gray-400">Prop.</span>
-          {formatHundredths(cell.proposedValueHundredths, 0)}
-        </span>
-      )
-    }
-    return <span className="text-xs text-gray-400" title="Sin calificación del período">—</span>
+/** «Matemática de García, Marcos: 3, En proceso. Ver detalle»: lo que dice la celda, para el lector. */
+function cellLabel(subject: string, row: MatrixRow, cell: MatrixCellData): string {
+  let value = 'sin nota'
+  if (cell.valueHundredths != null) {
+    value = [formatHundredths(cell.valueHundredths, 0), cell.descriptor?.label].filter(Boolean).join(', ')
+  } else if (cell.proposedValueHundredths != null) {
+    value = `propuesta ${formatHundredths(cell.proposedValueHundredths, 0)}, sin R`
   }
-  const style = cell.descriptor ? levelStyle(cell.descriptor) : null
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs ${style?.badgeClass ?? 'border-gray-200 bg-gray-50 text-gray-700'}`}
-      title={[cell.descriptor?.label, cell.conceptualJudgement].filter(Boolean).join(' — ') || undefined}
-    >
-      {style && <span aria-hidden>{style.symbol}</span>}
-      {formatHundredths(cell.valueHundredths, 0)}
-    </span>
-  )
-}
-
-/** Guardando, guardado o rechazado: lo que se eligió nunca vuelve a «—» sin decir por qué. */
-function SaveMark({ status }: Readonly<{ status?: SaveStatus }>) {
-  if (status === 'saving') {
-    return (
-      <span className="inline-flex text-gray-400">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-        <span className="sr-only">Guardando</span>
-      </span>
-    )
-  }
-  if (status === 'saved') {
-    return (
-      <span className="inline-flex text-emerald-700" title="Guardado">
-        <Check className="h-3.5 w-3.5" aria-hidden />
-        <span className="sr-only">Guardado</span>
-      </span>
-    )
-  }
-  if (status === 'error') {
-    return (
-      <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-red-700">
-        <AlertTriangle className="h-3 w-3" aria-hidden />
-        No se guardó
-      </span>
-    )
-  }
-  return null
-}
-
-const SELECT_CLASS = 'rounded border border-gray-300 bg-white px-1 py-0.5 text-sm'
-
-/**
- * Rendimiento general del alumno: lo elige la reunión, con la escala del nivel. El promedio de la
- * columna de al lado es una estadística para ayudar a decidirlo; nunca llena este casillero.
- */
-function PerformanceCell({
-  row,
-  scale,
-  editable,
-  status,
-  onChange,
-}: Readonly<{
-  row: MatrixRow
-  scale: GradeRange | null
-  editable: boolean
-  status?: SaveStatus
-  onChange: (value: number | null) => void
-}>) {
-  const value = row.performanceValueHundredths ?? null
-  if (!editable) return <span className="font-medium text-gray-900">{formatGrade(value)}</span>
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <select
-        aria-label={`Rendimiento de ${studentName(row)}`}
-        value={value == null ? '' : String(value)}
-        onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
-        className={`${SELECT_CLASS} font-medium`}
-      >
-        <option value="">—</option>
-        {gradeSelectOptions(scale, value).map((option) => (
-          <option key={option} value={String(option)}>
-            {formatGrade(option)}
-          </option>
-        ))}
-      </select>
-      <SaveMark status={status} />
-    </span>
-  )
-}
-
-function ConductCell({
-  row,
-  levels,
-  editable,
-  status,
-  onChange,
-}: Readonly<{
-  row: MatrixRow
-  levels: readonly ConductOption[]
-  editable: boolean
-  status?: SaveStatus
-  onChange: (value: number | null) => void
-}>) {
-  if (!editable) return <>{conductText(row.conductValueHundredths, levels)}</>
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <ConductSelect
-        aria-label={`Conducta de ${studentName(row)}`}
-        value={row.conductValueHundredths == null ? '' : String(row.conductValueHundredths)}
-        options={levels}
-        onChange={(value) => onChange(value === '' ? null : Number(value))}
-        className={SELECT_CLASS}
-      />
-      <SaveMark status={status} />
-    </span>
-  )
+  return `${subject} de ${studentName(row)}: ${value}. Ver detalle`
 }
 
 /** El juicio del alumno: si está escrito, y un atajo a escribirlo en «Juicios de la reunión». */
@@ -240,7 +118,6 @@ export type MatrixTableProps = {
   /** N.º de lista de cada alumno: no cambia al filtrar, para nombrarlo en la reunión. */
   numberOf: ReadonlyMap<string, number>
   projection: boolean
-  backTo: string
   canEdit: boolean
   judgements: JudgementState
   reportCard: boolean
@@ -249,6 +126,10 @@ export type MatrixTableProps = {
   onReportCard: (row: MatrixRow) => void
   onSave: (field: MeetingField, row: MatrixRow, value: number | null) => void
   onOpenJudgement: (studentId: string, edit: boolean) => void
+  /** Abre el panel del alumno; con una libreta, en esa materia. */
+  onOpenStudent: (studentId: string, gradeBookId: string | null) => void
+  /** El alumno del panel abierto: su fila queda marcada. */
+  activeStudentId?: string | null
 }
 
 export const saveKey = (field: MeetingField, studentId: string) => `${field}:${studentId}`
@@ -261,6 +142,7 @@ export const saveKey = (field: MeetingField, studentId: string) => `${field}:${s
 export default function MatrixTable(props: Readonly<MatrixTableProps>) {
   const { matrix, rows, projection } = props
   const conductLevels = matrix.conductLevels ?? []
+  const subjectNames = new Map(matrix.subjects.map((s) => [s.gradeBookId, s.name]))
   return (
     <ScrollRegion
       label="Matriz de calificaciones del grupo"
@@ -309,7 +191,7 @@ export default function MatrixTable(props: Readonly<MatrixTableProps>) {
             </tr>
           )}
           {rows.map((row) => (
-            <MatrixTableRow key={row.studentId} row={row} conductLevels={conductLevels} {...props} />
+            <MatrixTableRow key={row.studentId} row={row} conductLevels={conductLevels} subjectNames={subjectNames} {...props} />
           ))}
         </tbody>
       </table>
@@ -322,7 +204,7 @@ function MatrixTableRow({
   conductLevels,
   matrix,
   numberOf,
-  backTo,
+  subjectNames,
   canEdit,
   judgements,
   reportCard,
@@ -331,21 +213,30 @@ function MatrixTableRow({
   onReportCard,
   onSave,
   onOpenJudgement,
-}: Readonly<MatrixTableProps & { row: MatrixRow; conductLevels: readonly ConductOption[] }>) {
+  onOpenStudent,
+  activeStudentId,
+}: Readonly<
+  MatrixTableProps & { row: MatrixRow; conductLevels: readonly ConductOption[]; subjectNames: ReadonlyMap<string, string> }
+>) {
   const name = studentName(row)
   // La columna fija necesita un fondo sólido: con uno translúcido, las materias se leían por debajo.
-  const rowBg = row.atRisk ? 'bg-rose-50' : 'bg-white'
+  const active = activeStudentId === row.studentId
+  let rowBg = 'bg-white'
+  if (active) rowBg = 'bg-emerald-50'
+  else if (row.atRisk) rowBg = 'bg-rose-50'
   return (
-    <tr className={rowBg}>
+    <tr className={rowBg} aria-current={active ? 'true' : undefined}>
       <td className={`${BODY_CELL} sticky left-0 z-[5] ${rowBg}`}>
         <span className="inline-flex items-center gap-2">
           <span className="w-5 text-right text-xs tabular-nums text-gray-400">{numberOf.get(row.studentId)}</span>
-          <Link
-            href={`/libreta/estudiante/${row.studentId}?volver=${encodeURIComponent(backTo)}`}
+          <button
+            type="button"
+            onClick={() => onOpenStudent(row.studentId, null)}
+            aria-label={`Ver a ${name} en la reunión`}
             className="font-medium text-emerald-800 hover:underline"
           >
             {name}
-          </Link>
+          </button>
           {reportCard && (
             <button
               type="button"
@@ -366,14 +257,25 @@ function MatrixTableRow({
       </td>
       {row.cells.map((cell) => (
         <td key={cell.gradeBookId} className={BODY_CELL}>
-          <SubjectCell cell={cell} />
+          <button
+            type="button"
+            onClick={() => onOpenStudent(row.studentId, cell.gradeBookId)}
+            aria-label={cellLabel(subjectNames.get(cell.gradeBookId) ?? 'Materia', row, cell)}
+            className="rounded hover:ring-2 hover:ring-emerald-300 focus-visible:ring-2 focus-visible:ring-emerald-500"
+          >
+            <GradeBadge
+              valueHundredths={cell.pending ? null : cell.valueHundredths}
+              descriptor={cell.descriptor}
+              proposedValueHundredths={cell.proposedValueHundredths}
+            />
+          </button>
         </td>
       ))}
       <td className={`${BODY_CELL} border-l border-l-emerald-200 tabular-nums text-gray-700`}>
         {formatHundredths(row.averageHundredths, matrix.averageDecimals ?? 1)}
       </td>
       <td className={BODY_CELL}>
-        <PerformanceCell
+        <PerformanceInput
           row={row}
           scale={matrix.performanceScale ?? null}
           editable={canEdit}
@@ -382,7 +284,7 @@ function MatrixTableRow({
         />
       </td>
       <td className={`${BODY_CELL} text-gray-700`}>
-        <ConductCell
+        <ConductInput
           row={row}
           levels={conductLevels}
           editable={canEdit}

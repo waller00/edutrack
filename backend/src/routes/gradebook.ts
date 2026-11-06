@@ -295,7 +295,10 @@ r.get('/mine/summary', requirePermission('gradebook.read'), async (req: any, res
 
     const [owned, covered] = await Promise.all([
       prisma.gradeBook.findMany({
-        where: { schoolYearId, teacherUserId: userId, status: 'ACTIVE', courseOfferingId: { not: null } },
+        // `courseOfferingId` es obligatorio en GradeBook: un `{ not: null }` ahí lo rechaza Prisma al
+        // ejecutar (el tipo no lo admite, pero el backend compila sin `strictNullChecks`) y «Mi día»
+        // decía «No se pudo cargar tus libretas».
+        where: { schoolYearId, teacherUserId: userId, status: 'ACTIVE' },
         select: {
           id: true,
           schoolYearId: true,
@@ -317,7 +320,7 @@ r.get('/mine/summary', requirePermission('gradebook.read'), async (req: any, res
     const books = owned.map((book) => ({
       id: book.id,
       schoolYearId: book.schoolYearId,
-      courseOfferingId: book.courseOfferingId as string,
+      courseOfferingId: book.courseOfferingId,
       orientationId: book.orientationId,
       courseOrientationId: book.courseOrientationId,
       level: book.courseOffering?.course?.level ?? null,
@@ -360,7 +363,7 @@ r.get('/mine/indicators', requirePermission('gradebook.read'), async (req: any, 
     const schoolYearId = await resolveSchoolYearIdForList(prisma, { role: req.user?.role })
     if (!schoolYearId) return res.json({ data: [] })
     const owned = await prisma.gradeBook.findMany({
-      where: { schoolYearId, teacherUserId: userId, status: 'ACTIVE', courseOfferingId: { not: null } },
+      where: { schoolYearId, teacherUserId: userId, status: 'ACTIVE' },
       include: { courseOffering: { select: { course: { select: { level: true } } } } },
     })
     const cache = new Map<string, Promise<unknown>>()

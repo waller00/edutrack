@@ -6,6 +6,7 @@ import { requirePermission } from '../middlewares/auth.js'
 import { loadAbsenceTotals } from '../services/student-attendance/absence-totals.js'
 import { loadReportCards } from '../services/gradebook/report-card-loader.js'
 import { loadStudentFileExtras } from '../services/gradebook/student-file.js'
+import { loadGroupBooks, loadMeetingStudent } from '../services/gradebook/meeting-student.js'
 import { completionRequestBody, isStageComplete, stageDetail } from '../services/gradebook/completeness.js'
 import { conductOptions, conductScale, isConductValue, periodScaleFor } from '../services/gradebook/period-scale.js'
 import { loadPeriodCompleteness, type CompletenessGroup } from '../services/gradebook/completeness-loader.js'
@@ -180,23 +181,11 @@ r.get('/group-matrix', async (req: any, res) => {
       courseOrientationId: parsed.data.courseOrientationId ?? null,
     }
 
-    const offering = await prisma.courseOffering.findUnique({
-      where: { id: scope.courseOfferingId },
-      include: { course: true, schoolYear: true },
-    })
-    if (!offering) return res.status(404).json({ message: 'Grupo no encontrado' })
-
-    const allBooks = await prisma.gradeBook.findMany({
-      where: { schoolYearId: offering.schoolYearId, courseOfferingId: scope.courseOfferingId },
-      include: {
-        subject: { select: { id: true, name: true, sortOrder: true } },
-        teacher: { select: { id: true, name: true } },
-      },
-    })
-    // Las de la orientación MÁS las de tronco común: es la contracara del roster.
-    const books = gradeBooksForGroup(allBooks as never, scope).sort(
-      (a: any, b: any) => a.subject.sortOrder - b.subject.sortOrder || a.subject.name.localeCompare(b.subject.name, 'es'),
-    ) as any[]
+    // Las de la orientación MÁS las de tronco común: es la contracara del roster. El panel del
+    // alumno usa las mismas, en el mismo orden.
+    const group = await loadGroupBooks(scope)
+    if (!group) return res.status(404).json({ message: 'Grupo no encontrado' })
+    const { offering, books } = group
 
     const [students, states, scale, rules] = await Promise.all([
       loadRosterForScope({ schoolYearId: offering.schoolYearId, ...scope }),
@@ -294,6 +283,43 @@ r.get('/group-matrix', async (req: any, res) => {
     })
   } catch (error) {
     console.error('[admin-gradebook] group-matrix:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+const MEETING_STUDENT_ERRORS = {
+  GROUP_NOT_FOUND: 'Grupo no encontrado',
+  PERIOD_NOT_FOUND: 'La reunión no es del ciclo ni del nivel del grupo',
+  STUDENT_NOT_IN_GROUP: 'El estudiante no está en este grupo',
+} as const
+
+/**
+ * Panel del alumno en la reunión: cada materia con sus evaluaciones del período, C, juicio del
+ * docente, faltas a esa materia y la R de la reunión anterior, más sus faltas del liceo
+ * desglosadas. Cantidad fija de consultas (`loadMeetingStudent`).
+ */
+r.get('/group-matrix/students/:studentId', async (req: any, res) => {
+  const parsed = matrixQuerySchema.safeParse(req.query)
+  const studentId = z.string().uuid().safeParse(req.params.studentId)
+  if (!parsed.success || !studentId.success) {
+    return res.status(400).json({ message: 'Parámetros inválidos' })
+  }
+  try {
+    const result = await loadMeetingStudent({
+      scope: {
+        courseOfferingId: parsed.data.courseOfferingId,
+        orientationId: parsed.data.orientationId ?? null,
+        courseOrientationId: parsed.data.courseOrientationId ?? null,
+      },
+      periodId: parsed.data.periodId,
+      studentId: studentId.data,
+    })
+    if ('error' in result) {
+      return res.status(404).json({ message: MEETING_STUDENT_ERRORS[result.error], code: result.error })
+    }
+    return res.json(result.data)
+  } catch (error) {
+    console.error('[admin-gradebook] meeting student:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
@@ -419,6 +445,10 @@ r.get('/meeting-records', async (req: any, res) => {
       where.courseOrientationId = typeof req.query.courseOrientationId === 'string' ? req.query.courseOrientationId : null
     }
     if (typeof req.query.periodId === 'string') where.periodId = req.query.periodId
+    // Una reunión de un grupo trae todos sus juicios: con un tope, tras muchas correcciones el de
+    // algún alumno quedaba afuera y la pantalla decía «Sin juicio» aunque lo tuviera. El tope queda
+    // sólo para el listado sin grupo ni reunión.
+    const oneMeeting = Boolean(where.courseOfferingId && where.periodId)
 
     const records = await prisma.teacherMeetingRecord.findMany({
       where: where as never,
@@ -427,7 +457,7 @@ r.get('/meeting-records', async (req: any, res) => {
         createdBy: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
-      take: 200,
+      ...(oneMeeting ? {} : { take: 200 }),
     })
     return res.json({ data: records })
   } catch (error) {
@@ -449,6 +479,24 @@ r.post('/meeting-records', requirePermission('gradebook.review', 'all'), async (
     if (!offering) return res.status(404).json({ message: 'Grupo no encontrado' })
 
     const d = parsed.data
+    // Un juicio de otro ciclo o de un alumno que no es del grupo se guardaba igual y no aparecía en
+    // ningún lado: la reunión, el boletín y el cierre del docente lo buscan por grupo y período.
+    const [period, roster] = await Promise.all([
+      prisma.academicPeriod.findFirst({ where: { id: d.periodId, schoolYearId: offering.schoolYearId }, select: { id: true } }),
+      d.studentId
+        ? loadRosterForScope({
+            schoolYearId: offering.schoolYearId,
+            courseOfferingId: d.courseOfferingId,
+            orientationId: null,
+            courseOrientationId: d.courseOrientationId ?? null,
+          })
+        : Promise.resolve(null),
+    ])
+    if (!period) return res.status(404).json({ message: 'La reunión no es del ciclo del grupo', code: 'PERIOD_NOT_FOUND' })
+    if (roster && !roster.some((row) => row.studentId === d.studentId)) {
+      return res.status(404).json({ message: 'El estudiante no está en este grupo', code: 'STUDENT_NOT_IN_GROUP' })
+    }
+
     const created = await prisma.teacherMeetingRecord.create({
       data: {
         schoolYearId: offering.schoolYearId,

@@ -9,20 +9,15 @@ vi.mock('@/lib/api/download', () => ({ downloadFile: vi.fn().mockResolvedValue(u
 const { authState, nav, decisions } = vi.hoisted(() => ({
   authState: { me: null as unknown },
   nav: { replace: vi.fn(), search: '' },
-  /** Los juicios que «carga» la sección de abajo; `null`: no avisa nada. */
-  decisions: { judged: null as { studentIds: Set<string>; group: boolean } | null, focus: vi.fn() },
+  /** Lo que la matriz le pide a «Juicios de la reunión» (ir a un alumno). */
+  decisions: { focus: vi.fn() },
 }))
 vi.mock('./MeetingDecisions', async () => {
+  const actual = await vi.importActual<typeof import('./MeetingDecisions')>('./MeetingDecisions')
   const { useEffect } = await vi.importActual<typeof import('react')>('react')
   return {
-    default: function MeetingDecisionsMock(props: {
-      onJudgementsChange?: (state: { studentIds: Set<string>; group: boolean }) => void
-      focus?: unknown
-    }) {
-      const { onJudgementsChange, focus } = props
-      useEffect(() => {
-        if (decisions.judged) onJudgementsChange?.(decisions.judged)
-      }, [onJudgementsChange])
+    ...actual,
+    default: function MeetingDecisionsMock({ focus }: { focus?: unknown }) {
       useEffect(() => {
         if (focus) decisions.focus(focus)
       }, [focus])
@@ -82,15 +77,52 @@ function matrix(over: Record<string, unknown> = {}) {
   }
 }
 
-function respond(m = matrix()) {
+/** El detalle del alumno que trae el panel. */
+function studentDetail(studentId = 'st-1', lastName = 'Díaz', firstName = 'Ana') {
+  return {
+    student: { studentId, lastName, firstName },
+    period: { id: 'p-1', name: '1.er semestre' },
+    previousPeriod: null,
+    absences: { hundredths: 450, whole: 4, unjustified: 3, justified: 2, lates: 1 },
+    subjects: [
+      {
+        gradeBookId: 'gb-1',
+        subjectId: 'mat',
+        name: 'Matemática',
+        teacher: 'Ana G',
+        periodStatus: 'CLOSED',
+        valueHundredths: 800,
+        descriptor: null,
+        proposedValueHundredths: null,
+        conductValueHundredths: 900,
+        conceptualJudgement: 'Muy buen trabajo.',
+        previousValueHundredths: null,
+        assessments: [
+          { id: 'a1', title: 'Escrito 1', date: '2026-05-02', periodName: 'Tramo 1', scope: 'GROUP', valueHundredths: 700, isAbsent: false, levelLabel: null, comment: null, missing: false },
+        ],
+        attendance: { period: { absent: 1, justified: 0, late: 0, classes: 20 }, year: { absent: 2, justified: 0, late: 0, classes: 40 } },
+      },
+    ],
+  }
+}
+
+function respond(m = matrix(), records: unknown[] = []) {
   mockedApi.mockImplementation((path: string) => {
     const url = String(path)
     if (url.startsWith('/admin/gradebook/groups')) return Promise.resolve(GROUPS)
     if (url.startsWith('/admin/gradebook/periods')) return Promise.resolve(PERIODS)
+    if (url.startsWith('/admin/gradebook/meeting-records')) return Promise.resolve({ data: records })
+    const student = /group-matrix\/students\/([^?]+)/.exec(url)
+    if (student) {
+      const row = (m as any).students.find((r: any) => r.studentId === student[1])
+      return Promise.resolve(studentDetail(student[1], row?.lastName, row?.firstName))
+    }
     if (url.startsWith('/admin/gradebook/group-matrix')) return Promise.resolve(m)
     return Promise.resolve({ ok: true })
   })
 }
+
+const openButton = (name: string) => screen.getByRole('button', { name: `Ver a ${name} en la reunión` })
 
 async function openMatrix(periodId = 'p-1') {
   render(<GroupMatrix />)
@@ -104,17 +136,120 @@ describe('<GroupMatrix />', () => {
     vi.clearAllMocks()
     authState.me = grant('gradebook.read')
     nav.search = ''
-    decisions.judged = null
     respond()
   })
 
-  it('deja grupo y período en la URL, y la ficha vuelve a esta misma reunión', async () => {
+  it('deja grupo y período en la URL, y la ficha vuelve a esta misma reunión con el alumno abierto', async () => {
     await openMatrix()
-    const here = '/libreta/reunion?grupo=off-1%3A%3Aco-1&periodo=p-1'
+    await waitFor(() =>
+      expect(nav.replace).toHaveBeenLastCalledWith('/libreta/reunion?grupo=off-1%3A%3Aco-1&periodo=p-1', { scroll: false }),
+    )
+    fireEvent.click(openButton('Díaz, Ana'))
+    const panel = await screen.findByRole('dialog', { name: 'Díaz, Ana' })
+    const here = '/libreta/reunion?grupo=off-1%3A%3Aco-1&periodo=p-1&alumno=st-1'
     await waitFor(() => expect(nav.replace).toHaveBeenLastCalledWith(here, { scroll: false }))
-    expect(screen.getByRole('link', { name: 'Díaz, Ana' })).toHaveAttribute(
+    expect(within(panel).getByRole('link', { name: 'Ficha completa' })).toHaveAttribute(
       'href',
       `/libreta/estudiante/st-1?volver=${encodeURIComponent(here)}`,
+    )
+  })
+
+  it('tocar una nota abre el panel del alumno en esa materia, con su detalle', async () => {
+    await openMatrix()
+    fireEvent.click(screen.getByRole('button', { name: 'Matemática de Díaz, Ana: 8. Ver detalle' }))
+    const panel = await screen.findByRole('dialog', { name: 'Díaz, Ana' })
+    expect(await within(panel).findByText('Escrito 1')).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: /Matemática/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(within(panel).getByText('Muy buen trabajo.')).toBeInTheDocument()
+    expect(mockedApi).toHaveBeenCalledWith(
+      '/admin/gradebook/group-matrix/students/st-1?courseOfferingId=off-1&periodId=p-1&courseOrientationId=co-1',
+    )
+    await waitFor(() =>
+      expect(nav.replace).toHaveBeenLastCalledWith('/libreta/reunion?grupo=off-1%3A%3Aco-1&periodo=p-1&alumno=st-1&materia=gb-1', {
+        scroll: false,
+      }),
+    )
+  })
+
+  it('la URL con un alumno vuelve a abrir su panel', async () => {
+    nav.search = 'grupo=off-1%3A%3Aco-1&periodo=p-1&alumno=st-1&materia=gb-1'
+    render(<GroupMatrix />)
+    const panel = await screen.findByRole('dialog', { name: 'Díaz, Ana' })
+    expect(await within(panel).findByText('Escrito 1')).toBeInTheDocument()
+  })
+
+  it('desde el panel se decide el rendimiento y la tabla muestra lo mismo; se recorre la lista', async () => {
+    authState.me = grant('gradebook.read', 'gradebook.review')
+    const beto = { ...matrix().students[0], studentId: 'st-2', lastName: 'Sosa', firstName: 'Beto' }
+    respond(matrix({ students: [matrix().students[0], beto], performanceScale: { minValueHundredths: 100, maxValueHundredths: 1000 } }))
+    await openMatrix()
+    fireEvent.click(openButton('Díaz, Ana'))
+    const panel = await screen.findByRole('dialog', { name: 'Díaz, Ana' })
+    expect(within(panel).getByRole('button', { name: 'No hay anterior' })).toBeDisabled()
+
+    fireEvent.change(within(panel).getByLabelText('Rendimiento de Díaz, Ana'), { target: { value: '700' } })
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/meeting-performance', {
+        method: 'PUT',
+        body: JSON.stringify({ schoolYearId: 'sy-1', periodId: 'p-1', studentId: 'st-1', valueHundredths: 700 }),
+      }),
+    )
+    // La misma fila: la tabla de atrás dice lo mismo que el panel.
+    expect(screen.getAllByLabelText('Rendimiento de Díaz, Ana').map((el) => (el as HTMLSelectElement).value)).toEqual(['700', '700'])
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Siguiente: Sosa, Beto' }))
+    expect(await screen.findByRole('dialog', { name: 'Sosa, Beto' })).toBeInTheDocument()
+  })
+
+  it('el juicio que se escribe en el panel se guarda para ese alumno y la tabla lo muestra', async () => {
+    authState.me = grant('gradebook.read', 'gradebook.review')
+    const saved: unknown[] = []
+    respond()
+    const base = mockedApi.getMockImplementation()!
+    mockedApi.mockImplementation((path: string, init?: any) => {
+      if (String(path) === '/admin/gradebook/meeting-records' && init?.method === 'POST') {
+        saved.push(JSON.parse(init.body))
+        return Promise.resolve({ data: {} })
+      }
+      if (String(path).startsWith('/admin/gradebook/meeting-records')) {
+        return Promise.resolve({
+          data: saved.map((body: any, i) => ({
+            id: `r${i}`,
+            decision: body.decision,
+            createdAt: `2026-06-1${i}T12:00:00.000Z`,
+            student: body.studentId ? { id: body.studentId, firstName: 'Ana', lastName: 'Díaz' } : null,
+            createdBy: { id: 'u', name: 'Adscripción' },
+          })),
+        })
+      }
+      return base(path, init)
+    })
+    await openMatrix()
+    expect(await screen.findByRole('button', { name: 'Ir a escribir el juicio de Díaz, Ana' })).toBeInTheDocument()
+
+    fireEvent.click(openButton('Díaz, Ana'))
+    const panel = await screen.findByRole('dialog', { name: 'Díaz, Ana' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Escribir el juicio de Díaz, Ana' }))
+    fireEvent.change(within(panel).getByLabelText('Juicio de Díaz, Ana'), { target: { value: '  Valoramos su esfuerzo.  ' } })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Guardar' }))
+
+    // Se guarda una vez, para ella, en esta reunión y este grupo, con el texto limpio.
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(saved[0]).toEqual({ courseOfferingId: 'off-1', courseOrientationId: 'co-1', periodId: 'p-1', studentId: 'st-1', decision: 'Valoramos su esfuerzo.' })
+    expect(await within(panel).findByText('Valoramos su esfuerzo.')).toBeInTheDocument()
+    // La tabla de atrás y el resumen dicen lo mismo.
+    expect(screen.getByRole('button', { name: 'Ver el juicio de Díaz, Ana' })).toHaveTextContent('Escrito')
+    expect(within(screen.getByText('Juicios').parentElement!).getByText('1 de 1')).toBeInTheDocument()
+  })
+
+  it('Escape cierra el panel y lo saca de la URL', async () => {
+    await openMatrix()
+    fireEvent.click(openButton('Díaz, Ana'))
+    await screen.findByRole('dialog', { name: 'Díaz, Ana' })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() =>
+      expect(nav.replace).toHaveBeenLastCalledWith('/libreta/reunion?grupo=off-1%3A%3Aco-1&periodo=p-1', { scroll: false }),
     )
   })
 
@@ -155,8 +290,9 @@ describe('<GroupMatrix />', () => {
   it('cada fila dice si el alumno ya tiene juicio y lleva a escribirlo', async () => {
     authState.me = grant('gradebook.read', 'gradebook.review')
     const beto = { ...matrix().students[0], studentId: 'st-2', lastName: 'Sosa', firstName: 'Beto' }
-    respond(matrix({ students: [matrix().students[0], beto] }))
-    decisions.judged = { studentIds: new Set(['st-1']), group: false }
+    respond(matrix({ students: [matrix().students[0], beto] }), [
+      { id: 'j1', decision: 'Bien.', createdAt: '2026-06-10T12:00:00.000Z', student: { id: 'st-1', firstName: 'Ana', lastName: 'Díaz' }, createdBy: null },
+    ])
     await openMatrix()
 
     expect(await screen.findByRole('button', { name: 'Ver el juicio de Díaz, Ana' })).toHaveTextContent('Escrito')
@@ -169,8 +305,8 @@ describe('<GroupMatrix />', () => {
 
     // «Sin juicio» deja sólo a quien le falta.
     fireEvent.click(screen.getByRole('button', { name: 'Sin juicio (1)' }))
-    expect(screen.queryByRole('link', { name: 'Díaz, Ana' })).toBeNull()
-    expect(screen.getByRole('link', { name: 'Sosa, Beto' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ver a Díaz, Ana en la reunión' })).toBeNull()
+    expect(openButton('Sosa, Beto')).toBeInTheDocument()
   })
 
   it('«En alerta» deja a los alumnos marcados, con su número de lista', async () => {
@@ -179,8 +315,8 @@ describe('<GroupMatrix />', () => {
     await openMatrix()
 
     fireEvent.click(screen.getByRole('button', { name: 'En alerta (1)' }))
-    expect(screen.queryByRole('link', { name: 'Díaz, Ana' })).toBeNull()
-    const row = screen.getByRole('link', { name: 'Sosa, Beto' }).closest('tr')!
+    expect(screen.queryByRole('button', { name: 'Ver a Díaz, Ana en la reunión' })).toBeNull()
+    const row = openButton('Sosa, Beto').closest('tr')!
     expect(within(row).getByText('2')).toBeInTheDocument()
     expect(within(row).getByText('3 en alerta')).toBeInTheDocument()
   })

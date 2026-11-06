@@ -653,6 +653,28 @@ todavía no se habilita, está cerrado o reabierto, y si al alumno le falta comp
     («Rendimiento 7 · Conducta 8 · ▲ 3 en alerta»). Ahí se puede dejar sólo a quienes les falta.
   - Los datos de prueba (`seed-liceo-basico`) cargan el rendimiento de cada reunión ya hecha, a
     partir del promedio de las R: antes sólo cargaban la conducta y la columna salía vacía.
+  - **El panel del alumno** (`StudentMeetingPanel`, `GET /admin/gradebook/group-matrix/students/:id`):
+    tocar el nombre o una nota abre al costado al alumno en la reunión (la nota abre su materia
+    desplegada), y queda en la URL (`?alumno=&materia=`): volver de la ficha lo reabre.
+    - **Decide la reunión:** rendimiento (con el promedio de referencia), conducta y juicio, con el
+      mismo estado que la tabla y «Juicios de la reunión» (`useMeetingRecords`).
+    - **Faltas del liceo** del ciclo hasta hoy, con el desglose por día del boletín: sin justificar,
+      justificadas, llegadas tarde y lo que dice el boletín (las fictas para abajo).
+    - **Cada materia:** la R con su tramo, si subió o bajó respecto de la reunión de boletín
+      anterior («↓ bajó 5 → 3»), y las faltas a esa materia. Desplegada: las evaluaciones de los
+      tramos que informa (con «No rindió» y «Sin nota»), la C, el juicio del docente y las faltas
+      a la materia en esta reunión y en el año. Esas cuentan cada clase una vez: no son las del
+      boletín.
+    - «Anterior / Siguiente» recorre la lista que deja el filtro; si el alumno salió del filtro (se
+      le puso el rendimiento con «Sin rendimiento»), sigue desde su lugar.
+    - Sólo `gradebook.read` `all` (no el docente), y una cantidad fija de consultas por alumno sin
+      importar cuántas materias tenga el grupo.
+    - Un juicio a medio escribir no se pierde: «Anterior», «Siguiente», Escape o cerrar preguntan
+      antes. Guardar un juicio no borra lo que se está escribiendo para otro alumno.
+  - **Los juicios se guardan en su reunión y su grupo:** el sistema rechaza un período de otro
+    ciclo o un alumno que no es del grupo, y una reunión trae todos sus juicios, por más
+    correcciones que tengan. El juicio general del grupo nunca va al boletín ni al «Juicio Reu.»
+    del docente.
 - **Juicios de la reunión:** dos, que no se mezclan. El **general del grupo** (de su orientación)
   queda en la reunión y no se imprime. El **de cada alumno** se escribe alumno por alumno en la
   lista de la reunión, va a su boletín como «Informe reunión» y el docente lo ve en su cierre como

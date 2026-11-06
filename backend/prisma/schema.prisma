@@ -2162,9 +2162,10 @@ model TeacherMeetingRecord {
   courseOrientation   CourseOrientation? @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
   periodId            String
   period              AcademicPeriod     @relation(fields: [periodId], references: [id], onDelete: Restrict)
-  /// Estudiante al que refiere; nulo si la decisión es sobre el grupo.
+  /// Estudiante al que refiere; nulo si la decisión es sobre el grupo. Al borrar al alumno se borra
+  /// su juicio: con `SetNull` quedaba con la forma del juicio general del grupo y lo reemplazaba.
   studentId           String?
-  student             Student?           @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  student             Student?           @relation(fields: [studentId], references: [id], onDelete: Cascade)
   decision            String             @db.Text
   createdByUserId     String?
   createdBy           User?              @relation("TeacherMeetingRecordCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)

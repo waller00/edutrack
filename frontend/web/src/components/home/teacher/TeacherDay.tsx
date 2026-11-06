@@ -44,7 +44,7 @@ function Waiting({ state, what }: Readonly<{ state: IndicatorData<unknown>; what
   if (state.error) {
     return (
       <p role="alert" className="text-sm text-red-800">
-        No se pudo cargar {what}.{' '}
+        No se pudieron cargar {what}.{' '}
         <button type="button" onClick={state.retry} className="font-semibold underline">
           Reintentar
         </button>

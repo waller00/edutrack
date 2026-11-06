@@ -3,6 +3,7 @@ import request from 'supertest'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import { signAccessToken } from '../test-utils/bearer-token.js'
+import { expectValidWhere } from '../test-utils/prisma-where.js'
 
 const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMock, loadReportMock, dayOccurrenceMock, findSessionMock, saveRollCallMock } = vi.hoisted(() => ({
   prismaMock: {
@@ -192,6 +193,9 @@ describe('GET /gradebook/mine/summary', () => {
 
     expect(res.status).toBe(200)
     expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where).toMatchObject({ teacherUserId: 'teacher-1', status: 'ACTIVE' })
+    // Un filtro que Prisma rechaza al ejecutar (`{ not: null }` sobre un campo obligatorio) dejaba
+    // «Mi día» en «No se pudo cargar tus libretas»; el mock no lo veía.
+    for (const [args] of prismaMock.gradeBook.findMany.mock.calls) expectValidWhere('GradeBook', args.where)
     expect(res.body.data).toHaveLength(1)
     expect(res.body.data[0]).toMatchObject({ gradeBookId: GB_ID, role: 'OWNER', students: [{ studentId: STUDENT_A, lastName: 'Benítez' }] })
     expect(res.body.data[0].meetings[0].missing.map((b: any) => b.code)).toContain('MISSING_GRADES')
@@ -2958,6 +2962,7 @@ describe('seguimiento del grupo', () => {
     const res = await request(app()).get('/gradebook/mine/indicators').set('Authorization', `Bearer ${tok()}`)
     expect(res.status).toBe(200)
     expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where).toMatchObject({ teacherUserId: 'teacher-1', status: 'ACTIVE' })
+    for (const [args] of prismaMock.gradeBook.findMany.mock.calls) expectValidWhere('GradeBook', args.where)
     expect(res.body.data[0]).toMatchObject({ gradeBookId: GB_ID, attendance: { absent: 1 } })
     expect(res.body.data[0].attendance.students).toBeUndefined()
     expect(res.body.data[0].grades.students).toBeUndefined()

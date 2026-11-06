@@ -15,13 +15,16 @@ import {
   meetingFilters,
   meetingTally,
   saveErrorText,
-  type JudgementState,
   type MeetingField,
   type MeetingFilter,
 } from '@/lib/gradebook/meeting-board'
+import { neighbors } from '@/lib/gradebook/meeting-student'
 import MeetingDecisions, { type JudgementFocus } from './MeetingDecisions'
 import MeetingSummary from './meeting/MeetingSummary'
 import MatrixTable, { saveKey } from './meeting/MatrixTable'
+import StudentMeetingPanel from './meeting/StudentMeetingPanel'
+import { useMeetingRecords } from './meeting/useMeetingRecords'
+import { useMeetingStudent } from './meeting/useMeetingStudent'
 import type { Matrix, MatrixRow, SaveStatus } from './meeting/types'
 
 export { conductText } from '@/components/gradebook/ConductSelect'
@@ -63,11 +66,19 @@ export function reportCardsPath(group: Group, periodId: string): string {
   return `/admin/gradebook/report-cards?${params}`
 }
 
-/** La reunión con su grupo y período en la URL: se puede volver, recargar o compartir el enlace. */
-export function meetingUrl(pathname: string, group: Group | null, periodId: string): string {
+/** El alumno del panel abierto y, si se tocó una nota, su materia. */
+export type OpenStudent = { studentId: string; gradeBookId: string | null }
+
+/**
+ * La reunión con su grupo, período y el panel del alumno abierto en la URL: se puede volver de la
+ * ficha, recargar o compartir el enlace y queda donde estaba.
+ */
+export function meetingUrl(pathname: string, group: Group | null, periodId: string, open: OpenStudent | null = null): string {
   const params = new URLSearchParams()
   if (group) params.set('grupo', groupKey(group))
   if (periodId) params.set('periodo', periodId)
+  if (open) params.set('alumno', open.studentId)
+  if (open?.gradeBookId) params.set('materia', open.gradeBookId)
   const qs = params.toString()
   return qs ? `${pathname}?${qs}` : pathname
 }
@@ -191,7 +202,12 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
   const router = useRouter()
   const pathname = usePathname() ?? '/libreta/reunion'
   const searchParams = useSearchParams()
-  const fromUrl = useRef({ grupo: searchParams?.get('grupo') ?? '', periodo: searchParams?.get('periodo') ?? '' })
+  const fromUrl = useRef({
+    grupo: searchParams?.get('grupo') ?? '',
+    periodo: searchParams?.get('periodo') ?? '',
+    alumno: searchParams?.get('alumno') ?? '',
+    materia: searchParams?.get('materia') ?? '',
+  })
   const auth = useOptionalAuth()
   const canExport = hasPermission(auth?.me, 'gradebook.export')
   const canEdit = hasPermission(auth?.me, 'gradebook.review', 'all')
@@ -208,8 +224,15 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
   const [error, setError] = useState<string | null>(null)
   const [saves, setSaves] = useState<Record<string, SaveStatus>>({})
   const [filter, setFilter] = useState<MeetingFilter>('all')
-  const [judgements, setJudgements] = useState<JudgementState>(null)
   const [focus, setFocus] = useState<JudgementFocus | null>(null)
+  const [openStudent, setOpenStudent] = useState<OpenStudent | null>(null)
+  const meetingScope = useMemo(
+    () => (group && periodId ? { courseOfferingId: group.courseOfferingId, courseOrientationId: group.courseOrientationId, periodId } : null),
+    [group, periodId],
+  )
+  const records = useMeetingRecords(meetingScope)
+  const judgements = records.judgements
+  const { detail, retry } = useMeetingStudent(meetingScope, openStudent?.studentId ?? null)
 
   useEffect(() => {
     ;(async () => {
@@ -236,7 +259,6 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
     if (!group || !periodId) return
     setError(null)
     setSaves({})
-    setJudgements(null)
     setMatrixLoading(true)
     try {
       const params = new URLSearchParams({ courseOfferingId: group.courseOfferingId, periodId })
@@ -253,7 +275,17 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
     void loadMatrix()
   }, [loadMatrix])
 
-  const here = meetingUrl(pathname, group, periodId)
+  // El panel que venía en la URL (al volver de la ficha) se abre cuando llega la matriz.
+  useEffect(() => {
+    const alumno = fromUrl.current.alumno
+    if (!matrix || !alumno) return
+    fromUrl.current.alumno = ''
+    if (matrix.students.some((row) => row.studentId === alumno)) {
+      setOpenStudent({ studentId: alumno, gradeBookId: fromUrl.current.materia || null })
+    }
+  }, [matrix])
+
+  const here = meetingUrl(pathname, group, periodId, openStudent)
   const currentQuery = searchParams?.toString() ?? ''
   useEffect(() => {
     if (loading) return
@@ -274,13 +306,20 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
     () => new Map((matrix?.students ?? []).map((row, index) => [row.studentId, index + 1])),
     [matrix],
   )
-  const onJudgementsChange = useCallback((state: { studentIds: Set<string>; group: boolean }) => setJudgements(state), [])
+  const visibleRows = useMemo(
+    () => (matrix ? filterMeetingRows(matrix.students, filter, judgements) : []),
+    [matrix, filter, judgements],
+  )
+  const openRow = matrix?.students.find((row) => row.studentId === openStudent?.studentId) ?? null
+  const around = openRow && matrix ? neighbors(visibleRows, matrix.students, openRow.studentId) : { previous: null, next: null }
+  const closePanel = useCallback(() => setOpenStudent(null), [])
 
   function selectGroup(next: Group | null) {
     setGroup(next)
     setMatrix(null)
     setFilter('all')
     setFocus(null)
+    setOpenStudent(null)
     const current = periods.find((p) => p.id === periodId)
     if (next?.level && current?.level && current.level !== next.level) setPeriodId('')
   }
@@ -290,6 +329,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
     setMatrix(null)
     setFilter('all')
     setFocus(null)
+    setOpenStudent(null)
   }
 
   async function download(key: string, path: string, fallbackName: string) {
@@ -401,10 +441,9 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
               <FilterBar options={meetingFilters(tally)} value={filter} onChange={setFilter} />
               <MatrixTable
                 matrix={matrix}
-                rows={filterMeetingRows(matrix.students, filter, judgements)}
+                rows={visibleRows}
                 numberOf={numberOf}
                 projection={projection}
-                backTo={here}
                 canEdit={canEdit}
                 judgements={judgements}
                 reportCard={offersReportCards}
@@ -415,20 +454,36 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                 }
                 onSave={(field, row, value) => void saveField(field, row, value)}
                 onOpenJudgement={openJudgement}
+                onOpenStudent={(studentId, gradeBookId) => setOpenStudent({ studentId, gradeBookId })}
+                activeStudentId={openStudent?.studentId ?? null}
               />
               <MatrixLegend matrix={matrix} />
             </>
           )}
 
           {/* Juicio de reunión: se carga acá (no en la ficha del alumno ni en el cierre del docente). */}
-          {group && periodId && (
-            <MeetingDecisions
-              courseOfferingId={group.courseOfferingId}
-              courseOrientationId={group.courseOrientationId}
-              periodId={periodId}
-              students={matrix.students}
-              onJudgementsChange={onJudgementsChange}
-              focus={focus}
+          {group && periodId && <MeetingDecisions records={records} students={matrix.students} focus={focus} />}
+
+          {group && (
+            <StudentMeetingPanel
+              open={openStudent !== null}
+              row={openRow}
+              number={openRow ? numberOf.get(openRow.studentId) : undefined}
+              detail={detail}
+              onRetry={retry}
+              focusGradeBookId={openStudent?.gradeBookId ?? null}
+              previous={around.previous}
+              next={around.next}
+              onNavigate={(studentId) => setOpenStudent((prev) => ({ studentId, gradeBookId: prev?.gradeBookId ?? null }))}
+              onClose={closePanel}
+              matrix={matrix}
+              canEdit={canEdit}
+              saves={saves}
+              onSave={(field, row, value) => void saveField(field, row, value)}
+              records={records}
+              fichaHref={openRow ? `/libreta/estudiante/${openRow.studentId}?volver=${encodeURIComponent(here)}` : ''}
+              projection={projection}
+              groupLabel={groupLabel(group)}
             />
           )}
         </>

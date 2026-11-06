@@ -11,8 +11,9 @@ export default function Page() {
       <main className="responsive-page max-w-[1800px] space-y-4">
         <ModuleHeader id="teachers-meeting">
           <p className="text-sm text-gray-600">
-            Rendimiento y conducta se eligen en la matriz; el <strong>juicio de cada alumno</strong> y el general del
-            grupo, más abajo en «Juicios de la reunión» («Escribir» en la fila lleva directo).
+            Tocá un alumno o una nota para abrir su <strong>panel</strong>: cada materia con su detalle, sus faltas y lo
+            que decide la reunión (rendimiento, conducta y juicio). También se decide en la tabla y en «Juicios de la
+            reunión».
           </p>
         </ModuleHeader>
         {/* GroupMatrix guarda grupo y período en la URL: useSearchParams necesita un Suspense para prerenderizar. */}

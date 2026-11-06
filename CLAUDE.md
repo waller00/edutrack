@@ -457,6 +457,23 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > Visado, `gradebook.read`. Las filas las pide la pantalla, no cada paso: de ahí salen los contadores.
 > `/libreta/visado` sólo redirige (`?paso=visado`).
 
+> **El panel del alumno en la reunión** (`/libreta/reunion`, `StudentMeetingPanel`) sale de
+> `GET /admin/gradebook/group-matrix/students/:id` (`services/gradebook/meeting-student.ts`): sólo
+> `gradebook.read` `all`, las mismas libretas que la matriz (`loadGroupBooks`) y una cantidad fija
+> de consultas (las faltas a cada materia salen de **una** lectura de las marcas del alumno). Esas
+> faltas cuentan cada clase una vez y nunca son la falta oficial. Lo que decide la reunión
+> (rendimiento, conducta, juicio) no viene ahí: es el mismo estado de la tabla (`saveField`) y de
+> `useMeetingRecords`, así el panel, la tabla y «Juicios de la reunión» dicen lo mismo.
+
+> **Los juicios de la reunión** (`TeacherMeetingRecord`): guardar uno crea otro y el vigente es el
+> más reciente. `GET /admin/gradebook/meeting-records` de una reunión trae **todos** (con el tope de
+> 200, tras muchas correcciones el de algún alumno quedaba afuera y se veía «Sin juicio»), y el
+> `POST` exige que la reunión sea del ciclo del grupo y el alumno de ese grupo (si no, se guardaba un
+> juicio que no aparecía en ningún lado). Al borrar al alumno se borra su juicio (`Cascade`): con
+> `SetNull` quedaba con la forma del juicio general del grupo. En pantalla, guardar relee sin
+> «cargando» (antes se perdía lo que se escribía para otro alumno) y el panel pregunta antes de
+> salir con un juicio sin guardar.
+
 > **Se visa dentro de la libreta, después de mirarla.** El paso Visado de Control es una bandeja
 > (estado en palabras, `reviewState`) con "Revisar", que abre `/libreta/:id/visado?reunion=`:
 > arriba lo que cerró el docente (`CierreGrupoTable` con `readOnly`) y abajo la decisión
