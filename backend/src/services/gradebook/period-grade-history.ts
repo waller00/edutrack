@@ -83,6 +83,8 @@ export async function writePeriodGrades(
     rows: readonly PeriodGradeWrite[]
     actorUserId: string | null
     origin: GradeRevisionOrigin
+    /** Motivo de una corrección de administración: queda en la revisión. */
+    reason?: string | null
   },
 ): Promise<number> {
   const existing = await tx.periodGrade.findMany({
@@ -123,6 +125,7 @@ export async function writePeriodGrades(
         studentId: student.studentId,
         origin: params.origin,
         changedByUserId: params.actorUserId,
+        reason: params.reason ?? null,
         ...revision,
       },
     })

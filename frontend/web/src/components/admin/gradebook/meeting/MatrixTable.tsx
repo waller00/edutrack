@@ -2,12 +2,11 @@
 
 import { Check, FileText, Loader2, PenLine } from 'lucide-react'
 import ScrollRegion from '@/components/common/ScrollRegion'
-import type { ConductOption } from '@/components/gradebook/ConductSelect'
 import { formatHundredths } from '@/lib/academic-config/grade-value'
-import { studentName, subjectStatus, type JudgementState, type MeetingField } from '@/lib/gradebook/meeting-board'
+import { studentName, subjectStatus, type JudgementState } from '@/lib/gradebook/meeting-board'
 import { formatAbsenceUnits } from '@/lib/libreta/absences'
-import { ConductInput, GradeBadge, PerformanceInput } from './cells'
-import type { Matrix, MatrixCellData, MatrixRow, MatrixSubject, SaveStatus } from './types'
+import { GradeBadge } from './cells'
+import type { Matrix, MatrixCellData, MatrixRow, MatrixSubject } from './types'
 
 /** Encabezado fijo al desplazar la tabla; cada uso pone su capa (`z-10`, o `z-20` en la esquina). */
 const HEAD_CELL = 'sticky top-0 border-b border-gray-200 bg-white px-2 py-2 text-left align-bottom'
@@ -122,17 +121,13 @@ export type MatrixTableProps = {
   judgements: JudgementState
   reportCard: boolean
   downloading: string | null
-  saves: Readonly<Record<string, SaveStatus>>
   onReportCard: (row: MatrixRow) => void
-  onSave: (field: MeetingField, row: MatrixRow, value: number | null) => void
   onOpenJudgement: (studentId: string, edit: boolean) => void
   /** Abre el panel del alumno; con una libreta, en esa materia. */
   onOpenStudent: (studentId: string, gradeBookId: string | null) => void
   /** El alumno del panel abierto: su fila queda marcada. */
   activeStudentId?: string | null
 }
-
-export const saveKey = (field: MeetingField, studentId: string) => `${field}:${studentId}`
 
 /**
  * La matriz de la reunión: las R de cada materia (con el estado de cada libreta en el
@@ -141,7 +136,6 @@ export const saveKey = (field: MeetingField, studentId: string) => `${field}:${s
  */
 export default function MatrixTable(props: Readonly<MatrixTableProps>) {
   const { matrix, rows, projection } = props
-  const conductLevels = matrix.conductLevels ?? []
   const subjectNames = new Map(matrix.subjects.map((s) => [s.gradeBookId, s.name]))
   return (
     <ScrollRegion
@@ -168,9 +162,7 @@ export default function MatrixTable(props: Readonly<MatrixTableProps>) {
               </th>
             ))}
             <MeetingHeader label="Promedio" hint="referencia" />
-            <MeetingHeader label="Rendimiento" hint="lo decide la reunión" tour="reunion.performance" />
-            <MeetingHeader label="Conducta" hint="adscripción" />
-            <MeetingHeader label="Juicio" hint="va al boletín" />
+            <MeetingHeader label="Juicio" hint="lo decide la reunión" />
             <th scope="col" className={`${HEAD_CELL} z-10 whitespace-nowrap`}>
               <span className="flex flex-col gap-0.5">
                 <span className="text-xs font-semibold text-gray-800">Faltas</span>
@@ -185,13 +177,13 @@ export default function MatrixTable(props: Readonly<MatrixTableProps>) {
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={matrix.subjects.length + 7} className="px-3 py-6 text-center text-sm text-gray-500">
+              <td colSpan={matrix.subjects.length + 5} className="px-3 py-6 text-center text-sm text-gray-500">
                 Nadie en este filtro.
               </td>
             </tr>
           )}
           {rows.map((row) => (
-            <MatrixTableRow key={row.studentId} row={row} conductLevels={conductLevels} subjectNames={subjectNames} {...props} />
+            <MatrixTableRow key={row.studentId} row={row} subjectNames={subjectNames} {...props} />
           ))}
         </tbody>
       </table>
@@ -201,7 +193,6 @@ export default function MatrixTable(props: Readonly<MatrixTableProps>) {
 
 function MatrixTableRow({
   row,
-  conductLevels,
   matrix,
   numberOf,
   subjectNames,
@@ -209,14 +200,12 @@ function MatrixTableRow({
   judgements,
   reportCard,
   downloading,
-  saves,
   onReportCard,
-  onSave,
   onOpenJudgement,
   onOpenStudent,
   activeStudentId,
 }: Readonly<
-  MatrixTableProps & { row: MatrixRow; conductLevels: readonly ConductOption[]; subjectNames: ReadonlyMap<string, string> }
+  MatrixTableProps & { row: MatrixRow; subjectNames: ReadonlyMap<string, string> }
 >) {
   const name = studentName(row)
   // La columna fija necesita un fondo sólido: con uno translúcido, las materias se leían por debajo.
@@ -273,24 +262,6 @@ function MatrixTableRow({
       ))}
       <td className={`${BODY_CELL} border-l border-l-emerald-200 tabular-nums text-gray-700`}>
         {formatHundredths(row.averageHundredths, matrix.averageDecimals ?? 1)}
-      </td>
-      <td className={BODY_CELL}>
-        <PerformanceInput
-          row={row}
-          scale={matrix.performanceScale ?? null}
-          editable={canEdit}
-          status={saves[saveKey('performance', row.studentId)]}
-          onChange={(value) => onSave('performance', row, value)}
-        />
-      </td>
-      <td className={`${BODY_CELL} text-gray-700`}>
-        <ConductInput
-          row={row}
-          levels={conductLevels}
-          editable={canEdit}
-          status={saves[saveKey('conduct', row.studentId)]}
-          onChange={(value) => onSave('conduct', row, value)}
-        />
       </td>
       <td className={`${BODY_CELL} border-r border-r-emerald-200`}>
         <JudgementCell row={row} judgements={judgements} canWrite={canEdit} onOpen={onOpenJudgement} />

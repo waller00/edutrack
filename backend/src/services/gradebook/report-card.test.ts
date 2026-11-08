@@ -13,7 +13,7 @@ describe('buildReportCard', () => {
     group: { courseName: '7.º', orientationName: null, schoolYearLabel: '2026' },
     period: { name: '3.ª Entrega', columnLabel: 'Ago-Set', judgementLabel: 'Informe de actuación' },
     subjects: [],
-    meeting: { conductValueHundredths: null, performanceValueHundredths: null, judgement: null },
+    meeting: { judgement: null },
   }
 
   it('el total de faltas redondea para abajo: 2 injustificadas y 1 justificada son 2', () => {

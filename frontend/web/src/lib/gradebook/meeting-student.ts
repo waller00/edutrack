@@ -5,15 +5,27 @@
  */
 
 import { formatAbsenceUnits } from '@/lib/libreta/absences'
-import { formatGrade } from './grade-scale'
+import { formatGrade, gradeChoices, gradeSelectOptions, type GradeRange } from './grade-scale'
 import { hasRollCalls, markCountParts, type MarkCounts } from './subject-attendance'
+
+/** La escala de una evaluación: la corrección ofrece sus opciones (números o tramos). */
+export type AssessmentScale = {
+  kind: 'NUMERIC' | 'ORDINAL'
+  minValueHundredths: number | null
+  maxValueHundredths: number | null
+  levels: Array<{ id: string; label: string }>
+}
 
 export type MeetingStudentAssessment = {
   id: string
   title: string
   /** Día civil, `YYYY-MM-DD`. */
   date: string
+  /** El tramo de la evaluación: el panel las agrupa por tramo. */
+  periodId?: string
   periodName: string
+  scale?: AssessmentScale | null
+  scaleLevelId?: string | null
   scope: string
   valueHundredths: number | null
   isAbsent: boolean
@@ -59,6 +71,11 @@ export type MeetingStudentAbsences = {
 export type MeetingStudent = {
   student: { studentId: string; lastName: string; firstName: string }
   period: { id: string; name: string }
+  /** Rango de la R (la escala del nivel) y opciones de la C: lo que ofrece la corrección. */
+  periodScale?: GradeRange | null
+  conductOptions?: Array<{ valueHundredths: number; label: string }>
+  /** Administración: corrige desde el panel, aunque la libreta esté cerrada. */
+  canCorrect?: boolean
   previousPeriod: { id: string; name: string } | null
   absences: MeetingStudentAbsences
   subjects: MeetingStudentSubject[]
@@ -138,9 +155,9 @@ export function schoolAbsenceSummary(absences: MeetingStudentAbsences): SchoolAb
 }
 
 /**
- * El anterior y el siguiente en la lista que deja el filtro. Si el alumno ya no está en ella
- * (se le puso el rendimiento con «Sin rendimiento» elegido), se sigue desde su lugar en la lista
- * completa: la reunión no vuelve al principio.
+ * El anterior y el siguiente en la lista que deja el filtro. Si el alumno ya no está en ella (se le
+ * escribió el juicio con «Sin juicio» elegido), se sigue desde su lugar en la lista completa: la
+ * reunión no vuelve al principio.
  */
 export function neighbors<T extends { studentId: string }>(
   visible: readonly T[],
@@ -162,4 +179,111 @@ export function subjectCounts(subjects: readonly MeetingStudentSubject[]): { ale
     pending: subjects.filter((s) => s.valueHundredths == null).length,
     declined: subjects.filter((s) => gradeChange(s.previousValueHundredths, s.valueHundredths)?.direction === 'down').length,
   }
+}
+
+export type TramoGroup = { periodId: string; periodName: string; assessments: MeetingStudentAssessment[] }
+
+/**
+ * Las evaluaciones del período agrupadas por tramo, en el orden en que llegan (por fecha): así se
+ * leen las notas de cada tramo que informa la reunión.
+ */
+export function assessmentsByTramo(assessments: readonly MeetingStudentAssessment[]): TramoGroup[] {
+  const groups: TramoGroup[] = []
+  for (const assessment of assessments) {
+    const key = assessment.periodId ?? assessment.periodName
+    let group = groups.find((g) => g.periodId === key)
+    if (!group) {
+      group = { periodId: key, periodName: assessment.periodName, assessments: [] }
+      groups.push(group)
+    }
+    group.assessments.push(assessment)
+  }
+  return groups
+}
+
+export type Choice = { value: string; label: string }
+
+/**
+ * Las opciones para corregir una nota: los números de la escala (con la nota actual aunque tenga
+ * decimales, para que tocar el selector no la borre) o los tramos de una escala sin números.
+ */
+export function assessmentChoices(scale: AssessmentScale | null | undefined, current: number | null): Choice[] {
+  if (scale?.kind === 'ORDINAL') return scale.levels.map((level) => ({ value: level.id, label: level.label }))
+  const range = scale ? { minValueHundredths: scale.minValueHundredths, maxValueHundredths: scale.maxValueHundredths } : null
+  return gradeSelectOptions(range, current).map((v) => ({ value: String(v), label: formatGrade(v) }))
+}
+
+/** Las notas enteras de la escala del nivel, para corregir la R. */
+export function performanceChoices(scale: GradeRange | null | undefined): Choice[] {
+  return gradeChoices(scale).map((v) => ({ value: String(v), label: formatGrade(v) }))
+}
+
+/** El motivo es obligatorio: queda en la revisión, en la auditoría y en el aviso al docente. */
+export function correctionReasonError(reason: string): string | null {
+  return reason.trim().length >= 3 ? null : 'Escribí el motivo de la corrección.'
+}
+
+export type CorrectionTarget =
+  | { kind: 'assessment'; gradeBookId: string; studentId: string; assessment: MeetingStudentAssessment }
+  | { kind: 'performance' | 'conduct'; gradeBookId: string; periodId: string; studentId: string; current: number | null }
+  | { kind: 'judgement'; gradeBookId: string; periodId: string; studentId: string; current: string | null }
+
+export type CorrectionValues = {
+  /** Valor elegido: centésimos, el id de un tramo, o `''` para dejarla sin nota. */
+  value: string
+  isAbsent: boolean
+  comment: string
+  /** El juicio del docente. */
+  text: string
+  reason: string
+}
+
+/** Qué se le manda al sistema para cada corrección. */
+export function correctionRequest(target: CorrectionTarget, values: CorrectionValues): { path: string; body: Record<string, unknown> } {
+  const base = `/admin/gradebook/corrections/gradebooks/${target.gradeBookId}`
+  const reason = values.reason.trim()
+  if (target.kind === 'assessment') {
+    const ordinal = target.assessment.scale?.kind === 'ORDINAL'
+    const chosen = values.value === '' ? null : values.value
+    return {
+      path: `${base}/assessments/${target.assessment.id}/students/${target.studentId}`,
+      body: {
+        valueHundredths: ordinal || chosen == null ? null : Number(chosen),
+        scaleLevelId: ordinal ? chosen : null,
+        isAbsent: values.isAbsent,
+        comment: values.comment.trim() || null,
+        reason,
+      },
+    }
+  }
+  const path = `${base}/periods/${target.periodId}/students/${target.studentId}`
+  if (target.kind === 'judgement') return { path, body: { conceptualJudgement: values.text.trim() || null, reason } }
+  const number = values.value === '' ? null : Number(values.value)
+  return { path, body: { [target.kind === 'performance' ? 'meetingValueHundredths' : 'conductValueHundredths']: number, reason } }
+}
+
+/** Lo que dice la corrección arriba del formulario: qué se corrige. */
+export function correctionTitle(target: CorrectionTarget): string {
+  switch (target.kind) {
+    case 'assessment':
+      return `Corregir la nota de «${target.assessment.title}»`
+    case 'performance':
+      return 'Corregir la R'
+    case 'conduct':
+      return 'Corregir la C'
+    default:
+      return 'Corregir el juicio del docente'
+  }
+}
+
+/** Con qué arranca el formulario: lo que hay cargado. */
+export function initialCorrection(target: CorrectionTarget): CorrectionValues {
+  const empty = { value: '', isAbsent: false, comment: '', text: '', reason: '' }
+  if (target.kind === 'assessment') {
+    const a = target.assessment
+    const value = a.scale?.kind === 'ORDINAL' ? a.scaleLevelId ?? '' : a.valueHundredths == null ? '' : String(a.valueHundredths)
+    return { ...empty, value, isAbsent: a.isAbsent, comment: a.comment ?? '' }
+  }
+  if (target.kind === 'judgement') return { ...empty, text: target.current ?? '' }
+  return { ...empty, value: target.current == null ? '' : String(target.current) }
 }

@@ -30,12 +30,11 @@ export type ReportCardSubject = {
 
 /** Las del año hasta `untilYmd` (fin del período que informa); `null`, todo el ciclo. */
 /**
- * Conducta institucional y rendimiento general (`StudentConductRecord`) y el juicio del alumno.
- * El juicio general del grupo **no** va: es de la reunión, no de la familia.
+ * Lo que la reunión decide sobre el alumno: **sólo su juicio**. La reunión no pone conducta ni
+ * rendimiento propios (C y R son de cada materia). El juicio general del grupo **no** va: es de la
+ * reunión, no de la familia.
  */
 export type ReportCardMeeting = {
-  conductValueHundredths: number | null
-  performanceValueHundredths: number | null
   judgement: string | null
 }
 

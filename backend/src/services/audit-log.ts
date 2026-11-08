@@ -56,6 +56,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   GRADE_UPDATED: "Calificación modificada",
   GRADE_PERIOD_CLOSED: "Período de libreta cerrado",
   GRADE_PERIOD_REOPENED: "Período de libreta reabierto",
+  GRADE_CORRECTED: "Calificación corregida por administración",
   MOODLE_GRADES_IMPORTED: "Notas importadas desde Moodle",
   GRADEBOOK_OBSERVED: "Libreta observada",
   GRADEBOOK_ENDORSED: "Libreta visada",

@@ -1,6 +1,7 @@
 /**
- * Cuentas de la Reunión de profesores (`/libreta/reunion`): cuánto lleva decidido la reunión,
- * qué libretas todavía no cerraron, a quién mirar primero y la leyenda de los tramos.
+ * Cuentas de la Reunión de profesores (`/libreta/reunion`): cuántos juicios lleva la reunión, qué
+ * libretas todavía no cerraron, a quién mirar primero y la leyenda de los tramos. La reunión decide
+ * sólo el juicio de cada alumno: R y C son de cada materia.
  *
  * Cada número dice de cuántos sale («12 de 30»): en la reunión se proyecta, y un porcentaje suelto
  * no dice si falta uno o faltan veinte.
@@ -13,8 +14,6 @@ export type MeetingRowLike = {
   studentId: string
   lastName: string
   firstName: string
-  performanceValueHundredths?: number | null
-  conductValueHundredths?: number | null
   averageHundredths?: number | null
   atRisk: boolean
 }
@@ -28,8 +27,6 @@ export type MeetingSubjectLike = {
 
 export type MeetingTally = {
   students: number
-  withPerformance: number
-  withConduct: number
   /** `null` mientras los juicios no llegaron: no se dice «0 de 30» antes de saberlo. */
   withJudgement: number | null
   atRisk: number
@@ -42,8 +39,6 @@ export type MeetingTally = {
 /** Quiénes tienen juicio vigente, y si el del grupo está escrito. `null`: todavía no se sabe. */
 export type JudgementState = { studentIds: ReadonlySet<string>; group: boolean } | null
 
-const has = (value: number | null | undefined) => value != null
-
 export function meetingTally(
   rows: readonly MeetingRowLike[],
   subjects: readonly MeetingSubjectLike[],
@@ -52,8 +47,6 @@ export function meetingTally(
   const openSubjects = subjects.filter((s) => s.periodStatus !== 'CLOSED')
   return {
     students: rows.length,
-    withPerformance: rows.filter((r) => has(r.performanceValueHundredths)).length,
-    withConduct: rows.filter((r) => has(r.conductValueHundredths)).length,
     withJudgement: judgements ? rows.filter((r) => judgements.studentIds.has(r.studentId)).length : null,
     atRisk: rows.filter((r) => r.atRisk).length,
     subjects: subjects.length,
@@ -71,7 +64,7 @@ export function subjectsText(subjects: readonly MeetingSubjectLike[], max = 3): 
   return `${named.slice(0, -1).join(', ')} y ${named[named.length - 1]}`
 }
 
-export type MeetingFilter = 'all' | 'alert' | 'no-performance' | 'no-judgement'
+export type MeetingFilter = 'all' | 'alert' | 'no-judgement'
 
 export type MeetingFilterOption = { id: MeetingFilter; label: string; count: number }
 
@@ -80,7 +73,6 @@ export function meetingFilters(tally: MeetingTally): MeetingFilterOption[] {
   const options: MeetingFilterOption[] = [
     { id: 'all', label: 'Todos', count: tally.students },
     { id: 'alert', label: 'En alerta', count: tally.atRisk },
-    { id: 'no-performance', label: 'Sin rendimiento', count: tally.students - tally.withPerformance },
   ]
   if (tally.withJudgement != null) {
     options.push({ id: 'no-judgement', label: 'Sin juicio', count: tally.students - tally.withJudgement })
@@ -96,8 +88,6 @@ export function filterMeetingRows<T extends MeetingRowLike>(
   switch (filter) {
     case 'alert':
       return rows.filter((r) => r.atRisk)
-    case 'no-performance':
-      return rows.filter((r) => !has(r.performanceValueHundredths))
     case 'no-judgement':
       return judgements ? rows.filter((r) => !judgements.studentIds.has(r.studentId)) : [...rows]
     default:
@@ -157,18 +147,6 @@ export function levelLegend(
 /** El nombre como lo lee la reunión. */
 export function studentName(row: Pick<MeetingRowLike, 'lastName' | 'firstName'>): string {
   return `${row.lastName}, ${row.firstName}`
-}
-
-export type MeetingField = 'performance' | 'conduct'
-
-const FIELD_NOUN: Record<MeetingField, string> = { performance: 'el rendimiento', conduct: 'la conducta' }
-
-/**
- * Qué no se guardó y de quién, con el motivo. Antes el valor volvía a «—» sin decir nada: el
- * error se borraba al recargar la matriz.
- */
-export function saveErrorText(field: MeetingField, row: Pick<MeetingRowLike, 'lastName' | 'firstName'>, reason: string): string {
-  return `No se guardó ${FIELD_NOUN[field]} de ${studentName(row)}. ${reason}`.trim()
 }
 
 /** «prom. 7,3»: la referencia que acompaña al rendimiento mientras la reunión lo decide. */

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assessmentChoices,
+  assessmentsByTramo,
+  correctionReasonError,
+  correctionRequest,
+  correctionTitle,
+  initialCorrection,
+  performanceChoices,
   assessmentResult,
   gradeChange,
   neighbors,
@@ -130,5 +137,84 @@ describe('juicios de la reunión', () => {
   it('la ruta lleva la orientación sólo si la hay', () => {
     expect(meetingRecordsPath('off-1', null, 'p-1')).toBe('/admin/gradebook/meeting-records?courseOfferingId=off-1&periodId=p-1')
     expect(meetingRecordsPath('off-1', 'co-1', 'p-1')).toContain('courseOrientationId=co-1')
+  })
+})
+
+describe('corrección de administración', () => {
+  const numeric = { kind: 'NUMERIC' as const, minValueHundredths: 100, maxValueHundredths: 1000, levels: [] }
+  const ordinal = { kind: 'ORDINAL' as const, minValueHundredths: null, maxValueHundredths: null, levels: [{ id: 'l1', label: 'Logrado' }, { id: 'l2', label: 'En proceso' }] }
+  const assessment = (over: Record<string, unknown> = {}) => ({
+    id: 'a1',
+    title: 'Escrito 2',
+    date: '2026-05-12',
+    periodId: 't2',
+    periodName: '2.º tramo',
+    scope: 'GROUP',
+    valueHundredths: 300,
+    isAbsent: false,
+    levelLabel: null,
+    comment: 'Faltó estudiar',
+    missing: false,
+    scale: numeric,
+    scaleLevelId: null,
+    ...over,
+  })
+
+  it('agrupa las notas del período por tramo, en el orden en que llegan', () => {
+    const groups = assessmentsByTramo([
+      assessment({ id: 'a', periodId: 't1', periodName: '1.er tramo' }),
+      assessment({ id: 'b', periodId: 't2', periodName: '2.º tramo' }),
+      assessment({ id: 'c', periodId: 't1', periodName: '1.er tramo' }),
+    ] as never)
+    expect(groups.map((g) => [g.periodName, g.assessments.map((a) => a.id)])).toEqual([
+      ['1.er tramo', ['a', 'c']],
+      ['2.º tramo', ['b']],
+    ])
+  })
+
+  it('las opciones salen de la escala de la evaluación: números o tramos', () => {
+    expect(assessmentChoices(numeric, null).map((c) => c.label)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'])
+    // Una nota con decimales sigue en la lista: tocar el selector no la borra.
+    expect(assessmentChoices(numeric, 750).map((c) => c.value)).toContain('750')
+    expect(assessmentChoices(ordinal, null)).toEqual([{ value: 'l1', label: 'Logrado' }, { value: 'l2', label: 'En proceso' }])
+    expect(performanceChoices({ minValueHundredths: 100, maxValueHundredths: 1200 }).at(-1)).toEqual({ value: '1200', label: '12' })
+  })
+
+  it('el motivo es obligatorio', () => {
+    expect(correctionReasonError('  ')).toBe('Escribí el motivo de la corrección.')
+    expect(correctionReasonError('Se cargó mal')).toBeNull()
+  })
+
+  it('arranca con lo cargado y dice qué corrige', () => {
+    const target = { kind: 'assessment' as const, gradeBookId: 'gb', studentId: 's', assessment: assessment() as never }
+    expect(initialCorrection(target)).toEqual({ value: '300', isAbsent: false, comment: 'Faltó estudiar', text: '', reason: '' })
+    expect(correctionTitle(target)).toBe('Corregir la nota de «Escrito 2»')
+    expect(initialCorrection({ kind: 'assessment', gradeBookId: 'gb', studentId: 's', assessment: assessment({ scale: ordinal, scaleLevelId: 'l2' }) as never }).value).toBe('l2')
+    expect(initialCorrection({ kind: 'judgement', gradeBookId: 'gb', periodId: 'p', studentId: 's', current: 'Bien.' }).text).toBe('Bien.')
+    expect(correctionTitle({ kind: 'performance', gradeBookId: 'gb', periodId: 'p', studentId: 's', current: 500 })).toBe('Corregir la R')
+    expect(correctionTitle({ kind: 'conduct', gradeBookId: 'gb', periodId: 'p', studentId: 's', current: null })).toBe('Corregir la C')
+    expect(correctionTitle({ kind: 'judgement', gradeBookId: 'gb', periodId: 'p', studentId: 's', current: null })).toBe('Corregir el juicio del docente')
+  })
+
+  it('arma lo que se manda para cada corrección', () => {
+    const values = { value: '700', isAbsent: false, comment: '  ', text: '', reason: ' Error de carga ' }
+    expect(correctionRequest({ kind: 'assessment', gradeBookId: 'gb', studentId: 's', assessment: assessment() as never }, values)).toEqual({
+      path: '/admin/gradebook/corrections/gradebooks/gb/assessments/a1/students/s',
+      body: { valueHundredths: 700, scaleLevelId: null, isAbsent: false, comment: null, reason: 'Error de carga' },
+    })
+    expect(
+      correctionRequest({ kind: 'assessment', gradeBookId: 'gb', studentId: 's', assessment: assessment({ scale: ordinal }) as never }, { ...values, value: 'l1' }).body,
+    ).toMatchObject({ valueHundredths: null, scaleLevelId: 'l1' })
+    expect(correctionRequest({ kind: 'performance', gradeBookId: 'gb', periodId: 'p', studentId: 's', current: 500 }, values)).toEqual({
+      path: '/admin/gradebook/corrections/gradebooks/gb/periods/p/students/s',
+      body: { meetingValueHundredths: 700, reason: 'Error de carga' },
+    })
+    expect(correctionRequest({ kind: 'conduct', gradeBookId: 'gb', periodId: 'p', studentId: 's', current: 500 }, { ...values, value: '' }).body).toEqual({
+      conductValueHundredths: null,
+      reason: 'Error de carga',
+    })
+    expect(
+      correctionRequest({ kind: 'judgement', gradeBookId: 'gb', periodId: 'p', studentId: 's', current: null }, { ...values, text: ' Mejoró. ' }).body,
+    ).toEqual({ conceptualJudgement: 'Mejoró.', reason: 'Error de carga' })
   })
 })

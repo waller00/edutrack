@@ -4,7 +4,7 @@ import { wholeAbsences } from '../student-attendance/absence-weight.js'
 import { loadRosterForScope } from '../student-attendance/roster.js'
 import { describeCell, gradeBooksForGroup, type ScaleLevelRow } from './institutional.js'
 import { assessmentPeriodsFor, officialPeriodValue, previousReportCardPeriod } from './period-closure.js'
-import { periodScaleFor } from './period-scale.js'
+import { conductOptions, conductScale, periodScaleFor } from './period-scale.js'
 import { tallySubjectAttendance, type MarkCounts } from './subject-attendance.js'
 
 /**
@@ -78,6 +78,13 @@ type StateRow = {
   }>
 }
 
+type AssessmentScaleRow = {
+  kind: string
+  minValueHundredths: number | null
+  maxValueHundredths: number | null
+  levels: Array<{ id: string; label: string }>
+}
+
 type AssessmentRow = {
   id: string
   gradeBookId: string
@@ -85,7 +92,13 @@ type AssessmentRow = {
   date: Date
   title: string
   scope: string
-  grades: Array<{ valueHundredths: number | null; isAbsent: boolean; comment: string | null; scaleLevel: { label: string } | null }>
+  gradingScale?: AssessmentScaleRow | null
+  grades: Array<{
+    valueHundredths: number | null
+    isAbsent: boolean
+    comment: string | null
+    scaleLevel: { id?: string; label: string } | null
+  }>
 }
 
 type MarkRow = {
@@ -96,12 +109,24 @@ type MarkRow = {
   courseOrientationId: string | null
 }
 
+/** La escala de una evaluación: la corrección ofrece sus opciones (números o tramos). */
+export type AssessmentScale = {
+  kind: 'NUMERIC' | 'ORDINAL'
+  minValueHundredths: number | null
+  maxValueHundredths: number | null
+  levels: Array<{ id: string; label: string }>
+}
+
 export type MeetingStudentAssessment = {
   id: string
   title: string
   /** Día civil, `YYYY-MM-DD`. */
   date: string
+  /** El tramo de la evaluación: el panel las agrupa por tramo. */
+  periodId: string
   periodName: string
+  scale: AssessmentScale | null
+  scaleLevelId: string | null
   scope: string
   valueHundredths: number | null
   /** «No rindió»: distinto de «sin nota». */
@@ -139,6 +164,13 @@ export type MeetingStudentSubject = {
 export type MeetingStudent = {
   student: { studentId: string; lastName: string; firstName: string }
   period: { id: string; name: string }
+  /** Rango de la R (la escala del nivel) y opciones de la C: lo que ofrece la corrección. */
+  periodScale: { minValueHundredths: number | null; maxValueHundredths: number | null } | null
+  conductOptions: Array<{ valueHundredths: number; label: string }>
+  /**
+   * ¿Quien mira puede corregir (Administración)? Lo pone la ruta; el armado no sabe quién pide.
+   */
+  canCorrect: boolean
   previousPeriod: { id: string; name: string } | null
   /** Faltas del liceo en el ciclo hasta hoy, con la regla del día (las de la columna Faltas). */
   absences: { hundredths: number; whole: number; unjustified: number; justified: number; lates: number }
@@ -154,11 +186,22 @@ function assessmentView(row: AssessmentRow, periodName: string): MeetingStudentA
   const grade = row.grades[0]
   // Una nota individual de otro alumno no es de este: sólo las del grupo se muestran sin nota.
   if (!grade && row.scope === 'INDIVIDUAL') return null
+  const scale = row.gradingScale
   return {
     id: row.id,
     title: row.title,
     date: row.date.toISOString().slice(0, 10),
+    periodId: row.periodId,
     periodName,
+    scale: scale
+      ? {
+          kind: scale.kind === 'ORDINAL' ? 'ORDINAL' : 'NUMERIC',
+          minValueHundredths: scale.minValueHundredths,
+          maxValueHundredths: scale.maxValueHundredths,
+          levels: scale.levels.map((level) => ({ id: level.id, label: level.label })),
+        }
+      : null,
+    scaleLevelId: grade?.scaleLevel?.id ?? null,
     scope: row.scope,
     valueHundredths: grade?.valueHundredths ?? null,
     isAbsent: grade?.isAbsent ?? false,
@@ -190,6 +233,8 @@ export type MeetingStudentInput = {
   marks: readonly MarkRow[]
   levels: readonly ScaleLevelRow[]
   absences: AbsenceTotals | undefined
+  periodScale?: MeetingStudent['periodScale']
+  conductOptions?: MeetingStudent['conductOptions']
 }
 
 /** Arma el detalle del alumno con lo ya leído. Pura: los tests no tocan la base. */
@@ -232,6 +277,9 @@ export function buildMeetingStudent(input: MeetingStudentInput): MeetingStudent 
   return {
     student,
     period: { id: target.id, name: target.name },
+    periodScale: input.periodScale ?? null,
+    conductOptions: input.conductOptions ?? [],
+    canCorrect: false,
     previousPeriod: previous ? { id: previous.id, name: previous.name } : null,
     absences: absencesView(input.absences),
     subjects,
@@ -267,13 +315,14 @@ export async function loadMeetingStudent(args: {
   const schoolYearId = offering.schoolYearId
   const level = offering.course?.level ?? null
 
-  const [roster, periods, scale] = await Promise.all([
+  const [roster, periods, scale, conduct] = await Promise.all([
     loadRosterForScope({ schoolYearId, ...scope }),
     prisma.academicPeriod.findMany({
       where: { schoolYearId, isActive: true, ...(level ? { level } : {}) },
       select: PERIOD_SELECT,
     }) as Promise<PeriodRow[]>,
     periodScaleFor(level),
+    conductScale(),
   ])
   const student = roster.find((row) => row.studentId === studentId)
   if (!student) return { error: 'STUDENT_NOT_IN_GROUP' }
@@ -307,9 +356,17 @@ export async function loadMeetingStudent(args: {
             date: true,
             title: true,
             scope: true,
+            gradingScale: {
+              select: {
+                kind: true,
+                minValueHundredths: true,
+                maxValueHundredths: true,
+                levels: { select: { id: true, label: true }, orderBy: { sortOrder: 'asc' } },
+              },
+            },
             grades: {
               where: { studentId },
-              select: { valueHundredths: true, isAbsent: true, comment: true, scaleLevel: { select: { label: true } } },
+              select: { valueHundredths: true, isAbsent: true, comment: true, scaleLevel: { select: { id: true, label: true } } },
             },
           },
         }),
@@ -341,6 +398,8 @@ export async function loadMeetingStudent(args: {
       })),
       levels: (scale?.levels ?? []) as ScaleLevelRow[],
       absences: absences.get(studentId),
+      periodScale: scale ? { minValueHundredths: scale.minValueHundredths, maxValueHundredths: scale.maxValueHundredths } : null,
+      conductOptions: conductOptions(conduct?.levels ?? []),
     }),
   }
 }

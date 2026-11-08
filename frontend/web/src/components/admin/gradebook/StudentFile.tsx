@@ -18,7 +18,6 @@ type Enrollment = {
   orientationName: string | null
   status: string
   absences?: { absenceHundredths: number; justified: number }
-  conduct?: Array<{ periodId: string; periodName: string; label: string | null }>
   reportCardPeriods?: Array<{ id: string; name: string }>
 }
 
@@ -84,7 +83,6 @@ function EnrollmentRow({
   busy: string | null
   onReportCard: (periodId: string) => void
 }) {
-  const conduct = (enrollment.conduct ?? []).filter((c) => c.label)
   return (
     <li className="space-y-1 px-4 py-2 text-sm">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -99,11 +97,6 @@ function EnrollmentRow({
         <p className="text-xs text-gray-600">
           Faltas del ciclo: {formatAbsenceUnits(enrollment.absences.absenceHundredths)}
           {enrollment.absences.justified > 0 && ` (${enrollment.absences.justified} justificadas)`}
-        </p>
-      )}
-      {conduct.length > 0 && (
-        <p className="text-xs text-gray-600">
-          Conducta: {conduct.map((c) => `${c.periodName} ${c.label}`).join(' · ')}
         </p>
       )}
       {canExport && (enrollment.reportCardPeriods ?? []).length > 0 && (

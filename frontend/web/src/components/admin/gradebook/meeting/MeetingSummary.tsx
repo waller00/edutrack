@@ -21,9 +21,9 @@ export default function MeetingSummary({
   alertSubjectsThreshold: number | null
 }>) {
   const allClosed = tally.subjectsClosed === tally.subjects
-  const decided = tally.withPerformance === tally.students && tally.students > 0
+  const judged = tally.withJudgement != null && tally.withJudgement === tally.students && tally.students > 0
   return (
-    <div data-tour="reunion.summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <div data-tour="reunion.summary" className="grid gap-3 sm:grid-cols-3">
       <StatTile
         label="Libretas cerradas"
         value={`${formatCount(tally.subjectsClosed)} de ${formatCount(tally.subjects)}`}
@@ -32,21 +32,11 @@ export default function MeetingSummary({
         detail={allClosed ? 'Todas las materias cerraron esta reunión.' : `Sin cerrar: ${subjectsText(tally.openSubjects)}.`}
       />
       <StatTile
-        label="Rendimiento decidido"
-        value={`${formatCount(tally.withPerformance)} de ${formatCount(tally.students)}`}
-        tone={decided ? 'good' : 'neutral'}
-        toneText="Completo"
-        detail="Lo elige la reunión para cada alumno; el promedio es sólo una referencia."
-      />
-      <StatTile
-        label="Conducta"
-        value={`${formatCount(tally.withConduct)} de ${formatCount(tally.students)}`}
-        detail="La carga adscripción, para todo el liceo."
-      />
-      <StatTile
         label="Juicios"
         value={tally.withJudgement == null ? '…' : `${formatCount(tally.withJudgement)} de ${formatCount(tally.students)}`}
-        detail={judgementDetail(judgements)}
+        tone={judged ? 'good' : 'neutral'}
+        toneText="Todos"
+        detail={`La reunión decide el juicio de cada alumno, que va a su boletín. ${judgementDetail(judgements)}`}
       />
       <StatTile
         label="En alerta"

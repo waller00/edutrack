@@ -50,11 +50,12 @@ describe('<StudentFile />', () => {
     mockedApi.mockResolvedValue(FILE)
   })
 
-  it('muestra la matrícula en castellano, las faltas y la conducta del año', async () => {
+  it('muestra la matrícula en castellano y las faltas; no hay conducta de la reunión', async () => {
     render(<StudentFile studentId="st-1" />)
     expect(await screen.findByText('Activa')).toBeInTheDocument()
     expect(screen.getByText('Faltas del ciclo: 3,5 (2 justificadas)')).toBeInTheDocument()
-    expect(screen.getByText('Conducta: 1.er semestre Buena')).toBeInTheDocument()
+    // La reunión no pone conducta propia: aunque lleguen datos viejos, la ficha no la muestra.
+    expect(screen.queryByText(/^Conducta:/)).toBeNull()
   })
 
   it('muestra los juicios conceptuales y las decisiones de la reunión', async () => {

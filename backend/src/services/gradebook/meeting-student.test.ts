@@ -66,7 +66,10 @@ function input(over: Partial<MeetingStudentInput> = {}): MeetingStudentInput {
       { gradeBookId: 'gb-bio', periodId: E2.id, status: 'OPEN', grades: [grade(null, { valueHundredths: 600 })] },
     ],
     assessments: [
-      assessment('b', 'gb-mat', '2026-05-20', [{ valueHundredths: null, isAbsent: true, comment: null, scaleLevel: null }]),
+      {
+        ...assessment('b', 'gb-mat', '2026-05-20', [{ valueHundredths: null, isAbsent: true, comment: null, scaleLevel: null }]),
+        gradingScale: { kind: 'ORDINAL', minValueHundredths: null, maxValueHundredths: null, levels: [{ id: 'l1', label: 'Logrado' }] },
+      },
       assessment('a', 'gb-mat', '2026-05-02', [{ valueHundredths: 300, isAbsent: false, comment: 'Faltó estudiar', scaleLevel: null }]),
       assessment('c', 'gb-mat', '2026-06-01', []),
       // Una nota individual de otro alumno: no es de este.
@@ -110,7 +113,18 @@ describe('buildMeetingStudent', () => {
       ['b', '2026-05-20', null, true, false],
       ['c', '2026-06-01', null, false, true],
     ])
-    expect(mat.assessments[0]).toMatchObject({ periodName: 'T2', comment: 'Faltó estudiar' })
+    expect(mat.assessments[0]).toMatchObject({ periodId: 'T2', periodName: 'T2', comment: 'Faltó estudiar', scale: null })
+    // La escala de cada evaluación: la corrección ofrece sus opciones.
+    expect(mat.assessments[1].scale).toEqual({ kind: 'ORDINAL', minValueHundredths: null, maxValueHundredths: null, levels: [{ id: 'l1', label: 'Logrado' }] })
+  })
+
+  it('el rango de la R y las opciones de la C viajan con el detalle; corregir lo decide la ruta', () => {
+    const view = buildMeetingStudent(
+      input({ periodScale: { minValueHundredths: 100, maxValueHundredths: 1000 }, conductOptions: [{ valueHundredths: 700, label: '7' }] }),
+    )
+    expect(view.periodScale).toEqual({ minValueHundredths: 100, maxValueHundredths: 1000 })
+    expect(view.conductOptions).toEqual([{ valueHundredths: 700, label: '7' }])
+    expect(view.canCorrect).toBe(false)
   })
 
   it('las faltas a cada materia salen de sus clases: en el ciclo y en los días que informa la reunión', () => {

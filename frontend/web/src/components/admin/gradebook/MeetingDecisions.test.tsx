@@ -210,16 +210,16 @@ describe('<MeetingDecisions />', () => {
     expect(screen.queryByLabelText('Juicio de Díaz, Ana')).toBeNull()
   })
 
-  it('al lado del nombre, lo que la reunión ya decidió; y se puede dejar sólo a quien le falta', async () => {
+  it('al lado del nombre, el promedio y las alertas; y se puede dejar sólo a quien le falta', async () => {
     const students = [
-      { ...STUDENTS[0], performanceValueHundredths: 700, conductValueHundredths: 800, atRisk: true, alertCount: 3 },
+      { ...STUDENTS[0], averageHundredths: 733, atRisk: true, alertCount: 3 },
       STUDENTS[1],
     ]
     mockedApi.mockResolvedValue({
       data: [{ id: 'a', decision: 'Trabaja bien.', createdAt: '2026-06-10T12:00:00.000Z', student: ANA, createdBy: null }],
     })
     render(<Harness students={students} />)
-    expect(await screen.findByText('Rendimiento 7 · Conducta 8 · ▲ 3 en alerta')).toBeInTheDocument()
+    expect(await screen.findByText('Promedio 7,3 · ▲ 3 en alerta')).toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Sólo los que no tienen (1)'))
     expect(screen.queryByText('Díaz, Ana')).toBeNull()
@@ -237,6 +237,6 @@ describe('<MeetingDecisions />', () => {
 describe('auxiliares de juicios', () => {
   it('el contexto del alumno sólo dice lo que hay', () => {
     expect(studentContext({ studentId: 's', firstName: 'A', lastName: 'B' })).toBeNull()
-    expect(studentContext({ studentId: 's', firstName: 'A', lastName: 'B', conductValueHundredths: 900 })).toBe('Conducta 9')
+    expect(studentContext({ studentId: 's', firstName: 'A', lastName: 'B', averageHundredths: 900 })).toBe('Promedio 9,0')
   })
 })

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import GroupMatrix, { conductText, isReportCardPeriod, reportCardsPath } from './GroupMatrix'
+import GroupMatrix, { isReportCardPeriod, reportCardsPath } from './GroupMatrix'
 import { api } from '@/lib/api/client'
 import { downloadFile } from '@/lib/api/download'
 
@@ -46,11 +46,6 @@ const PERIODS = {
     { id: 'p-feb', name: 'Febrero', level: 'EMS', isMeeting: true, requiresGeneralGrade: true, requiresConceptualJudgement: false },
   ],
 }
-const CONDUCT_LEVELS = [
-  { valueHundredths: 300, label: '3' },
-  { valueHundredths: 400, label: '4' },
-]
-
 function matrix(over: Record<string, unknown> = {}) {
   return {
     group: { courseName: '5.º', schoolYear: { id: 'sy-1', label: '2026' } },
@@ -62,7 +57,6 @@ function matrix(over: Record<string, unknown> = {}) {
         firstName: 'Ana',
         cells: [{ gradeBookId: 'gb-1', valueHundredths: 800, conceptualJudgement: null, descriptor: null, periodStatus: 'CLOSED', pending: false }],
         averageHundredths: 800,
-        conductValueHundredths: 300,
         absenceHundredths: 150,
         pendingCount: 0,
         alertCount: 0,
@@ -72,7 +66,6 @@ function matrix(over: Record<string, unknown> = {}) {
     averageLabel: 'Indicador automático / promedio orientativo',
     averageDecimals: 1,
     alertSubjectsThreshold: 3,
-    conductLevels: CONDUCT_LEVELS,
     ...over,
   }
 }
@@ -178,27 +171,51 @@ describe('<GroupMatrix />', () => {
     expect(await within(panel).findByText('Escrito 1')).toBeInTheDocument()
   })
 
-  it('desde el panel se decide el rendimiento y la tabla muestra lo mismo; se recorre la lista', async () => {
+  it('la reunión decide sólo el juicio: ni la tabla ni el panel ofrecen R o C propias; se recorre la lista', async () => {
     authState.me = grant('gradebook.read', 'gradebook.review')
     const beto = { ...matrix().students[0], studentId: 'st-2', lastName: 'Sosa', firstName: 'Beto' }
-    respond(matrix({ students: [matrix().students[0], beto], performanceScale: { minValueHundredths: 100, maxValueHundredths: 1000 } }))
+    respond(matrix({ students: [matrix().students[0], beto] }))
     await openMatrix()
+    expect(screen.queryByRole('columnheader', { name: /Rendimiento/ })).toBeNull()
+    expect(screen.queryByRole('columnheader', { name: /Conducta/ })).toBeNull()
+    expect(screen.getByRole('columnheader', { name: /Juicio/ })).toBeInTheDocument()
+
     fireEvent.click(openButton('Díaz, Ana'))
     const panel = await screen.findByRole('dialog', { name: 'Díaz, Ana' })
+    expect(within(panel).queryByLabelText('Rendimiento de Díaz, Ana')).toBeNull()
     expect(within(panel).getByRole('button', { name: 'No hay anterior' })).toBeDisabled()
-
-    fireEvent.change(within(panel).getByLabelText('Rendimiento de Díaz, Ana'), { target: { value: '700' } })
-    await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/meeting-performance', {
-        method: 'PUT',
-        body: JSON.stringify({ schoolYearId: 'sy-1', periodId: 'p-1', studentId: 'st-1', valueHundredths: 700 }),
-      }),
-    )
-    // La misma fila: la tabla de atrás dice lo mismo que el panel.
-    expect(screen.getAllByLabelText('Rendimiento de Díaz, Ana').map((el) => (el as HTMLSelectElement).value)).toEqual(['700', '700'])
-
     fireEvent.click(within(panel).getByRole('button', { name: 'Siguiente: Sosa, Beto' }))
     expect(await screen.findByRole('dialog', { name: 'Sosa, Beto' })).toBeInTheDocument()
+  })
+
+  it('una corrección desde el panel vuelve a pedir el detalle y la matriz, sin «cargando»', async () => {
+    authState.me = { permissions: [{ id: 'gradebook.read', scope: 'all' }, { id: 'gradebook.manage', scope: 'all' }, { id: 'gradebook.grade', scope: 'all' }] }
+    respond()
+    const base = mockedApi.getMockImplementation()!
+    mockedApi.mockImplementation((path: string, init?: any) => {
+      const url = String(path)
+      if (url.startsWith('/admin/gradebook/group-matrix/students/')) {
+        return base(path, init).then((d: any) => ({ ...d, canCorrect: true }))
+      }
+      if (url.startsWith('/admin/gradebook/corrections/')) return Promise.resolve({ ok: true })
+      return base(path, init)
+    })
+    await openMatrix()
+    fireEvent.click(screen.getByRole('button', { name: 'Matemática de Díaz, Ana: 8. Ver detalle' }))
+    const panel = await screen.findByRole('dialog', { name: 'Díaz, Ana' })
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Corregir la R de Díaz, Ana' }))
+    fireEvent.change(within(panel).getByLabelText(/Motivo de la corrección/), { target: { value: 'Error de carga' } })
+    const matrixCalls = () => mockedApi.mock.calls.filter(([p]) => /group-matrix\?/.test(String(p))).length
+    const detailCalls = () => mockedApi.mock.calls.filter(([p]) => String(p).includes('/group-matrix/students/')).length
+    const before = { matrix: matrixCalls(), detail: detailCalls() }
+    fireEvent.click(within(panel).getByRole('button', { name: 'Guardar corrección' }))
+
+    expect(await within(panel).findByRole('status')).toHaveTextContent('Corregido en Matemática. Se le avisó al docente.')
+    await waitFor(() => expect(matrixCalls()).toBe(before.matrix + 1))
+    await waitFor(() => expect(detailCalls()).toBe(before.detail + 1))
+    // La matriz no pasó por «cargando»: la tabla sigue a la vista.
+    expect(screen.queryByText('Cargando la matriz…')).toBeNull()
+    expect(openButton('Díaz, Ana')).toBeInTheDocument()
   })
 
   it('el juicio que se escribe en el panel se guarda para ese alumno y la tabla lo muestra', async () => {
@@ -283,8 +300,9 @@ describe('<GroupMatrix />', () => {
     // Cada materia dice en el encabezado si su docente cerró, con símbolo y palabra.
     const header = screen.getByRole('columnheader', { name: /Física/ })
     expect(within(header).getByText('Abierta')).toBeInTheDocument()
-    expect(within(screen.getByText('Rendimiento decidido').parentElement!).getByText('0 de 1')).toBeInTheDocument()
-    expect(within(screen.getByText('Conducta', { selector: 'p' }).parentElement!).getByText('1 de 1')).toBeInTheDocument()
+    // Tres tarjetas: libretas cerradas, juicios y alertas. Nada de rendimiento ni conducta de la reunión.
+    expect(screen.queryByText('Rendimiento decidido')).toBeNull()
+    expect(screen.getByText('Juicios')).toBeInTheDocument()
   })
 
   it('cada fila dice si el alumno ya tiene juicio y lleva a escribirlo', async () => {
@@ -298,7 +316,7 @@ describe('<GroupMatrix />', () => {
     expect(await screen.findByRole('button', { name: 'Ver el juicio de Díaz, Ana' })).toHaveTextContent('Escrito')
     const juicios = screen.getByText('Juicios').parentElement!
     expect(within(juicios).getByText('1 de 2')).toBeInTheDocument()
-    expect(within(juicios).getByText('Falta el juicio general del grupo.')).toBeInTheDocument()
+    expect(within(juicios).getByText(/Falta el juicio general del grupo./)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Ir a escribir el juicio de Sosa, Beto' }))
     expect(decisions.focus).toHaveBeenLastCalledWith(expect.objectContaining({ studentId: 'st-2', edit: true }))
@@ -319,78 +337,6 @@ describe('<GroupMatrix />', () => {
     const row = openButton('Sosa, Beto').closest('tr')!
     expect(within(row).getByText('2')).toBeInTheDocument()
     expect(within(row).getByText('3 en alerta')).toBeInTheDocument()
-  })
-
-  it('sin permiso de control, la conducta se lee con el texto de la escala', async () => {
-    await openMatrix()
-    expect(screen.getByText('3')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Conducta de Díaz, Ana')).toBeNull()
-  })
-
-  it('adscripción carga la conducta institucional desde la matriz', async () => {
-    authState.me = grant('gradebook.read', 'gradebook.review')
-    await openMatrix()
-
-    fireEvent.change(screen.getByLabelText('Conducta de Díaz, Ana'), { target: { value: '400' } })
-
-    await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/conduct', {
-        method: 'PUT',
-        body: JSON.stringify({ schoolYearId: 'sy-1', periodId: 'p-1', entries: [{ studentId: 'st-1', valueHundredths: 400 }] }),
-      }),
-    )
-    expect(screen.getByLabelText('Conducta de Díaz, Ana')).toHaveValue('400')
-  })
-
-  it('la reunión elige el rendimiento con la escala del nivel; el promedio no lo llena', async () => {
-    authState.me = grant('gradebook.read', 'gradebook.review')
-    respond(matrix({ performanceScale: { minValueHundredths: 100, maxValueHundredths: 1200 } }))
-    await openMatrix()
-
-    const select = screen.getByLabelText('Rendimiento de Díaz, Ana')
-    // Promedio 8, pero el rendimiento sigue vacío hasta que lo elija la reunión.
-    expect(select).toHaveValue('')
-    // Bachillerato: la escala llega hasta 12.
-    expect(within(select).getByRole('option', { name: '12' })).toBeInTheDocument()
-
-    fireEvent.change(select, { target: { value: '700' } })
-    await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/meeting-performance', {
-        method: 'PUT',
-        body: JSON.stringify({ schoolYearId: 'sy-1', periodId: 'p-1', studentId: 'st-1', valueHundredths: 700 }),
-      }),
-    )
-    expect(select).toHaveValue('700')
-  })
-
-  it('si no se guarda el rendimiento, vuelve a lo que tenía y dice por qué', async () => {
-    authState.me = grant('gradebook.read', 'gradebook.review')
-    respond(matrix({ performanceScale: { minValueHundredths: 100, maxValueHundredths: 1000 } }))
-    const base = mockedApi.getMockImplementation()!
-    mockedApi.mockImplementation((path: string, init?: unknown) =>
-      String(path) === '/admin/gradebook/meeting-performance'
-        ? Promise.reject(new Error('El rendimiento tiene que ser una nota entera de la escala del nivel.'))
-        : base(path, init as never),
-    )
-    await openMatrix()
-
-    const select = screen.getByLabelText('Rendimiento de Díaz, Ana')
-    fireEvent.change(select, { target: { value: '700' } })
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'No se guardó el rendimiento de Díaz, Ana. El rendimiento tiene que ser una nota entera de la escala del nivel.',
-    )
-    expect(select).toHaveValue('')
-    expect(screen.getByText('No se guardó')).toBeInTheDocument()
-    // El aviso no se borra recargando la matriz: se pide una sola vez.
-    expect(mockedApi.mock.calls.filter(([path]) => String(path).startsWith('/admin/gradebook/group-matrix'))).toHaveLength(1)
-  })
-
-  it('sin permiso de control, el rendimiento se lee', async () => {
-    respond(matrix({ students: [{ ...matrix().students[0], performanceValueHundredths: 900 }] }))
-    await openMatrix()
-    expect(screen.queryByLabelText('Rendimiento de Díaz, Ana')).toBeNull()
-    expect(screen.getByText('9')).toBeInTheDocument()
   })
 
   it('con permiso de exportar ofrece el boletín por alumno y el del grupo', async () => {
@@ -432,12 +378,6 @@ describe('auxiliares de la matriz', () => {
     expect(isReportCardPeriod(PERIODS.data[0] as never)).toBe(true)
     expect(isReportCardPeriod(PERIODS.data[1] as never)).toBe(false)
     expect(isReportCardPeriod(undefined)).toBe(false)
-  })
-
-  it('rotula la conducta con la escala o con el número', () => {
-    expect(conductText(400, CONDUCT_LEVELS)).toBe('4')
-    expect(conductText(null, CONDUCT_LEVELS)).toBe('—')
-    expect(conductText(250, CONDUCT_LEVELS)).toBe('2,5')
   })
 
   it('arma la ruta de boletines con o sin orientación', () => {

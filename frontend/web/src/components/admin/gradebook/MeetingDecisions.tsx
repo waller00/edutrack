@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Loader2, Pencil } from 'lucide-react'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
-import { formatGrade } from '@/lib/gradebook/grade-scale'
+import { formatHundredths } from '@/lib/academic-config/grade-value'
 import type { MeetingDecision as Decision } from '@/lib/gradebook/meeting-records'
 import type { MeetingRecords } from './meeting/useMeetingRecords'
 
@@ -12,9 +12,8 @@ type StudentOption = {
   studentId: string
   firstName: string
   lastName: string
-  /** Lo que la reunión ya decidió: se lee al lado del nombre mientras se escribe el juicio. */
-  performanceValueHundredths?: number | null
-  conductValueHundredths?: number | null
+  /** Lo que se mira para escribir el juicio: el promedio de las R y las materias en alerta. */
+  averageHundredths?: number | null
   alertCount?: number
   atRisk?: boolean
 }
@@ -24,11 +23,10 @@ export type JudgementFocus = { studentId: string; edit: boolean; nonce: number }
 
 export const judgementAnchor = (studentId: string) => `juicio-${studentId}`
 
-/** «Rendimiento 7 · Conducta 8 · ▲ 3 en alerta»: lo decidido, para escribir el juicio con eso a la vista. */
+/** «Promedio 7,3 · ▲ 3 en alerta»: lo que se mira para escribir el juicio, a la vista. */
 export function studentContext(student: StudentOption): string | null {
   const parts: string[] = []
-  if (student.performanceValueHundredths != null) parts.push(`Rendimiento ${formatGrade(student.performanceValueHundredths)}`)
-  if (student.conductValueHundredths != null) parts.push(`Conducta ${formatGrade(student.conductValueHundredths)}`)
+  if (student.averageHundredths != null) parts.push(`Promedio ${formatHundredths(student.averageHundredths, 1)}`)
   if (student.atRisk) parts.push(`▲ ${student.alertCount ?? 0} en alerta`)
   return parts.length > 0 ? parts.join(' · ') : null
 }

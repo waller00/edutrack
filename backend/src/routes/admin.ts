@@ -54,6 +54,7 @@ import adminStudentAttendanceRoutes from './admin-student-attendance.js'
 import adminSchoolYearsRoutes from './admin-school-years.js'
 import adminAcademicConfigRoutes from './admin-academic-config.js'
 import adminGradeBookRoutes from './admin-gradebook.js'
+import adminGradeBookCorrectionsRoutes, { correctionsGuard } from './admin-gradebook-corrections.js'
 import adminAcademicAnalyticsRoutes from './admin-academic-analytics.js'
 import adminStudentReportsRoutes from './admin-student-reports.js'
 
@@ -1345,6 +1346,8 @@ r.use('/institution', requirePermission('settings.manage', 'all'), adminInstitut
 r.use('/student-attendance', requirePermission('student-attendance.read', 'all'), adminStudentAttendanceRoutes)
 r.use('/school-years', requireSchoolYearAccess, adminSchoolYearsRoutes)
 r.use('/academic-config', requirePermission('academic-config.manage', 'all'), adminAcademicConfigRoutes)
+// Antes que `/gradebook`: las correcciones de la reunión son de administración (`gradebook.manage`).
+r.use('/gradebook/corrections', correctionsGuard, adminGradeBookCorrectionsRoutes)
 r.use('/gradebook', requirePermission('gradebook.read', 'all'), adminGradeBookRoutes)
 r.use('/academic-analytics', requirePermission('academic-analytics.read', 'all'), adminAcademicAnalyticsRoutes)
 r.use('/student-reports', requirePermission('student-reports.read', 'all'), adminStudentReportsRoutes)

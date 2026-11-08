@@ -1,19 +1,17 @@
 import { prisma } from '../../db/prisma.js'
 import { EMPTY_ABSENCE_TOTALS, loadAbsenceTotals } from '../student-attendance/absence-totals.js'
 import { isReportCardPeriod } from './period-closure.js'
-import { conductLabel, conductScale } from './period-scale.js'
 
 /**
- * Lo que la ficha académica suma a las notas: faltas, conducta institucional, decisiones de la
- * reunión y las reuniones con boletín de cada año. La reunión mira rendimiento, conducta e
- * inasistencias juntos; la ficha tenía sólo lo primero.
+ * Lo que la ficha académica suma a las notas: faltas, los juicios de la reunión y las reuniones con
+ * boletín de cada año. La reunión no pone conducta ni rendimiento propios: C y R son de cada
+ * materia y ya están en las notas.
  */
 
 export type StudentFileYear = { schoolYearId: string; level: string | null }
 
 export type StudentFileYearExtras = {
   absences: { absenceHundredths: number; justified: number }
-  conduct: Array<{ periodId: string; periodName: string; valueHundredths: number | null; label: string | null }>
   reportCardPeriods: Array<{ id: string; name: string }>
 }
 
@@ -41,11 +39,7 @@ export async function loadStudentFileExtras(
   years: readonly StudentFileYear[],
 ): Promise<{ byYear: Map<string, StudentFileYearExtras>; decisions: StudentFileDecision[] }> {
   const yearIds = [...new Set(years.map((year) => year.schoolYearId))]
-  const [conductRows, decisionRows, periods, scale, absences] = await Promise.all([
-    prisma.studentConductRecord.findMany({
-      where: { studentId },
-      select: { periodId: true, valueHundredths: true, period: { select: { name: true, sortOrder: true, schoolYearId: true } } },
-    }),
+  const [decisionRows, periods, absences] = await Promise.all([
     prisma.teacherMeetingRecord.findMany({
       where: { studentId },
       select: {
@@ -72,24 +66,13 @@ export async function loadStudentFileExtras(
           orderBy: { sortOrder: 'asc' },
         })
       : Promise.resolve([]),
-    conductScale(),
     absencesByYear(studentId, years),
   ])
 
-  const conductLevels = scale?.levels ?? []
   const byYear = new Map<string, StudentFileYearExtras>()
   for (const year of years) {
     byYear.set(year.schoolYearId, {
       absences: absences.get(year.schoolYearId) ?? { absenceHundredths: 0, justified: 0 },
-      conduct: conductRows
-        .filter((row) => row.period?.schoolYearId === year.schoolYearId)
-        .sort((a, b) => (a.period?.sortOrder ?? 0) - (b.period?.sortOrder ?? 0))
-        .map((row) => ({
-          periodId: row.periodId,
-          periodName: row.period?.name ?? '',
-          valueHundredths: row.valueHundredths,
-          label: conductLabel(row.valueHundredths, conductLevels),
-        })),
       // Boletín sólo de las reuniones de boletín del nivel del estudiante ese año.
       reportCardPeriods: periods
         .filter((p) => p.schoolYearId === year.schoolYearId && (!year.level || p.level === year.level) && isReportCardPeriod(p))

@@ -211,22 +211,22 @@ function subjectRow(doc: Doc, subject: ReportCardSubject, y: number, height: num
   box(doc, X_INFORME, y, INFORME_W, height, note.text, note.style)
 }
 
+/** El juicio de la reunión ocupa también las columnas C y R: la reunión no pone notas propias. */
+const MEETING_JUDGEMENT_W = LEFT + WIDTH - X_C
+
 function meetingRowHeight(doc: Doc, card: ReportCard, size: number): number {
   const { judgement } = card.meeting
   if (!judgement) return MIN_MEETING_H
-  return Math.max(MIN_MEETING_H, textHeight(doc, judgement, INFORME_W, label(size + 1.5)) + 4 * PAD_Y)
+  return Math.max(MIN_MEETING_H, textHeight(doc, judgement, MEETING_JUDGEMENT_W, label(size + 1.5)) + 4 * PAD_Y)
 }
 
 /**
- * Lo que la reunión decidió sobre el alumno: conducta (C) y rendimiento general (R) en sus columnas,
- * y su juicio al lado. Lo que no se cargó queda en blanco: se puede completar a mano.
+ * Lo que la reunión decidió sobre el alumno: su juicio, en un recuadro que cubre C, R e informe.
+ * C y R son de cada materia; la reunión no pone conducta ni rendimiento propios.
  */
 function meetingRow(doc: Doc, card: ReportCard, y: number, height: number, size: number) {
-  const { conductValueHundredths, performanceValueHundredths, judgement } = card.meeting
   box(doc, LEFT, y, SUBJECT_W, height, 'INFORME REUNIÓN', label(9), HEAD_FILL)
-  box(doc, X_C, y, GRADE_W, height, gradeText(conductValueHundredths), label(size + 2))
-  box(doc, X_R, y, GRADE_W, height, gradeText(performanceValueHundredths), label(size + 2))
-  box(doc, X_INFORME, y, INFORME_W, height, judgement ?? '', label(size + 1.5))
+  box(doc, X_C, y, MEETING_JUDGEMENT_W, height, card.meeting.judgement ?? '', label(size + 1.5))
 }
 
 /** Recuadro de firma: el rótulo arriba y el resto en blanco para firmar a mano. */

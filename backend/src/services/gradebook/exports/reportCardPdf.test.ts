@@ -17,7 +17,7 @@ const card = (subjects: ReportCardSubject[], judgement: string | null = 'Valoram
     group: { courseName: '7.º', orientationName: null, schoolYearLabel: '2026' },
     period: { name: '3.ª Entrega (3.ª Reunión)', columnLabel: 'Ago-Set', judgementLabel: 'Informe de actuación' },
     subjects,
-    meeting: { conductValueHundredths: 700, performanceValueHundredths: judgement ? 800 : null, judgement },
+    meeting: { judgement },
     attendance: { absenceHundredths: 300, justified: 1, unjustified: 2, lates: 1, untilYmd: '2026-09-30' },
   })
 
@@ -47,6 +47,14 @@ describe('generateReportCardPdf', () => {
 
   it('materias sin cerrar y sin juicio de reunión no rompen el documento', async () => {
     const pdf = await generateReportCardPdf(card([subject({ closed: false, valueHundredths: null, conductValueHundredths: null, conceptualJudgement: null })], null))
+    expect(pageCount(pdf)).toBe(1)
+  })
+})
+
+describe('fila «Informe reunión»', () => {
+  it('lleva sólo el juicio: un juicio largo se acomoda sin pasar de hoja', async () => {
+    const long = 'La reunión valora su esfuerzo sostenido y su compromiso con las tareas del grupo. '.repeat(4)
+    const pdf = await generateReportCardPdf(card(THIRTEEN, long))
     expect(pageCount(pdf)).toBe(1)
   })
 })

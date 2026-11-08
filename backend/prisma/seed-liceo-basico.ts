@@ -1990,23 +1990,11 @@ function rByStudent(keeper: GradeKeeper, entregaCode: string): Map<string, numbe
 }
 
 /**
- * Rendimiento general que decide la reunión: parte del promedio de las R y a veces lo corre un
- * punto (la reunión pesa el esfuerzo o la trayectoria). Sin ninguna R no hay qué decidir.
+ * Reuniones de profesores en cada entrega cerrada: el juicio general del grupo y el de los alumnos
+ * que la reunión mira. La reunión no pone conducta ni rendimiento propios: C y R son de cada materia.
  */
-function meetingPerformance(rValues: readonly number[] | undefined, r: Rng): number | null {
-  if (!rValues?.length) return null
-  const mean = rValues.reduce((sum, v) => sum + v, 0) / rValues.length
-  return clamp(Math.round(mean + r.normal(0, 0.35)), 1, 10) * 100
-}
-
-/**
- * Reuniones de profesores en cada entrega cerrada: los juicios, la conducta institucional de
- * adscripción y el rendimiento general que elige la reunión (sin él, la columna «Rendimiento» de la
- * reunión y la «R» del informe del boletín salían vacías).
- */
-async function createMeetingsAndConduct(ctx: YearCtx, periods: PeriodRec[], yearEnrollments: EnrollmentRec[], keeper: GradeKeeper) {
+async function createMeetings(ctx: YearCtx, periods: PeriodRec[], yearEnrollments: EnrollmentRec[], keeper: GradeKeeper) {
   const meetings: Prisma.TeacherMeetingRecordCreateManyInput[] = []
-  const conduct: Prisma.StudentConductRecordCreateManyInput[] = []
   for (const entrega of periods.filter((p) => p.kind === 'ENTREGA')) {
     const meetingYmd = addDays(entrega.closesYmd!, -1)
     const at = wall(meetingYmd, 15, 30)
@@ -2027,16 +2015,9 @@ async function createMeetingsAndConduct(ctx: YearCtx, periods: PeriodRec[], year
       for (const { e } of struggling) {
         meetings.push({ schoolYearId: ctx.schoolYearId, courseOfferingId: ctx.offeringByCourse.get(course)!, periodId: entrega.id, studentId: e.student.id, decision: rng.pick(D.MEETING_STUDENT_DECISIONS.slice(0, 4)), createdByUserId: ads.id, createdAt: plusMinutes(at, 30) })
       }
-      for (const e of roster) {
-        const r = rngFor(`conduct-${entrega.id}-${e.student.id}`)
-        const value = clamp(Math.round(e.student.conduct + r.normal(0, 0.5)), 1, 10)
-        const notes = value <= 5 ? r.pick(['Llamadas de atención reiteradas en el período.', 'Se trabajó con la familia acuerdos de convivencia.']) : null
-        conduct.push({ studentId: e.student.id, schoolYearId: ctx.schoolYearId, periodId: entrega.id, valueHundredths: value * 100, notes, performanceValueHundredths: meetingPerformance(rValues.get(e.student.id), r), updatedByUserId: ads.id, createdAt: minDate(plusMinutes(at, -60 * 24), NOW), updatedAt: minDate(plusMinutes(at, -60 * 24), NOW) })
-      }
     }
   }
   await prisma.teacherMeetingRecord.createMany({ data: meetings })
-  await inChunks(conduct, 3000, (c) => prisma.studentConductRecord.createMany({ data: c }))
 }
 
 /// ─── Cierre del año: APE, materias pendientes y fallo ───────────────────────
@@ -2424,7 +2405,7 @@ async function seedYear(ctx: YearCtx, yearEnrollments: EnrollmentRec[], bio: Bio
     buildBook(ctx, book, periods, roster, rc, leaves, { gradeScaleId: scale.id }, activityTypes, keeper, out)
   }
   await writeBookOutput(out)
-  await createMeetingsAndConduct(ctx, periods, yearEnrollments, keeper)
+  await createMeetings(ctx, periods, yearEnrollments, keeper)
   log(`Libretas: ${books.length}, ${out.assessments.length} evaluaciones, ${out.grades.length} notas, ${out.periodGrades.length} notas de período, ${out.endorsements.length} visados`)
   return { occs, books, periods, keeper }
 }

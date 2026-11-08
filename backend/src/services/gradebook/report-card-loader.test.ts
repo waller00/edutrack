@@ -68,9 +68,6 @@ describe('loadReportCards', () => {
     prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([
       { studentId: 'st-1', decision: 'Valoramos su cambio de actitud.', createdAt: new Date('2026-10-02') },
     ])
-    prismaMock.studentConductRecord.findMany.mockResolvedValue([
-      { studentId: 'st-1', valueHundredths: 700, performanceValueHundredths: 800 },
-    ])
     absencesMock.mockResolvedValue(
       new Map([['st-1', { absenceHundredths: 250, justified: 1, lates: 0, counts: { justified: 1, unjustified: 2, lates: 0 } }]]),
     )
@@ -85,12 +82,9 @@ describe('loadReportCards', () => {
     expect(card.subjects.map((s) => s.subjectName)).toEqual(['Matemática', 'Historia'])
     expect(card.subjects[0]).toMatchObject({ closed: true, conductValueHundredths: 600, valueHundredths: 800, conceptualJudgement: 'Muy bien.' })
     expect(card.subjects[1]).toMatchObject({ closed: false, valueHundredths: null })
-    // La fila de la reunión: conducta y rendimiento que eligió la reunión, y el juicio del alumno.
-    expect(card.meeting).toEqual({
-      conductValueHundredths: 700,
-      performanceValueHundredths: 800,
-      judgement: 'Valoramos su cambio de actitud.',
-    })
+    // La fila de la reunión lleva sólo el juicio del alumno: la reunión no pone C ni R propios.
+    expect(card.meeting).toEqual({ judgement: 'Valoramos su cambio de actitud.' })
+    expect(prismaMock.studentConductRecord.findMany).not.toHaveBeenCalled()
     expect(card.attendance).toEqual({ absenceHundredths: 250, justified: 1, unjustified: 2, lates: 0, untilYmd: '2026-09-30' })
     expect(card.absenceTotal).toBe(2)
   })
@@ -113,7 +107,7 @@ describe('loadReportCards', () => {
   it('un estudiante sin notas ni faltas igual tiene boletín', async () => {
     const [card] = await loadReportCards({ group: GROUP, period: ENTREGA, students: [{ ...STUDENT, id: 'st-2' }] })
     expect(card.subjects.every((s) => s.valueHundredths == null)).toBe(true)
-    expect(card.meeting).toEqual({ conductValueHundredths: null, performanceValueHundredths: null, judgement: null })
+    expect(card.meeting).toEqual({ judgement: null })
     expect(card.attendance).toEqual({ absenceHundredths: 0, justified: 0, unjustified: 0, lates: 0, untilYmd: '2026-09-30' })
     expect(card.absenceTotal).toBe(0)
   })

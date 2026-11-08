@@ -5,7 +5,6 @@ import {
   levelLegend,
   meetingFilters,
   meetingTally,
-  saveErrorText,
   studentName,
   subjectStatus,
   subjectsText,
@@ -15,15 +14,14 @@ const row = (studentId: string, over: Record<string, unknown> = {}) => ({
   studentId,
   lastName: studentId.toUpperCase(),
   firstName: 'X',
-  performanceValueHundredths: null as number | null,
-  conductValueHundredths: null as number | null,
+  averageHundredths: null as number | null,
   atRisk: false,
   ...over,
 })
 
 const ROWS = [
-  row('a', { performanceValueHundredths: 700, conductValueHundredths: 800 }),
-  row('b', { conductValueHundredths: 900, atRisk: true }),
+  row('a', { averageHundredths: 700 }),
+  row('b', { averageHundredths: 450, atRisk: true }),
   row('c', { atRisk: true }),
 ]
 
@@ -40,8 +38,6 @@ describe('meetingTally', () => {
     const tally = meetingTally(ROWS, SUBJECTS, judged('a'))
     expect(tally).toMatchObject({
       students: 3,
-      withPerformance: 1,
-      withConduct: 2,
       withJudgement: 1,
       atRisk: 2,
       subjects: 3,
@@ -77,7 +73,6 @@ describe('meetingFilters / filterMeetingRows', () => {
     expect(meetingFilters(tally)).toEqual([
       { id: 'all', label: 'Todos', count: 3 },
       { id: 'alert', label: 'En alerta', count: 2 },
-      { id: 'no-performance', label: 'Sin rendimiento', count: 2 },
       { id: 'no-judgement', label: 'Sin juicio', count: 2 },
     ])
   })
@@ -90,7 +85,6 @@ describe('meetingFilters / filterMeetingRows', () => {
     const ids = (rows: { studentId: string }[]) => rows.map((r) => r.studentId)
     expect(ids(filterMeetingRows(ROWS, 'all', null))).toEqual(['a', 'b', 'c'])
     expect(ids(filterMeetingRows(ROWS, 'alert', null))).toEqual(['b', 'c'])
-    expect(ids(filterMeetingRows(ROWS, 'no-performance', null))).toEqual(['b', 'c'])
     expect(ids(filterMeetingRows(ROWS, 'no-judgement', judged('b')))).toEqual(['a', 'c'])
     // Sin saber los juicios, no esconde a nadie.
     expect(ids(filterMeetingRows(ROWS, 'no-judgement', null))).toEqual(['a', 'b', 'c'])
@@ -128,13 +122,6 @@ describe('levelLegend', () => {
 describe('textos', () => {
   it('nombra al alumno como en la lista', () => {
     expect(studentName({ lastName: 'Díaz', firstName: 'Ana' })).toBe('Díaz, Ana')
-  })
-
-  it('dice qué no se guardó, de quién y por qué', () => {
-    expect(saveErrorText('performance', { lastName: 'Díaz', firstName: 'Ana' }, 'Sin conexión.')).toBe(
-      'No se guardó el rendimiento de Díaz, Ana. Sin conexión.',
-    )
-    expect(saveErrorText('conduct', { lastName: 'Díaz', firstName: 'Ana' }, '')).toBe('No se guardó la conducta de Díaz, Ana.')
   })
 
   it('el promedio de referencia, o nada', () => {

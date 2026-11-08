@@ -618,55 +618,50 @@ todavía no se habilita, está cerrado o reabierto, y si al alumno le falta comp
   presente/tarde/ausente; como el peso lo fija el reglamento, al justificar no se elige "falta
   entera / media falta". Sólo un curso sin nivel suma por marca (y usa el umbral diario de
   Configuración).
-- **Conducta, dos veces.** Cada docente pone la de su asignatura (la **C** de la carta,
+- **Conducta: la de cada materia.** Cada docente pone la de su asignatura (la **C** de la carta,
   `PeriodGrade.conductValueHundredths`) en cada tramo y entrega —en la carta, por alumno o en la
-  tabla del grupo—; el servidor sólo acepta valores de la escala
-  (`CONDUCT_OUT_OF_SCALE`). Adscripción pone una institucional por estudiante y
-  período (`StudentConductRecord`). La reunión las ve juntas. Usa su propia escala (`CONDUCTA`),
-  porque no se mide como el rendimiento, y las etiquetas salen de esa escala (no de una tabla en el
-  código): un cambio en Configuración llega a la reunión y al boletín. Adscripción y Dirección
-  (`gradebook.review`) cargan la institucional en la columna Conducta de la matriz de reunión; el
-  servidor sólo acepta valores de la escala y un período del ciclo indicado.
-- **Reunión (`/libreta/reunion`):** la matriz del grupo con las notas de cada materia, el promedio
-  con **un decimal** —hace falta para escolaridad y abanderados—, el **rendimiento** y la conducta
-  de la reunión, e inasistencias en la misma fila, y los juicios sobre `TeacherMeetingRecord`. El
-  **rendimiento** lo elige la reunión con la escala del nivel (1–10 EBI, 1–12 EMS; columna
-  "Rendimiento", `PUT /admin/gradebook/meeting-performance`, `gradebook.review`): el promedio es un
-  indicador para ayudar a decidirlo y nunca lo llena solo. Grupo y período quedan en la URL
+  tabla del grupo—; el servidor sólo acepta valores de la escala (`CONDUCT_OUT_OF_SCALE`). Usa su
+  propia escala (`CONDUCTA`), porque no se mide como el rendimiento. **La reunión no pone conducta
+  ni rendimiento propios:** decide sólo el juicio de cada alumno. `StudentConductRecord` (la
+  conducta y el rendimiento «de la reunión» de antes) queda por los datos viejos: no se carga ni se
+  muestra.
+- **Reunión (`/libreta/reunion`):** la matriz del grupo con las R de cada materia, el promedio
+  con **un decimal** —hace falta para escolaridad y abanderados—, el juicio de la reunión e
+  inasistencias en la misma fila, y los juicios sobre `TeacherMeetingRecord`. **La reunión decide
+  sólo el juicio de cada alumno**: R y C son de cada materia. Grupo y período quedan en la URL
   (`?grupo=&periodo=`): la ficha del alumno vuelve a la misma reunión y el enlace se puede
   compartir.
   - **Arriba, cómo va la reunión** (`lib/gradebook/meeting-board.ts`): libretas cerradas («10 de
-    12», y las que faltan con su docente: «Sin cerrar: Física (Beto R)»), rendimiento decidido,
-    conducta y juicios («12 de 30»), y cuántos están en alerta con su base.
+    12», y las que faltan con su docente: «Sin cerrar: Física (Beto R)»), juicios («12 de 30»)
+    y cuántos están en alerta con su base.
   - **Cada materia dice en el encabezado si su docente cerró** (Cerrada ✓, Abierta ○, Reabierta ↺,
     Sin empezar –): con símbolo y palabra, no sólo color.
   - **La matriz deja fijos el encabezado y la columna del alumno** al desplazarse, numera la lista
-    (el número no cambia al filtrar) y filtra por «En alerta», «Sin rendimiento» y «Sin juicio»,
-    cada uno con cuántos deja. Las columnas de la reunión (promedio de referencia, rendimiento,
-    conducta y juicio) van juntas y dicen quién las decide; la leyenda explica sólo los tramos a la
-    vista, la propuesta y el «—».
-  - **Guardar avisa:** cada casillero muestra guardando / guardado / «No se guardó». Si el servidor
-    rechaza un rendimiento o una conducta, vuelve al valor anterior y dice de quién y por qué.
-    Antes recargaba la matriz, que borraba el error: el valor volvía a «—» sin explicación.
+    (el número no cambia al filtrar) y filtra por «En alerta» y «Sin juicio», cada uno con cuántos
+    deja. Promedio (referencia) y Juicio van juntos; la leyenda explica sólo los tramos a la vista,
+    la propuesta y el «—».
   - **La columna Juicio** dice si el alumno lo tiene («Escrito») y «Escribir» lleva al editor de
-    «Juicios de la reunión» ya abierto, donde al lado de cada nombre se lee lo decidido
-    («Rendimiento 7 · Conducta 8 · ▲ 3 en alerta»). Ahí se puede dejar sólo a quienes les falta.
-  - Los datos de prueba (`seed-liceo-basico`) cargan el rendimiento de cada reunión ya hecha, a
-    partir del promedio de las R: antes sólo cargaban la conducta y la columna salía vacía.
+    «Juicios de la reunión» ya abierto, donde al lado de cada nombre se lee lo que se mira para
+    escribirlo («Promedio 7,3 · ▲ 3 en alerta»). Ahí se puede dejar sólo a quienes les falta.
   - **El panel del alumno** (`StudentMeetingPanel`, `GET /admin/gradebook/group-matrix/students/:id`):
     tocar el nombre o una nota abre al costado al alumno en la reunión (la nota abre su materia
     desplegada), y queda en la URL (`?alumno=&materia=`): volver de la ficha lo reabre.
-    - **Decide la reunión:** rendimiento (con el promedio de referencia), conducta y juicio, con el
+    - **Juicio de la reunión:** lo único que decide la reunión, con el promedio de referencia y el
       mismo estado que la tabla y «Juicios de la reunión» (`useMeetingRecords`).
     - **Faltas del liceo** del ciclo hasta hoy, con el desglose por día del boletín: sin justificar,
       justificadas, llegadas tarde y lo que dice el boletín (las fictas para abajo).
     - **Cada materia:** la R con su tramo, si subió o bajó respecto de la reunión de boletín
-      anterior («↓ bajó 5 → 3»), y las faltas a esa materia. Desplegada: las evaluaciones de los
-      tramos que informa (con «No rindió» y «Sin nota»), la C, el juicio del docente y las faltas
-      a la materia en esta reunión y en el año. Esas cuentan cada clase una vez: no son las del
-      boletín.
+      anterior («↓ bajó 5 → 3»), y las faltas a esa materia. Desplegada: **las notas del período
+      agrupadas por tramo** (con «No rindió» y «Sin nota»), la R, la C, el juicio del docente y
+      las faltas a la materia en esta reunión y en el año. Esas cuentan cada clase una vez: no son
+      las del boletín.
+    - **Administración corrige ahí mismo** una nota, la R, la C o el juicio del docente, aunque la
+      libreta esté cerrada y sin reabrirla (`/admin/gradebook/corrections`): con motivo
+      obligatorio, queda en el historial como corrección de administración, en la auditoría, y al
+      docente le llega el aviso con el motivo. Después se relee el alumno y la matriz (la R cambia
+      el promedio y las alertas). Dirección y Adscripción no ven «Corregir».
     - «Anterior / Siguiente» recorre la lista que deja el filtro; si el alumno salió del filtro (se
-      le puso el rendimiento con «Sin rendimiento»), sigue desde su lugar.
+      le escribió el juicio con «Sin juicio»), sigue desde su lugar.
     - Sólo `gradebook.read` `all` (no el docente), y una cantidad fija de consultas por alumno sin
       importar cuántas materias tenga el grupo.
     - Un juicio a medio escribir no se pierde: «Anterior», «Siguiente», Escape o cerrar preguntan
@@ -689,9 +684,9 @@ todavía no se habilita, está cerrado o reabierto, y si al alumno le falta comp
   exportaciones son por libreta, o sea de una materia.
   - **Sólo lo cerrado:** C, R e informe salen del cierre del docente. Una libreta abierta o
     reabierta en ese período imprime la materia como *Pendiente* (`reportCardSubject`).
-  - **Informe de reunión:** lo que la reunión decidió sobre el alumno. En su **C** la conducta
-    institucional y en su **R** el rendimiento general que eligió la reunión; al lado, su juicio
-    vigente. El juicio general del grupo no va. Lo que falte sale en blanco, para completar a mano.
+  - **Informe de reunión:** sólo el juicio vigente del alumno, en un recuadro que cubre también las
+    columnas C y R: la reunión no pone conducta ni rendimiento propios. El juicio general del grupo
+    no va. Sin juicio, sale en blanco para completar a mano.
   - **Inasistencias acumuladas del año**, hasta el último día de los tramos que informa la reunión
     (una entrega de EBI, los suyos; un semestre de EMS, él mismo): el límite reglamentario es por
     grado (30 fictas), y cortar en el fin del período hace que reimprimir un boletín dé lo mismo. El
@@ -770,8 +765,8 @@ adscripción, dirección, inspección y administración.
   contracara exacta del roster; quedarse sólo con las de la orientación dejaría media matriz vacía.
 - **Promedio transversal (RF-061):** indicador automático, derivado al leer y nunca persistido. Una
   asignatura pendiente no lo arrastra: "todavía no tiene nota" no es "sacó poco".
-- **Ficha académica (RF-031):** trayectoria por ciclo —con el estado de la matrícula, las faltas
-  del ciclo y la conducta institucional de cada reunión—, histórico por materia y período,
+- **Ficha académica (RF-031):** trayectoria por ciclo —con el estado de la matrícula y las faltas
+  del ciclo—, histórico por materia y período,
   evolución por asignatura, los juicios conceptuales de cada período y las decisiones de la reunión
   sobre el estudiante. Con `gradebook.export` descarga el boletín de cada reunión de boletín. Un
   período sin datos se conserva como hueco; borrarlo haría que dos períodos separados parecieran

@@ -11,9 +11,9 @@ export default function Page() {
       <main className="responsive-page max-w-[1800px] space-y-4">
         <ModuleHeader id="teachers-meeting">
           <p className="text-sm text-gray-600">
-            Tocá un alumno o una nota para abrir su <strong>panel</strong>: cada materia con su detalle, sus faltas y lo
-            que decide la reunión (rendimiento, conducta y juicio). También se decide en la tabla y en «Juicios de la
-            reunión».
+            La reunión decide el <strong>juicio de cada alumno</strong>, que va a su boletín; R y C son de cada materia.
+            Tocá un alumno o una nota para abrir su <strong>panel</strong>: cada materia con sus notas del período, sus
+            faltas y su juicio.
           </p>
         </ModuleHeader>
         {/* GroupMatrix guarda grupo y período en la URL: useSearchParams necesita un Suspense para prerenderizar. */}

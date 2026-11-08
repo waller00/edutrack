@@ -9,25 +9,15 @@ import { useOptionalAuth } from '@/contexts/AuthContext'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import { hasPermission } from '@/lib/auth/permissions'
-import {
-  filterMeetingRows,
-  levelLegend,
-  meetingFilters,
-  meetingTally,
-  saveErrorText,
-  type MeetingField,
-  type MeetingFilter,
-} from '@/lib/gradebook/meeting-board'
+import { filterMeetingRows, levelLegend, meetingFilters, meetingTally, type MeetingFilter } from '@/lib/gradebook/meeting-board'
 import { neighbors } from '@/lib/gradebook/meeting-student'
 import MeetingDecisions, { type JudgementFocus } from './MeetingDecisions'
 import MeetingSummary from './meeting/MeetingSummary'
-import MatrixTable, { saveKey } from './meeting/MatrixTable'
+import MatrixTable from './meeting/MatrixTable'
 import StudentMeetingPanel from './meeting/StudentMeetingPanel'
 import { useMeetingRecords } from './meeting/useMeetingRecords'
 import { useMeetingStudent } from './meeting/useMeetingStudent'
-import type { Matrix, MatrixRow, SaveStatus } from './meeting/types'
-
-export { conductText } from '@/components/gradebook/ConductSelect'
+import type { Matrix } from './meeting/types'
 
 type Group = {
   courseOfferingId: string
@@ -81,21 +71,6 @@ export function meetingUrl(pathname: string, group: Group | null, periodId: stri
   if (open?.gradeBookId) params.set('materia', open.gradeBookId)
   const qs = params.toString()
   return qs ? `${pathname}?${qs}` : pathname
-}
-
-const FIELD_PATH: Record<MeetingField, string> = {
-  performance: '/admin/gradebook/meeting-performance',
-  conduct: '/admin/gradebook/conduct',
-}
-
-const FIELD_OF: Record<MeetingField, 'performanceValueHundredths' | 'conductValueHundredths'> = {
-  performance: 'performanceValueHundredths',
-  conduct: 'conductValueHundredths',
-}
-
-function saveBody(field: MeetingField, schoolYearId: string, periodId: string, studentId: string, value: number | null) {
-  if (field === 'performance') return { schoolYearId, periodId, studentId, valueHundredths: value }
-  return { schoolYearId, periodId, entries: [{ studentId, valueHundredths: value }] }
 }
 
 /** El grupo y la reunión que se trabajan; arriba de todo, para cambiar de grupo sin volver a buscar. */
@@ -190,8 +165,8 @@ function MatrixLegend({ matrix }: Readonly<{ matrix: Matrix }>) {
         <span>· — sin nota</span>
       </p>
       <p>
-        <strong>{matrix.averageLabel}.</strong> El promedio sale de las R y es una referencia: el{' '}
-        <strong>rendimiento</strong> lo elige la reunión, y es el que va al boletín con la conducta y el juicio. Las
+        <strong>{matrix.averageLabel}.</strong> El promedio sale de las R de cada materia y es una referencia. La
+        reunión decide el <strong>juicio</strong> de cada alumno, que va a su boletín; R y C son de cada materia. Las
         alertas son informativas y no generan por sí solas decisiones administrativas.
       </p>
     </div>
@@ -222,7 +197,6 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
   const [loading, setLoading] = useState(true)
   const [downloading, setDownloading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [saves, setSaves] = useState<Record<string, SaveStatus>>({})
   const [filter, setFilter] = useState<MeetingFilter>('all')
   const [focus, setFocus] = useState<JudgementFocus | null>(null)
   const [openStudent, setOpenStudent] = useState<OpenStudent | null>(null)
@@ -232,7 +206,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
   )
   const records = useMeetingRecords(meetingScope)
   const judgements = records.judgements
-  const { detail, retry } = useMeetingStudent(meetingScope, openStudent?.studentId ?? null)
+  const { detail, retry, refresh } = useMeetingStudent(meetingScope, openStudent?.studentId ?? null)
 
   useEffect(() => {
     ;(async () => {
@@ -255,11 +229,13 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
     })()
   }, [query])
 
-  const loadMatrix = useCallback(async () => {
+  /** `quiet`: después de una corrección se relee sin «cargando», con la matriz a la vista. */
+  const loadMatrix = useCallback(async (quiet = false) => {
     if (!group || !periodId) return
-    setError(null)
-    setSaves({})
-    setMatrixLoading(true)
+    if (!quiet) {
+      setError(null)
+      setMatrixLoading(true)
+    }
     try {
       const params = new URLSearchParams({ courseOfferingId: group.courseOfferingId, periodId })
       if (group.courseOrientationId) params.set('courseOrientationId', group.courseOrientationId)
@@ -344,42 +320,10 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
     }
   }
 
-  function patchRow(studentId: string, field: MeetingField, value: number | null) {
-    setMatrix((prev) =>
-      prev && {
-        ...prev,
-        students: prev.students.map((row) => (row.studentId === studentId ? { ...row, [FIELD_OF[field]]: value } : row)),
-      },
-    )
-  }
-
-  /**
-   * Guarda un casillero de la reunión. Si el servidor lo rechaza, vuelve al valor anterior y dice
-   * qué no se guardó y por qué: antes recargaba la matriz, que borraba el error, y el rendimiento
-   * elegido volvía a «—» sin explicación.
-   */
-  async function saveField(field: MeetingField, row: MatrixRow, value: number | null) {
-    const key = saveKey(field, row.studentId)
-    const schoolYearId = matrix?.group.schoolYear.id
-    if (!schoolYearId) {
-      setSaves((s) => ({ ...s, [key]: 'error' }))
-      setError(saveErrorText(field, row, 'Falta el ciclo lectivo del grupo: recargá la página.'))
-      return
-    }
-    const previous = row[FIELD_OF[field]] ?? null
-    patchRow(row.studentId, field, value)
-    setSaves((s) => ({ ...s, [key]: 'saving' }))
-    try {
-      await api(FIELD_PATH[field], {
-        method: 'PUT',
-        body: JSON.stringify(saveBody(field, schoolYearId, periodId, row.studentId, value)),
-      })
-      setSaves((s) => ({ ...s, [key]: 'saved' }))
-    } catch (err) {
-      patchRow(row.studentId, field, previous)
-      setSaves((s) => ({ ...s, [key]: 'error' }))
-      setError(saveErrorText(field, row, err instanceof Error ? err.message : ''))
-    }
+  /** Una corrección cambia notas: el detalle del alumno y la matriz (R, promedio, alertas). */
+  function afterCorrection() {
+    refresh()
+    void loadMatrix(true)
   }
 
   function openJudgement(studentId: string, edit: boolean) {
@@ -448,11 +392,9 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                 judgements={judgements}
                 reportCard={offersReportCards}
                 downloading={downloading}
-                saves={saves}
                 onReportCard={(row) =>
                   void download(row.studentId, `/admin/gradebook/report-card/${row.studentId}?periodId=${periodId}`, 'boletin.pdf')
                 }
-                onSave={(field, row, value) => void saveField(field, row, value)}
                 onOpenJudgement={openJudgement}
                 onOpenStudent={(studentId, gradeBookId) => setOpenStudent({ studentId, gradeBookId })}
                 activeStudentId={openStudent?.studentId ?? null}
@@ -478,8 +420,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
               onClose={closePanel}
               matrix={matrix}
               canEdit={canEdit}
-              saves={saves}
-              onSave={(field, row, value) => void saveField(field, row, value)}
+              onCorrected={afterCorrection}
               records={records}
               fichaHref={openRow ? `/libreta/estudiante/${openRow.studentId}?volver=${encodeURIComponent(here)}` : ''}
               projection={projection}

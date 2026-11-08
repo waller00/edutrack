@@ -218,9 +218,8 @@ export const SCREEN_SPOTS: Partial<Record<ModuleId, Spot[]>> = {
   ],
   'teachers-meeting': [
     { target: 'reunion.filters', title: 'Grupo y reunión', text: 'Elegí qué grupo y qué reunión vas a trabajar.' },
-    { target: 'reunion.summary', title: 'Cómo va la reunión', text: 'Qué libretas todavía no cerraron, con su docente, y cuánto lleva decidido la reunión.' },
-    { target: 'reunion.matrix', title: 'La matriz del grupo', text: 'La R de cada alumno en cada materia y lo que decide la reunión. Tocá un alumno o una nota para ver su detalle y decidir.' },
-    { target: 'reunion.performance', title: 'Rendimiento', text: 'Lo elige la reunión para cada alumno: es el que va al boletín.' },
+    { target: 'reunion.summary', title: 'Cómo va la reunión', text: 'Qué libretas todavía no cerraron, con su docente, cuántos juicios lleva la reunión y quién está en alerta.' },
+    { target: 'reunion.matrix', title: 'La matriz del grupo', text: 'La R de cada alumno en cada materia. Tocá un alumno o una nota para ver sus notas del período y escribir su juicio.' },
     { target: 'reunion.judgements', title: 'Juicios de la reunión', text: 'El general del grupo queda en la reunión; el de cada alumno va a su boletín.' },
   ],
   'gradebook-config': [

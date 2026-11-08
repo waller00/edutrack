@@ -97,6 +97,26 @@ export function reopenedNotification(params: {
   }
 }
 
+/**
+ * Administración corrigió una nota de la libreta desde la reunión, sin reabrirla. El docente se
+ * entera de qué cambió, de quién y por qué: la libreta es suya.
+ */
+export function correctedNotification(params: {
+  subjectName: string
+  periodName: string
+  studentName: string
+  what: string
+  reason: string
+  gradeBookId: string
+}): GradeBookNotification {
+  return {
+    type: 'GRADEBOOK_GRADE_CORRECTED',
+    title: `Administración corrigió ${params.what} de ${params.studentName}`,
+    body: `${params.subjectName} · ${params.periodName}. Motivo: ${excerpt(params.reason)}`,
+    actionUrl: `/libreta/${params.gradeBookId}/evaluaciones`,
+  }
+}
+
 export function endorsedNotification(params: {
   subjectName: string
   periodName: string

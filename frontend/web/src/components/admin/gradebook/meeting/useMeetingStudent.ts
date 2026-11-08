@@ -24,14 +24,16 @@ export function meetingStudentPath(query: MeetingStudentQuery, studentId: string
 
 /**
  * El detalle del alumno del panel. Queda guardado por alumno mientras no cambien el grupo ni la
- * reunión: «Anterior / Siguiente» ida y vuelta no lo vuelve a pedir. Lo que decide la reunión
- * (rendimiento, conducta, juicio) no viene acá, así que guardarlo no lo deja viejo.
+ * reunión: «Anterior / Siguiente» ida y vuelta no lo vuelve a pedir. El juicio de la reunión no
+ * viene acá; una corrección de administración sí lo cambia, y por eso `refresh` lo vuelve a pedir.
  */
 export function useMeetingStudent(query: MeetingStudentQuery | null, studentId: string | null) {
   const path = query && studentId ? meetingStudentPath(query, studentId) : null
   const cache = useRef(new Map<string, MeetingStudent>())
   const [detail, setDetail] = useState<MeetingStudentDetail>({ status: 'idle' })
   const [attempt, setAttempt] = useState(0)
+  // Al releer después de corregir se sigue mostrando lo que había: la materia desplegada no se cierra.
+  const quiet = useRef(false)
 
   useEffect(() => {
     if (!path) {
@@ -44,7 +46,8 @@ export function useMeetingStudent(query: MeetingStudentQuery | null, studentId: 
       return
     }
     let alive = true
-    setDetail({ status: 'loading' })
+    if (!quiet.current) setDetail({ status: 'loading' })
+    quiet.current = false
     api<MeetingStudent>(path)
       .then((data) => {
         cache.current.set(path, data)
@@ -59,5 +62,11 @@ export function useMeetingStudent(query: MeetingStudentQuery | null, studentId: 
   }, [path, attempt])
 
   const retry = useCallback(() => setAttempt((n) => n + 1), [])
-  return { detail, retry }
+  /** Después de una corrección: lo guardado de este alumno ya no vale y se vuelve a pedir. */
+  const refresh = useCallback(() => {
+    if (path) cache.current.delete(path)
+    quiet.current = true
+    setAttempt((n) => n + 1)
+  }, [path])
+  return { detail, retry, refresh }
 }

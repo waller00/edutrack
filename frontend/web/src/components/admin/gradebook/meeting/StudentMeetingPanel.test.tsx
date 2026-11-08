@@ -1,7 +1,11 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import StudentMeetingPanel, { type StudentMeetingPanelProps } from './StudentMeetingPanel'
 import type { MeetingStudent } from '@/lib/gradebook/meeting-student'
+import { api } from '@/lib/api/client'
+
+vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
+const mockedApi = vi.mocked(api)
 
 const ROW = {
   studentId: 's1',
@@ -9,8 +13,6 @@ const ROW = {
   firstName: 'Marcos',
   cells: [],
   averageHundredths: 440,
-  performanceValueHundredths: null,
-  conductValueHundredths: 700,
   absenceHundredths: 1450,
   pendingCount: 1,
   alertCount: 4,
@@ -20,6 +22,9 @@ const ROW = {
 const DATA: MeetingStudent = {
   student: { studentId: 's1', lastName: 'García', firstName: 'Marcos' },
   period: { id: 'e2', name: '2.ª Entrega' },
+  periodScale: { minValueHundredths: 100, maxValueHundredths: 1000 },
+  conductOptions: [6, 7, 8].map((v) => ({ valueHundredths: v * 100, label: String(v) })),
+  canCorrect: false,
   previousPeriod: { id: 'e1', name: '1.ª Entrega' },
   absences: { hundredths: 1450, whole: 14, unjustified: 9, justified: 8, lates: 3 },
   subjects: [
@@ -81,12 +86,9 @@ function props(over: Partial<StudentMeetingPanelProps> = {}): StudentMeetingPane
       students: [ROW],
       averageLabel: 'Promedio',
       averageDecimals: 1,
-      conductLevels: [{ valueHundredths: 700, label: '7' }],
-      performanceScale: { minValueHundredths: 100, maxValueHundredths: 1000 },
     },
     canEdit: true,
-    saves: {},
-    onSave: vi.fn(),
+    onCorrected: vi.fn(),
     records: records(),
     fichaHref: '/libreta/estudiante/s1',
     projection: false,
@@ -134,6 +136,80 @@ describe('<StudentMeetingPanel />', () => {
     expect(screen.getByText('R en 1.ª Entrega')).toBeInTheDocument()
   })
 
+  it('desplegada, las notas del período van agrupadas por tramo', () => {
+    const tramos: MeetingStudent = {
+      ...DATA,
+      subjects: [
+        {
+          ...DATA.subjects[0],
+          assessments: [
+            { ...DATA.subjects[0].assessments[0], id: 'x1', title: 'Oral 1', periodId: 't1', periodName: '1.er tramo' },
+            { ...DATA.subjects[0].assessments[0], id: 'x2', title: 'Escrito 2', periodId: 't2', periodName: '2.º tramo' },
+          ],
+        },
+      ],
+    }
+    render(<StudentMeetingPanel {...props({ detail: { status: 'ready', data: tramos }, focusGradeBookId: 'gb-mat' })} />)
+    const first = screen.getByText('1.er tramo').parentElement!
+    expect(within(first).getByText('Oral 1')).toBeInTheDocument()
+    expect(within(first).queryByText('Escrito 2')).toBeNull()
+    expect(within(screen.getByText('2.º tramo').parentElement!).getByText('Escrito 2')).toBeInTheDocument()
+  })
+
+  it('administración corrige una nota con motivo, aunque la libreta esté cerrada, y se recarga', async () => {
+    mockedApi.mockReset().mockResolvedValue({ ok: true } as never)
+    const p = props({ detail: { status: 'ready', data: { ...DATA, canCorrect: true } }, focusGradeBookId: 'gb-mat' })
+    render(<StudentMeetingPanel {...p} />)
+    expect(screen.getByText(/Cerrada: una corrección no la reabre/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir la nota de «Escrito» de García, Marcos' }))
+    const form = screen.getByRole('form', { name: 'Corregir la nota de «Escrito» de García, Marcos' })
+    fireEvent.change(within(form).getByLabelText('Nota'), { target: { value: '500' } })
+
+    // Sin motivo no se manda.
+    fireEvent.click(within(form).getByRole('button', { name: 'Guardar corrección' }))
+    expect(await within(form).findByRole('alert')).toHaveTextContent('Escribí el motivo de la corrección.')
+    expect(mockedApi).not.toHaveBeenCalled()
+
+    fireEvent.change(within(form).getByLabelText(/Motivo de la corrección/), { target: { value: 'Error de carga' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Guardar corrección' }))
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/corrections/gradebooks/gb-mat/assessments/a1/students/s1', {
+        method: 'PUT',
+        body: JSON.stringify({ valueHundredths: 500, scaleLevelId: null, isAbsent: false, comment: 'Faltó estudiar', reason: 'Error de carga' }),
+      }),
+    )
+    expect(await screen.findByRole('status')).toHaveTextContent('Corregido en Matemática. Se le avisó al docente.')
+    expect(p.onCorrected).toHaveBeenCalled()
+  })
+
+  it('administración corrige la R y el juicio del docente; si falla, lo dice y no cierra el formulario', async () => {
+    mockedApi.mockReset().mockRejectedValueOnce(new Error('La R tiene que ser una nota entera de la escala del nivel.')).mockResolvedValue({ ok: true } as never)
+    const p = props({ detail: { status: 'ready', data: { ...DATA, canCorrect: true } }, focusGradeBookId: 'gb-mat' })
+    render(<StudentMeetingPanel {...p} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir la R de García, Marcos' }))
+    const form = screen.getByRole('form', { name: 'Corregir la R de García, Marcos' })
+    fireEvent.change(within(form).getByLabelText('R (rendimiento)'), { target: { value: '600' } })
+    fireEvent.change(within(form).getByLabelText(/Motivo de la corrección/), { target: { value: 'Pedido del docente' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Guardar corrección' }))
+    expect(await within(form).findByRole('alert')).toHaveTextContent('La R tiene que ser una nota entera de la escala del nivel.')
+    expect(p.onCorrected).not.toHaveBeenCalled()
+
+    fireEvent.click(within(form).getByRole('button', { name: 'Guardar corrección' }))
+    await waitFor(() => expect(p.onCorrected).toHaveBeenCalled())
+    expect(mockedApi).toHaveBeenLastCalledWith('/admin/gradebook/corrections/gradebooks/gb-mat/periods/e2/students/s1', {
+      method: 'PUT',
+      body: JSON.stringify({ meetingValueHundredths: 600, reason: 'Pedido del docente' }),
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir el juicio del docente de García, Marcos' }))
+    const judgement = screen.getByRole('form', { name: 'Corregir el juicio del docente de García, Marcos' })
+    expect(within(judgement).getByLabelText('Juicio del docente')).toHaveValue('No entrega las tareas.')
+    fireEvent.click(within(judgement).getByRole('button', { name: 'Cancelar' }))
+    expect(screen.queryByRole('form', { name: /juicio del docente/ })).toBeNull()
+  })
+
   it('la materia tocada en la matriz abre desplegada; «Desplegar todas» abre el resto', () => {
     render(<StudentMeetingPanel {...props({ focusGradeBookId: 'gb-mat' })} />)
     expect(screen.getByRole('button', { name: /Matemática/ })).toHaveAttribute('aria-expanded', 'true')
@@ -144,12 +220,13 @@ describe('<StudentMeetingPanel />', () => {
     expect(screen.getByRole('button', { name: 'Plegar todas' })).toBeInTheDocument()
   })
 
-  it('se decide desde el panel: rendimiento con el promedio de referencia, conducta y juicio', async () => {
+  it('la reunión decide sólo el juicio: con el promedio de referencia, sin R ni C propias', async () => {
     const p = props()
     render(<StudentMeetingPanel {...p} />)
+    expect(screen.getByRole('heading', { name: /Juicio de la reunión/ })).toBeInTheDocument()
     expect(screen.getByText('prom. 4,4 · referencia')).toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('Rendimiento de García, Marcos'), { target: { value: '500' } })
-    expect(p.onSave).toHaveBeenCalledWith('performance', ROW, 500)
+    expect(screen.queryByLabelText('Rendimiento de García, Marcos')).toBeNull()
+    expect(screen.queryByLabelText('Conducta de García, Marcos')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Escribir el juicio de García, Marcos' }))
     fireEvent.change(screen.getByLabelText('Juicio de García, Marcos'), { target: { value: 'Se cita a la familia.' } })
@@ -188,9 +265,10 @@ describe('<StudentMeetingPanel />', () => {
   })
 
   it('sin permiso de control, el panel se lee', () => {
-    render(<StudentMeetingPanel {...props({ canEdit: false })} />)
-    expect(screen.queryByLabelText('Rendimiento de García, Marcos')).toBeNull()
+    render(<StudentMeetingPanel {...props({ canEdit: false, focusGradeBookId: 'gb-mat' })} />)
     expect(screen.queryByRole('button', { name: /Escribir el juicio/ })).toBeNull()
+    // Sin `canCorrect` no hay «Corregir».
+    expect(screen.queryByRole('button', { name: /^Corregir/ })).toBeNull()
     expect(screen.getByText('Sin juicio')).toBeInTheDocument()
   })
 
@@ -207,8 +285,8 @@ describe('<StudentMeetingPanel />', () => {
   it('mientras carga lo dice, y un error se puede reintentar', () => {
     const { rerender } = render(<StudentMeetingPanel {...props({ detail: { status: 'loading' } })} />)
     expect(screen.getByText('Cargando las materias y las faltas…')).toBeInTheDocument()
-    // Lo que decide la reunión no espera al detalle.
-    expect(screen.getByLabelText('Rendimiento de García, Marcos')).toBeInTheDocument()
+    // El juicio no espera al detalle.
+    expect(screen.getByRole('button', { name: 'Escribir el juicio de García, Marcos' })).toBeInTheDocument()
 
     const p = props({ detail: { status: 'error', error: 'Sin conexión.' } })
     rerender(<StudentMeetingPanel {...p} />)

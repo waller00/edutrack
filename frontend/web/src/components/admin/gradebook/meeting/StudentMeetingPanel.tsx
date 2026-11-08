@@ -1,27 +1,30 @@
 'use client'
 
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Loader2, X } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Loader2, Lock, Pencil, X } from 'lucide-react'
 import SidePanel from '@/components/common/SidePanel'
 import { confirmDiscard } from '@/lib/hooks/useUnsavedChangesWarning'
 import { formatGrade } from '@/lib/gradebook/grade-scale'
-import { averageHint, studentName, subjectStatus, type MeetingField } from '@/lib/gradebook/meeting-board'
+import { averageHint, studentName, subjectStatus } from '@/lib/gradebook/meeting-board'
 import {
   assessmentResult,
+  assessmentsByTramo,
   gradeChange,
   schoolAbsenceSummary,
   shortDate,
   subjectAbsenceDetail,
   subjectAbsenceSummary,
   subjectCounts,
+  type CorrectionTarget,
   type MeetingStudent,
+  type MeetingStudentAssessment,
   type MeetingStudentSubject,
 } from '@/lib/gradebook/meeting-student'
 import { JudgementEditor } from '../MeetingDecisions'
-import { ConductInput, GradeBadge, PerformanceInput } from './cells'
-import { saveKey } from './MatrixTable'
-import type { Matrix, MatrixRow, SaveStatus } from './types'
+import { GradeBadge } from './cells'
+import CorrectionForm from './CorrectionForm'
+import type { Matrix, MatrixRow } from './types'
 import type { MeetingRecords } from './useMeetingRecords'
 import type { MeetingStudentDetail } from './useMeetingStudent'
 
@@ -44,9 +47,10 @@ export type StudentMeetingPanelProps = {
   onNavigate: (studentId: string) => void
   onClose: () => void
   matrix: Matrix
+  /** Escribe juicios de la reunión (Dirección, Adscripción, Administración). */
   canEdit: boolean
-  saves: Readonly<Record<string, SaveStatus>>
-  onSave: (field: MeetingField, row: MatrixRow, value: number | null) => void
+  /** Después de una corrección de administración: se vuelven a pedir el detalle y la matriz. */
+  onCorrected: () => void
   records: MeetingRecords
   fichaHref: string
   projection: boolean
@@ -54,9 +58,10 @@ export type StudentMeetingPanelProps = {
 }
 
 /**
- * El alumno en la reunión: lo que decide la reunión (rendimiento, conducta, juicio) con lo que
- * hace falta para decidirlo al lado —cada materia con su detalle y las faltas del liceo— y
- * «Anterior / Siguiente» para recorrer la lista como se hace en la reunión.
+ * El alumno en la reunión: el juicio que decide la reunión, con lo que hace falta para escribirlo
+ * al lado —cada materia con sus notas del período y las faltas del liceo— y «Anterior / Siguiente»
+ * para recorrer la lista como se hace en la reunión. Administración corrige desde acá una nota, la
+ * R, la C o el juicio del docente de una materia, aunque la libreta esté cerrada.
  */
 export default function StudentMeetingPanel(props: Readonly<StudentMeetingPanelProps>) {
   const { open, row, onClose, onNavigate, projection } = props
@@ -76,7 +81,7 @@ export default function StudentMeetingPanel(props: Readonly<StudentMeetingPanelP
         <div className={`flex min-h-0 flex-1 flex-col ${projection ? 'text-base' : 'text-sm'}`}>
           <PanelHeader {...guarded} row={row} closeRef={closeRef} />
           <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
-            <DecideSection {...guarded} row={row} onJudgementDirty={(dirty) => (unsaved.current = dirty)} />
+            <JudgementSection {...guarded} row={row} onJudgementDirty={(dirty) => (unsaved.current = dirty)} />
             <PanelBody {...guarded} />
           </div>
         </div>
@@ -166,73 +171,50 @@ function PanelHeader({
   )
 }
 
-/** Rendimiento, conducta y juicio: lo mismo que la tabla y «Juicios de la reunión». */
-function DecideSection({
+/**
+ * Lo único que decide la reunión sobre el alumno: su juicio, que va al boletín. Es el mismo estado
+ * que «Juicios de la reunión» y la columna Juicio de la tabla. R y C son de cada materia.
+ */
+function JudgementSection({
   row,
   matrix,
   canEdit,
-  saves,
-  onSave,
   records,
   onJudgementDirty,
 }: Readonly<StudentMeetingPanelProps & { row: MatrixRow; onJudgementDirty: (dirty: boolean) => void }>) {
   const name = studentName(row)
   return (
-    <section aria-labelledby="panel-decide" className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
-      <h3 id="panel-decide" className="text-sm font-semibold text-gray-900">
-        Decide la reunión
-      </h3>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-gray-600">Rendimiento</p>
-          <PerformanceInput
-            row={row}
-            scale={matrix.performanceScale ?? null}
-            editable={canEdit}
-            status={saves[saveKey('performance', row.studentId)]}
-            onChange={(value) => onSave('performance', row, value)}
-          />
-          <p className="text-[11px] text-gray-500">
-            {averageHint(row.averageHundredths, matrix.averageDecimals ?? 1) ?? 'Sin promedio todavía'} · referencia
-          </p>
-        </div>
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-gray-600">Conducta</p>
-          <ConductInput
-            row={row}
-            levels={matrix.conductLevels ?? []}
-            editable={canEdit}
-            status={saves[saveKey('conduct', row.studentId)]}
-            onChange={(value) => onSave('conduct', row, value)}
-          />
-          <p className="text-[11px] text-gray-500">La carga adscripción, para todo el liceo.</p>
-        </div>
+    <section aria-labelledby="panel-juicio" className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id="panel-juicio" className="text-sm font-semibold text-gray-900">
+          Juicio de la reunión <span className="font-normal text-gray-500">· va a su boletín</span>
+        </h3>
+        <p className="text-xs text-gray-600">
+          {averageHint(row.averageHundredths, matrix.averageDecimals ?? 1) ?? 'Sin promedio todavía'} · referencia
+        </p>
       </div>
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-gray-600">Juicio · va a su boletín</p>
-        {records.loading ? (
-          <p className="text-sm text-gray-500">Cargando el juicio…</p>
-        ) : (
-          <JudgementEditor
-            key={row.studentId}
-            of={`de ${name}`}
-            current={records.current.get(row.studentId)}
-            canWrite={canEdit}
-            onSave={(text) => records.save(row.studentId, text)}
-            onDirtyChange={onJudgementDirty}
-          />
-        )}
-        {records.error && (
-          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
-            {records.error}
-          </p>
-        )}
-      </div>
+      {records.loading ? (
+        <p className="text-sm text-gray-500">Cargando el juicio…</p>
+      ) : (
+        <JudgementEditor
+          key={row.studentId}
+          of={`de ${name}`}
+          current={records.current.get(row.studentId)}
+          canWrite={canEdit}
+          onSave={(text) => records.save(row.studentId, text)}
+          onDirtyChange={onJudgementDirty}
+        />
+      )}
+      {records.error && (
+        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+          {records.error}
+        </p>
+      )}
     </section>
   )
 }
 
-function PanelBody({ detail, onRetry, focusGradeBookId, row }: Readonly<StudentMeetingPanelProps>) {
+function PanelBody({ detail, onRetry, focusGradeBookId, row, onCorrected }: Readonly<StudentMeetingPanelProps>) {
   if (detail.status === 'error') {
     return (
       <div role="alert" className="space-y-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -254,7 +236,7 @@ function PanelBody({ detail, onRetry, focusGradeBookId, row }: Readonly<StudentM
   return (
     <>
       <SchoolAbsences data={detail.data} />
-      <SubjectList key={row?.studentId} data={detail.data} focusGradeBookId={focusGradeBookId} />
+      <SubjectList key={row?.studentId} data={detail.data} focusGradeBookId={focusGradeBookId} onCorrected={onCorrected} />
     </>
   )
 }
@@ -286,7 +268,12 @@ function SchoolAbsences({ data }: Readonly<{ data: MeetingStudent }>) {
   )
 }
 
-function SubjectList({ data, focusGradeBookId }: Readonly<{ data: MeetingStudent; focusGradeBookId: string | null }>) {
+function SubjectList({
+  data,
+  focusGradeBookId,
+  onCorrected,
+}: Readonly<{ data: MeetingStudent; focusGradeBookId: string | null; onCorrected: () => void }>) {
+  const [notice, setNotice] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(focusGradeBookId ? [focusGradeBookId] : []))
   const allOpen = data.subjects.length > 0 && data.subjects.every((s) => expanded.has(s.gradeBookId))
 
@@ -326,6 +313,12 @@ function SubjectList({ data, focusGradeBookId }: Readonly<{ data: MeetingStudent
           {allOpen ? 'Plegar todas' : 'Desplegar todas'}
         </button>
       </div>
+      {notice && (
+        <p role="status" className="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          <CheckCircle2 className="h-4 w-4" aria-hidden />
+          {notice}
+        </p>
+      )}
       <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
         {data.subjects.map((subject) => (
           <SubjectItem
@@ -334,6 +327,10 @@ function SubjectList({ data, focusGradeBookId }: Readonly<{ data: MeetingStudent
             data={data}
             open={expanded.has(subject.gradeBookId)}
             onToggle={() => toggle(subject.gradeBookId)}
+            onCorrected={() => {
+              setNotice(`Corregido en ${subject.name}. Se le avisó al docente.`)
+              onCorrected()
+            }}
           />
         ))}
       </ul>
@@ -349,7 +346,8 @@ function SubjectItem({
   data,
   open,
   onToggle,
-}: Readonly<{ subject: MeetingStudentSubject; data: MeetingStudent; open: boolean; onToggle: () => void }>) {
+  onCorrected,
+}: Readonly<{ subject: MeetingStudentSubject; data: MeetingStudent; open: boolean; onToggle: () => void; onCorrected: () => void }>) {
   const change = gradeChange(subject.previousValueHundredths, subject.valueHundredths)
   const status = subjectStatus(subject.periodStatus)
   const detailId = `${subjectAnchor(subject.gradeBookId)}-detalle`
@@ -386,41 +384,143 @@ function SubjectItem({
           <span className="text-gray-500">{subjectAbsenceSummary(subject.attendance.period ?? subject.attendance.year)}</span>
         </span>
       </button>
-      {open && <SubjectDetail id={detailId} subject={subject} data={data} />}
+      {open && <SubjectDetail id={detailId} subject={subject} data={data} onCorrected={onCorrected} />}
     </li>
   )
 }
 
-function SubjectDetail({ id, subject, data }: Readonly<{ id: string; subject: MeetingStudentSubject; data: MeetingStudent }>) {
+/** Un dato de la materia con su «Corregir»: abre el formulario en el mismo lugar. */
+function Correctable({
+  label,
+  children,
+  target,
+  data,
+  onCorrected,
+}: Readonly<{
+  label: string
+  children: ReactNode
+  target: CorrectionTarget | null
+  data: MeetingStudent
+  onCorrected: () => void
+}>) {
+  const [editing, setEditing] = useState(false)
+  const studentLabel = `de ${data.student.lastName}, ${data.student.firstName}`
+  if (editing && target) {
+    return (
+      <CorrectionForm
+        target={target}
+        studentLabel={studentLabel}
+        periodScale={data.periodScale ?? null}
+        conductOptions={data.conductOptions ?? []}
+        onCancel={() => setEditing(false)}
+        onSaved={() => {
+          setEditing(false)
+          onCorrected()
+        }}
+      />
+    )
+  }
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <div className="min-w-0 flex-1">{children}</div>
+      {target && (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          aria-label={`Corregir ${label} ${studentLabel}`}
+          className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-amber-800 hover:underline"
+        >
+          <Pencil className="h-3 w-3" aria-hidden />
+          Corregir
+        </button>
+      )}
+    </div>
+  )
+}
+
+function AssessmentLine({ a }: Readonly<{ a: MeetingStudentAssessment }>) {
+  return (
+    <span className="flex flex-wrap items-baseline gap-x-2">
+      <span className="text-xs tabular-nums text-gray-500">{shortDate(a.date)}</span>
+      <span className="text-gray-800">{a.title}</span>
+      {a.scope === 'INDIVIDUAL' && <span className="text-xs text-gray-500">individual</span>}
+      <span className={`ml-auto font-medium ${a.isAbsent || a.missing ? 'text-amber-900' : 'text-gray-900'}`}>
+        {assessmentResult(a)}
+      </span>
+      {a.comment && <span className="w-full text-xs text-gray-600">«{a.comment}»</span>}
+    </span>
+  )
+}
+
+function SubjectDetail({
+  id,
+  subject,
+  data,
+  onCorrected,
+}: Readonly<{ id: string; subject: MeetingStudentSubject; data: MeetingStudent; onCorrected: () => void }>) {
+  const can = Boolean(data.canCorrect)
+  const studentId = data.student.studentId
+  const base = { gradeBookId: subject.gradeBookId, studentId }
+  const forPeriod = { ...base, periodId: data.period.id }
+  const tramos = assessmentsByTramo(subject.assessments)
+  const correction = (target: CorrectionTarget) => (can ? target : null)
   return (
     <div id={id} className="space-y-3 border-t border-gray-100 bg-gray-50/70 px-3 py-3 pl-9">
-      <div>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Evaluaciones del período</h4>
-        {subject.assessments.length === 0 ? (
-          <p className="text-gray-500">Sin evaluaciones en los tramos que informa la reunión.</p>
-        ) : (
-          <ul className="mt-1 space-y-1">
-            {subject.assessments.map((a) => (
-              <li key={a.id} className="flex flex-wrap items-baseline gap-x-2">
-                <span className="text-xs tabular-nums text-gray-500">{shortDate(a.date)}</span>
-                <span className="text-gray-800">{a.title}</span>
-                <span className="text-xs text-gray-500">
-                  {a.periodName}
-                  {a.scope === 'INDIVIDUAL' && ' · individual'}
-                </span>
-                <span className={`ml-auto font-medium ${a.isAbsent || a.missing ? 'text-amber-900' : 'text-gray-900'}`}>
-                  {assessmentResult(a)}
-                </span>
-                {a.comment && <span className="w-full text-xs text-gray-600">«{a.comment}»</span>}
-              </li>
-            ))}
-          </ul>
-        )}
+      {can && subject.periodStatus === 'CLOSED' && (
+        <p className="flex items-center gap-1.5 text-xs text-gray-600">
+          <Lock className="h-3.5 w-3.5" aria-hidden />
+          Cerrada: una corrección no la reabre, queda registrada y le llega al docente.
+        </p>
+      )}
+      <div className="space-y-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Notas del período</h4>
+        {tramos.length === 0 && <p className="text-gray-500">Sin evaluaciones en los tramos que informa la reunión.</p>}
+        {tramos.map((tramo) => (
+          <div key={tramo.periodId} className="space-y-1">
+            <p className="text-xs font-medium text-gray-700">{tramo.periodName}</p>
+            <ul className="space-y-1">
+              {tramo.assessments.map((a) => (
+                <li key={a.id}>
+                  <Correctable
+                    label={`la nota de «${a.title}»`}
+                    target={correction({ kind: 'assessment', ...base, assessment: a })}
+                    data={data}
+                    onCorrected={onCorrected}
+                  >
+                    <AssessmentLine a={a} />
+                  </Correctable>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
       <dl className="grid gap-2 sm:grid-cols-2">
         <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">R · rendimiento</dt>
+          <dd>
+            <Correctable
+              label="la R"
+              target={correction({ kind: 'performance', ...forPeriod, current: subject.valueHundredths })}
+              data={data}
+              onCorrected={onCorrected}
+            >
+              <span className="text-gray-900">{formatGrade(subject.valueHundredths)}</span>
+            </Correctable>
+          </dd>
+        </div>
+        <div>
           <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">C · conducta en la materia</dt>
-          <dd className="text-gray-900">{formatGrade(subject.conductValueHundredths)}</dd>
+          <dd>
+            <Correctable
+              label="la C"
+              target={correction({ kind: 'conduct', ...forPeriod, current: subject.conductValueHundredths })}
+              data={data}
+              onCorrected={onCorrected}
+            >
+              <span className="text-gray-900">{formatGrade(subject.conductValueHundredths)}</span>
+            </Correctable>
+          </dd>
         </div>
         {data.previousPeriod && (
           <div>
@@ -431,9 +531,16 @@ function SubjectDetail({ id, subject, data }: Readonly<{ id: string; subject: Me
       </dl>
       <div>
         <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Juicio del docente</h4>
-        <p className={`whitespace-pre-line ${subject.conceptualJudgement ? 'text-gray-800' : 'text-gray-500'}`}>
-          {subject.conceptualJudgement ?? 'Sin juicio'}
-        </p>
+        <Correctable
+          label="el juicio del docente"
+          target={correction({ kind: 'judgement', ...forPeriod, current: subject.conceptualJudgement })}
+          data={data}
+          onCorrected={onCorrected}
+        >
+          <p className={`whitespace-pre-line ${subject.conceptualJudgement ? 'text-gray-800' : 'text-gray-500'}`}>
+            {subject.conceptualJudgement ?? 'Sin juicio'}
+          </p>
+        </Correctable>
       </div>
       <div>
         <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Faltas a esta materia</h4>

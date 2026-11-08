@@ -26,6 +26,8 @@ enum InAppNotificationType {
   GRADEBOOK_PERIOD_CLOSING
   /// Administración reabrió un período cerrado para que el docente corrija.
   GRADEBOOK_PERIOD_REOPENED
+  /// Administración corrigió una nota de la libreta (desde la reunión), con su motivo.
+  GRADEBOOK_GRADE_CORRECTED
   /// Alerta de un estudiante (bajó de boletín, faltas seguidas, 18/25 faltas).
   STUDENT_ALERT
   /// El docente pasó la lista de una clase después de que terminó (aviso a Dirección).
@@ -84,6 +86,8 @@ enum AuditAction {
   GRADE_UPDATED
   GRADE_PERIOD_CLOSED
   GRADE_PERIOD_REOPENED
+  /// Corrección de administración sobre una libreta, aunque esté cerrada, con su motivo.
+  GRADE_CORRECTED
   MOODLE_GRADES_IMPORTED
   GRADEBOOK_OBSERVED
   GRADEBOOK_ENDORSED
@@ -1165,6 +1169,8 @@ model StudentEnrollment {
 /// La fila es "lo que la reunión le pone al alumno en el período": además de la conducta guarda el
 /// rendimiento general (`performanceValueHundredths`). Los dos van al boletín, en la fila del
 /// informe de reunión.
+/// Conducta y rendimiento «de la reunión»: ya no se cargan ni se muestran (la reunión decide sólo el
+/// juicio del alumno; C y R son de cada materia). La tabla queda por los datos viejos.
 model StudentConductRecord {
   id           String     @id @default(uuid())
   studentId    String
@@ -2041,6 +2047,8 @@ model PeriodGradeRevision {
   judgementChanged               Boolean @default(false)
   previousJudgement              String? @db.Text
   newJudgement                   String? @db.Text
+  /// Por qué la corrigió administración (desde la reunión). Vacío en lo que carga el docente.
+  reason                         String? @db.Text
 
   origin          GradeRevisionOrigin
   changedByUserId String?

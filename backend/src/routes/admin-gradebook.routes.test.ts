@@ -297,7 +297,7 @@ describe('GET /students/:studentId', () => {
     expect(res.body.evolutionByYear[0].subjects[0].sustainedDecline).toBe(true)
   })
 
-  it('suma faltas, conducta, decisiones y las reuniones con boletín de cada año', async () => {
+  it('suma faltas, decisiones y las reuniones con boletín de cada año (sin conducta de reunión)', async () => {
     prismaMock.student.findUnique.mockResolvedValue({ id: STUDENT_ID, firstName: 'Ana', lastName: 'B', documentId: null, email: null })
     prismaMock.studentEnrollment.findMany.mockResolvedValue([
       { schoolYearId: 'sy-1', schoolYear: { id: 'sy-1', code: 2026, label: '2026' }, courseOffering: { course: { name: '3 EMS', level: 'EMS' } }, orientation: null, courseOrientation: null, enrollmentStatus: 'ACTIVE' },
@@ -306,11 +306,6 @@ describe('GET /students/:studentId', () => {
     prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([
       { studentId: STUDENT_ID, status: 'ABSENT', absenceWeightHundredths: null, session: { occurrenceYmd: '2026-05-04' } },
       { studentId: STUDENT_ID, status: 'ABSENT_JUSTIFIED', absenceWeightHundredths: null, session: { occurrenceYmd: '2026-05-05' } },
-    ])
-    prismaMock.studentConductRecord.findMany.mockResolvedValue([
-      { periodId: 'p-2', valueHundredths: 900, period: { name: '2.º semestre', sortOrder: 20, schoolYearId: 'sy-1' } },
-      { periodId: 'p-1', valueHundredths: 300, period: { name: '1.er semestre', sortOrder: 10, schoolYearId: 'sy-1' } },
-      { periodId: 'p-x', valueHundredths: 300, period: { name: 'De otro año', sortOrder: 10, schoolYearId: 'sy-0' } },
     ])
     prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([
       { id: 'd-1', decision: 'Se cita a la familia.', createdAt: new Date('2026-06-10T12:00:00Z'), period: { name: '1.er semestre', schoolYearId: 'sy-1' }, createdBy: { name: 'Laura' } },
@@ -329,9 +324,9 @@ describe('GET /students/:studentId', () => {
     expect(year.schoolYearId).toBe('sy-1')
     // Bachillerato: la ausencia vale 1 y la justificada ½ (REEMS art. 53).
     expect(year.absences).toEqual({ absenceHundredths: 150, justified: 1 })
-    // En orden de la planilla y sólo los del año.
-    expect(year.conduct.map((c: any) => c.periodName)).toEqual(['1.er semestre', '2.º semestre'])
-    expect(year.conduct[0].label).toBe('3')
+    // La reunión no pone conducta propia: la ficha no la muestra ni la lee.
+    expect(year).not.toHaveProperty('conduct')
+    expect(prismaMock.studentConductRecord.findMany).not.toHaveBeenCalled()
     // Boletín sólo de las reuniones de boletín de su nivel: sin febrero ni las de EBI.
     expect(year.reportCardPeriods).toEqual([{ id: 'p-1', name: '1.er semestre' }])
     expect(res.body.decisions[0]).toMatchObject({ decision: 'Se cita a la familia.', periodName: '1.er semestre', createdByName: 'Laura' })
@@ -810,174 +805,12 @@ describe('ciclo archivado (RF-110, RF-111)', () => {
   })
 })
 
-describe('conducta institucional', () => {
-  const SY_ID = '11111111-1111-4111-8111-111111111111'
-  const P_ID = '22222222-2222-4222-8222-222222222222'
-  const S_ID = '33333333-3333-4333-8333-333333333333'
-
-  const CONDUCT_LEVELS = [100, 200, 300, 400].map((v, i) => ({
-    id: `c-${v}`,
-    label: ['Mala', 'Regular', 'Buena', 'Muy buena'][i],
-    minValueHundredths: v,
-    maxValueHundredths: v,
-  }))
-
-  beforeEach(() => {
-    prismaMock.$transaction.mockImplementation(async (ops: unknown[]) => ops)
-    prismaMock.studentConductRecord.upsert.mockResolvedValue({ id: 'c-1' })
-    prismaMock.studentConductRecord.findMany.mockResolvedValue([])
-    prismaMock.academicPeriod.findFirst.mockResolvedValue({ id: P_ID })
-    prismaMock.gradingScale.findFirst.mockResolvedValue({ levels: CONDUCT_LEVELS })
-  })
-
-  it('guarda una nota por estudiante y período', async () => {
-    // Es la conducta que adscripción lleva a la reunión: una sola, del liceo entero.
-    const res = await request(app())
-      .put('/admin/gradebook/conduct')
-      .set('Authorization', `Bearer ${tok()}`)
-      .send({
-        schoolYearId: SY_ID,
-        periodId: P_ID,
-        entries: [{ studentId: S_ID, valueHundredths: 300, notes: 'Mejoró mucho' }],
-      })
-
-    expect(res.status).toBe(200)
-    const call = prismaMock.studentConductRecord.upsert.mock.calls[0][0]
-    expect(call.where.studentId_periodId).toEqual({ studentId: S_ID, periodId: P_ID })
-    expect(call.update.valueHundredths).toBe(300)
-  })
-
-  it('exige el período al consultar', async () => {
-    const res = await request(app()).get('/admin/gradebook/conduct').set('Authorization', `Bearer ${tok()}`)
-    expect(res.status).toBe(400)
-  })
-
-  it('el período tiene que ser del ciclo indicado', async () => {
-    prismaMock.academicPeriod.findFirst.mockResolvedValue(null)
-    const res = await request(app())
-      .put('/admin/gradebook/conduct')
-      .set('Authorization', `Bearer ${tok()}`)
-      .send({ schoolYearId: SY_ID, periodId: P_ID, entries: [{ studentId: S_ID, valueHundredths: 300 }] })
-
-    expect(res.status).toBe(404)
-    expect(prismaMock.academicPeriod.findFirst.mock.calls[0][0].where).toEqual({ id: P_ID, schoolYearId: SY_ID })
-    expect(prismaMock.studentConductRecord.upsert).not.toHaveBeenCalled()
-  })
-
-  it('sólo acepta valores de la escala de conducta', async () => {
-    const res = await request(app())
-      .put('/admin/gradebook/conduct')
-      .set('Authorization', `Bearer ${tok()}`)
-      .send({ schoolYearId: SY_ID, periodId: P_ID, entries: [{ studentId: S_ID, valueHundredths: 250 }] })
-
-    expect(res.status).toBe(400)
-    expect(res.body.code).toBe('CONDUCT_OUT_OF_SCALE')
-    expect(prismaMock.studentConductRecord.upsert).not.toHaveBeenCalled()
-  })
-
-  it('borrar la conducta (null) siempre vale', async () => {
-    const res = await request(app())
-      .put('/admin/gradebook/conduct')
-      .set('Authorization', `Bearer ${tok()}`)
-      .send({ schoolYearId: SY_ID, periodId: P_ID, entries: [{ studentId: S_ID, valueHundredths: null }] })
-    expect(res.status).toBe(200)
-  })
-
-  it('acepta 10 y rechaza 11 aunque falte la escala de conducta', async () => {
-    prismaMock.gradingScale.findFirst.mockResolvedValue(null)
-    for (const [valueHundredths, status] of [[1000, 200], [1100, 400], [0, 400], [250, 400]]) {
-      const res = await request(app())
-        .put('/admin/gradebook/conduct')
-        .set('Authorization', `Bearer ${tok()}`)
-        .send({ schoolYearId: SY_ID, periodId: P_ID, entries: [{ studentId: S_ID, valueHundredths }] })
-      expect(res.status).toBe(status)
-    }
-  })
-
-  it('rechaza un cuerpo sin estudiantes', async () => {
-    const res = await request(app())
-      .put('/admin/gradebook/conduct')
-      .set('Authorization', `Bearer ${tok()}`)
-      .send({ schoolYearId: SY_ID, periodId: P_ID, entries: [] })
-
-    expect(res.status).toBe(400)
-    expect(prismaMock.studentConductRecord.upsert).not.toHaveBeenCalled()
-  })
-})
-
-describe('rendimiento de la reunión', () => {
-  const SY_ID = '11111111-1111-4111-8111-111111111111'
-  const P_ID = '22222222-2222-4222-8222-222222222222'
-  const S_ID = '33333333-3333-4333-8333-333333333333'
-  const put = (valueHundredths: number | null, role = 'ADMIN') =>
-    request(app())
-      .put('/admin/gradebook/meeting-performance')
-      .set('Authorization', `Bearer ${tok(role)}`)
-      .send({ schoolYearId: SY_ID, periodId: P_ID, studentId: S_ID, valueHundredths })
-
-  beforeEach(() => {
-    prismaMock.studentConductRecord.upsert.mockResolvedValue({ id: 'c-1' })
-    prismaMock.academicPeriod.findFirst.mockResolvedValue({ id: P_ID, level: 'EMS' })
-    prismaMock.gradingScale.findFirst.mockResolvedValue({ levels: LEVELS, minValueHundredths: 100, maxValueHundredths: 1200 })
-  })
-
-  it('guarda el rendimiento que elige la reunión sin tocar la conducta', async () => {
-    const res = await put(1100)
-
-    expect(res.status).toBe(200)
-    const call = prismaMock.studentConductRecord.upsert.mock.calls[0][0]
-    expect(call.where.studentId_periodId).toEqual({ studentId: S_ID, periodId: P_ID })
-    expect(call.update).toEqual({ performanceValueHundredths: 1100, updatedByUserId: 'a-1' })
-    expect(call.create).toMatchObject({ schoolYearId: SY_ID, periodId: P_ID, performanceValueHundredths: 1100 })
-  })
-
-  it('usa la escala del nivel del período', async () => {
-    await put(800)
-    expect(prismaMock.gradingScale.findFirst.mock.calls[0][0].where).toEqual({ code: 'NUMERICA_1_12' })
-  })
-
-  it.each([1300, 0, 750])('rechaza %i: fuera de la escala o con decimales', async (value) => {
-    const res = await put(value)
-    expect(res.status).toBe(400)
-    expect(res.body.code).toBe('PERFORMANCE_OUT_OF_SCALE')
-    expect(prismaMock.studentConductRecord.upsert).not.toHaveBeenCalled()
-  })
-
-  it('borrarlo (null) siempre vale', async () => {
-    const res = await put(null)
-    expect(res.status).toBe(200)
-    expect(prismaMock.studentConductRecord.upsert.mock.calls[0][0].update.performanceValueHundredths).toBeNull()
-  })
-
-  it('el período tiene que ser del ciclo indicado', async () => {
-    prismaMock.academicPeriod.findFirst.mockResolvedValue(null)
-    const res = await put(800)
-    expect(res.status).toBe(404)
-    expect(prismaMock.studentConductRecord.upsert).not.toHaveBeenCalled()
-  })
-
-  it('lo elige quien conduce la reunión, no el docente', async () => {
-    const res = await put(800, 'TEACHER')
-    expect(res.status).toBe(403)
-  })
-
-  it('500 en JSON si falla la base', async () => {
-    prismaMock.studentConductRecord.upsert.mockRejectedValue(new Error('db down'))
-    const res = await put(800)
-    expect(res.status).toBe(500)
-  })
-})
-
 describe('la matriz sirve para la reunión', () => {
   const matrixUrl = `/admin/gradebook/group-matrix?courseOfferingId=${OFFERING_ID}&periodId=${PERIOD_ID}`
 
-  it('trae rendimiento, conducta e inasistencias juntos', async () => {
-    // Es lo que se mira en la reunión: las tres cosas del estudiante a la vez.
+  it('trae las inasistencias, y nada de conducta ni rendimiento de la reunión: R y C son de cada materia', async () => {
     rosterMock.mockResolvedValue([
       { studentId: STUDENT_ID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
-    ])
-    prismaMock.studentConductRecord.findMany.mockResolvedValue([
-      { studentId: STUDENT_ID, valueHundredths: 300, performanceValueHundredths: 700 },
     ])
     prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([
       { studentId: STUDENT_ID, status: 'ABSENT', absenceWeightHundredths: null, session: { occurrenceYmd: '2026-05-04' } },
@@ -989,10 +822,12 @@ describe('la matriz sirve para la reunión', () => {
 
     expect(res.status).toBe(200)
     const row = res.body.students[0]
-    expect(row.conductValueHundredths).toBe(300)
-    // El rendimiento lo eligió la reunión; el promedio queda aparte, como referencia.
-    expect(row.performanceValueHundredths).toBe(700)
-    expect(res.body.performanceScale).toEqual({ minValueHundredths: 100, maxValueHundredths: 1200 })
+    // La reunión decide sólo el juicio del alumno.
+    expect(row).not.toHaveProperty('conductValueHundredths')
+    expect(row).not.toHaveProperty('performanceValueHundredths')
+    expect(res.body).not.toHaveProperty('performanceScale')
+    expect(res.body).not.toHaveProperty('conductLevels')
+    expect(prismaMock.studentConductRecord.findMany).not.toHaveBeenCalled()
     // 1 + 0,5 = 1,5 faltas
     expect(row.absenceHundredths).toBe(150)
   })
@@ -1642,6 +1477,8 @@ describe('GET /group-matrix/students/:studentId (panel del alumno en la reunión
     })
     expect(res.body.subjects[0].descriptor).toMatchObject({ label: 'Insuficiente' })
     expect(res.body.absences).toMatchObject({ hundredths: 100, whole: 1, unjustified: 1 })
+    // Administración puede corregir desde el panel.
+    expect(res.body.canCorrect).toBe(true)
     // Las marcas son sólo del alumno pedido.
     expect(prismaMock.studentAttendanceEntry.findMany.mock.calls[0][0].where.studentId).toBe(STUDENT_ID)
   })
@@ -1683,6 +1520,13 @@ describe('GET /group-matrix/students/:studentId (panel del alumno en la reunión
   it('parámetros inválidos dan 400', async () => {
     const res = await request(app()).get(url('no-es-un-id')).set('Authorization', `Bearer ${tok()}`)
     expect(res.status).toBe(400)
+  })
+
+  it('Dirección lo ve pero no corrige', async () => {
+    scopeMock.mockImplementation(async (_user: string, permission: string) => (permission === 'gradebook.manage' ? null : 'all'))
+    const res = await request(app()).get(url()).set('Authorization', `Bearer ${tok('DIRECCION', 'd-1')}`)
+    expect(res.status).toBe(200)
+    expect(res.body.canCorrect).toBe(false)
   })
 
   it('un docente no lo abre', async () => {
