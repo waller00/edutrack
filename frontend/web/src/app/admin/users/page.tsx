@@ -641,7 +641,7 @@ function AdminUsersPageContent() {
               onClick={applyFilters}
               className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400"
             >
-              Aplicar filtros
+              Aplicar filtro
             </button>
             <button
               type="button"
