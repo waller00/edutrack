@@ -543,7 +543,7 @@ function AdminUsersPageContent() {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') applyFilters()
                   }}
-                  placeholder="Correo, usuario, nombre o apellido"
+                  placeholder=" Buscar por: Correo, usuario, nombre o apellido"
                   className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50/80 py-2 pl-9 pr-3 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                 />
               </div>
