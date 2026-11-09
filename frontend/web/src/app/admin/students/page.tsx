@@ -7,6 +7,8 @@ import RoleGuard from '@/components/auth/RoleGuard'
 import PaginationControls from '@/components/common/PaginationControls'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { api } from '@/lib/api/client'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
@@ -46,6 +48,8 @@ type PendingAction =
 
 export default function AdminStudentsPage() {
   const syCtx = useOptionalAdminSchoolYear()
+  // Mensualidades es un permiso aparte: Dirección y Adscripción gestionan estudiantes sin los pagos.
+  const canTuition = hasPermission(useOptionalAuth()?.me, 'tuition.manage', 'all')
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
   const coursePickerQuery = syCtx?.schoolYearScopedQuery ?? schoolYearQuery
   const selectedSchoolYearId = syCtx ? syCtx.selectedId ?? syCtx.activeId : null
@@ -327,10 +331,12 @@ export default function AdminStudentsPage() {
           id="students"
           actions={
             <>
-              <Link href="/admin/tuition" className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-100">
-                <Receipt className="h-4 w-4" aria-hidden />
-                Mensualidades
-              </Link>
+              {canTuition && (
+                <Link href="/admin/tuition" className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-100">
+                  <Receipt className="h-4 w-4" aria-hidden />
+                  Mensualidades
+                </Link>
+              )}
               <button type="button" data-tour="students.new" onClick={openCreate} className="btn-primary shrink-0">
                 <Plus className="h-4 w-4" aria-hidden />
                 Nuevo estudiante

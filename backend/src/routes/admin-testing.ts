@@ -11,9 +11,11 @@ import {
 
 const r = Router()
 r.use(authGuard)
-// Autorización unificada por permiso (no por rol): solo perfiles con
-// settings.manage:all (por defecto, ADMIN) acceden a las herramientas de prueba.
+// Autorización unificada por permiso (no por rol). Borran o reinician datos de todo el sistema: no
+// alcanza con configurarlo (`settings.manage`, que Secretaría también tiene), piden además
+// administrar los perfiles (`profiles.manage`), que es sólo de Administración.
 r.use(requirePermission('settings.manage', 'all'))
+r.use(requirePermission('profiles.manage', 'all'))
 
 function testingDisabled(res: any) {
   return res.status(403).json({

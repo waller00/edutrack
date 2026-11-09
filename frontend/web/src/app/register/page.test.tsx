@@ -87,7 +87,7 @@ describe('RegisterPage', () => {
 
     await screen.findByText('Crear Cuenta')
     const options = [...(document.querySelector('#register-role') as HTMLSelectElement).options].map((o) => o.value)
-    expect(options).toEqual(['', 'TEACHER', 'STAFF', 'ADSCRIPTO', 'DIRECCION'])
+    expect(options).toEqual(['', 'TEACHER', 'STAFF', 'ADSCRIPTO', 'DIRECCION', 'SECRETARIA'])
   })
 
   it('revela los errores por campo al intentar crear la cuenta con el formulario vacío', async () => {

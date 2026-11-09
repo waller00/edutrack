@@ -686,7 +686,7 @@ describe('PUT /:id/assessments/:assessmentId/grades', () => {
     expect(saveGradesMock).toHaveBeenCalled()
   })
 
-  it('dirección y adscripción no cargan notas: no tienen gradebook.grade', async () => {
+  it('dirección y adscripción cargan notas como administración: tienen todo lo de libretas', async () => {
     scopeMock.mockResolvedValue('all')
 
     for (const role of ['DIRECCION', 'ADSCRIPTO']) {
@@ -694,8 +694,19 @@ describe('PUT /:id/assessments/:assessmentId/grades', () => {
         .put(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
         .set('Authorization', `Bearer ${tok(role, `${role}-1`)}`)
         .send({ entries, reason: 'reclamo del estudiante' })
-      expect(res.status, role).toBe(403)
+      expect(res.status, role).toBe(200)
     }
+    expect(saveGradesMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('secretaría no carga notas: no tiene nada de las libretas', async () => {
+    scopeMock.mockResolvedValue('all')
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades`)
+      .set('Authorization', `Bearer ${tok('SECRETARIA', 'sec-1')}`)
+      .send({ entries, reason: 'reclamo del estudiante' })
+    expect(res.status).toBe(403)
     expect(saveGradesMock).not.toHaveBeenCalled()
   })
 
@@ -2745,13 +2756,13 @@ describe('planilla del liceo: tramos y entregas', () => {
     expect(res.body.data.body).toBe('Buen grupo.')
   })
 
-  it('Dirección no escribe el informe del grupo', async () => {
+  it('Secretaría no escribe el informe del grupo: las libretas no son suyas', async () => {
     readyForClosure({ state: OPEN_STATE })
     prismaMock.academicPeriod.findFirst.mockResolvedValue(ENTREGA)
 
     const res = await request(app())
       .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/group-report`)
-      .set('Authorization', `Bearer ${tok('DIRECCION', 'd-1')}`)
+      .set('Authorization', `Bearer ${tok('SECRETARIA', 'sec-1')}`)
       .send({ body: 'Lo escribo yo' })
 
     expect(res.status).toBe(403)

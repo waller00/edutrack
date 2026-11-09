@@ -2,12 +2,17 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import StudentFormModal from './StudentFormModal'
 import { emptyStudentDraft, type StudentFormState } from './student-types'
+import { useOptionalAuth } from '@/contexts/AuthContext'
 
 vi.mock('./StudentPhotoField', () => ({
   default: () => <div>foto</div>,
   initialsOf: () => 'DA',
 }))
 vi.mock('./StudentEnrollmentHistoryPanel', () => ({ default: () => <div>panel de historial</div> }))
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: vi.fn() }))
+/** Quien abre la ficha: por defecto carga adecuaciones (Dirección); Secretaría no. */
+const asViewer = (permissions: Array<{ id: string; scope: 'own' | 'all' }>) =>
+  vi.mocked(useOptionalAuth).mockReturnValue({ me: { id: 'u1', role: 'X', permissions } } as unknown as ReturnType<typeof useOptionalAuth>)
 const { flushMock } = vi.hoisted(() => ({ flushMock: vi.fn() }))
 vi.mock('./StudentAccommodationsPanel', async () => {
   const { forwardRef, useImperativeHandle } = await import('react')
@@ -23,6 +28,10 @@ const onSave = vi.fn()
 const onPatch = vi.fn()
 const onClose = vi.fn()
 const onMoodleAction = vi.fn()
+
+beforeEach(() => {
+  asViewer([{ id: 'students.manage', scope: 'all' }, { id: 'students.accommodations', scope: 'all' }])
+})
 
 function form(over: Partial<StudentFormState> = {}): StudentFormState {
   return { id: 's1', ...emptyStudentDraft(), ...over }
@@ -282,6 +291,13 @@ describe('trayectoria y adecuaciones', () => {
 
     await waitFor(() => expect(flushMock).toHaveBeenCalled())
     expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it('sin el permiso de adecuaciones (Secretaría) la ficha no tiene esa pestaña', () => {
+    asViewer([{ id: 'students.manage', scope: 'all' }])
+    setup(editProps, VALID)
+    expect(screen.queryByRole('tab', { name: 'Adecuaciones' })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Trayectoria' })).toBeInTheDocument()
   })
 
   it('al crear no hay pestañas: la trayectoria se carga después', () => {

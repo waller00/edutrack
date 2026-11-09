@@ -12,6 +12,8 @@ export function getRoleLabel(role?: string | null): string {
       return 'Adscripto'
     case 'DIRECCION':
       return 'Dirección'
+    case 'SECRETARIA':
+      return 'Secretaría'
     case 'INSPECCION':
       return 'Inspección'
     default:
@@ -19,7 +21,7 @@ export function getRoleLabel(role?: string | null): string {
   }
 }
 
-export type SelectableRole = 'TEACHER' | 'STAFF' | 'ADMIN' | 'STUDENT' | 'ADSCRIPTO' | 'DIRECCION'
+export type SelectableRole = 'TEACHER' | 'STAFF' | 'ADMIN' | 'STUDENT' | 'ADSCRIPTO' | 'DIRECCION' | 'SECRETARIA'
 
 export function getRoleOptionLabel(role: SelectableRole | ''): string {
   if (!role) return 'Seleccioná un perfil'

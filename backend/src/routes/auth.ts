@@ -77,7 +77,7 @@ const registerSchema = z.object({
   // Los perfiles que puede pedir quien se registra solo. Administrador nunca: lo asigna un admin.
   // El mensaje no lista los válidos: el de zod se los enumeraba a cualquiera que probara otro.
   role: z
-    .enum(["STAFF", "TEACHER", "ADSCRIPTO", "DIRECCION"], { errorMap: () => ({ message: "Elegí un perfil válido." }) })
+    .enum(["STAFF", "TEACHER", "ADSCRIPTO", "DIRECCION", "SECRETARIA"], { errorMap: () => ({ message: "Elegí un perfil válido." }) })
     .optional(),
   ssoRegistrationToken: z.string().min(20).max(128).optional(),
 });

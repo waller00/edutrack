@@ -97,9 +97,16 @@ export function reopenedNotification(params: {
   }
 }
 
+/** Quién corrige, dicho como oficina: Dirección y Adscripción también corrigen desde la reunión. */
+export function correctorOffice(roleCode: string | undefined): string {
+  if (roleCode === 'DIRECCION') return 'Dirección'
+  if (roleCode === 'ADSCRIPTO') return 'Adscripción'
+  return 'Administración'
+}
+
 /**
- * Administración corrigió una nota de la libreta desde la reunión, sin reabrirla. El docente se
- * entera de qué cambió, de quién y por qué: la libreta es suya.
+ * Administración, Dirección o Adscripción corrigió una nota de la libreta desde la reunión, sin
+ * reabrirla. El docente se entera de qué cambió, de quién y por qué: la libreta es suya.
  */
 export function correctedNotification(params: {
   subjectName: string
@@ -108,10 +115,12 @@ export function correctedNotification(params: {
   what: string
   reason: string
   gradeBookId: string
+  /** Quién corrigió (`correctorOffice`); sin él, Administración. */
+  by?: string
 }): GradeBookNotification {
   return {
     type: 'GRADEBOOK_GRADE_CORRECTED',
-    title: `Administración corrigió ${params.what} de ${params.studentName}`,
+    title: `${params.by ?? 'Administración'} corrigió ${params.what} de ${params.studentName}`,
     body: `${params.subjectName} · ${params.periodName}. Motivo: ${excerpt(params.reason)}`,
     actionUrl: `/libreta/${params.gradeBookId}/evaluaciones`,
   }

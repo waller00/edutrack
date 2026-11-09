@@ -800,7 +800,7 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
     const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
     const q = req.query as Record<string, unknown>;
     const where = buildAdminAttendanceWhere(q)
-    await attachResolvedSchoolYearToAttendanceWhere(prisma, where, q, req.user?.role ?? 'ADMIN')
+    await attachResolvedSchoolYearToAttendanceWhere(prisma, where, q, req.user?.role ?? 'ADMIN', true)
 
     if (wantsIncidentRows(q)) {
       const incidentWhere = buildAdminAttendanceIncidentWhere(q, where)
@@ -1194,14 +1194,14 @@ r.post('/:id/justify', authGuard, requirePermission('attendance.update', 'all'),
 
 // Eliminar todas las asistencias que coinciden con el filtro. Borra historial de liquidación sin
 // vuelta atrás: es una herramienta de pruebas y sólo existe donde lo están.
-r.delete('/purge-all', authGuard, requirePermission('attendance.delete', 'all'), async (_req, res) => {
+r.delete('/purge-all', authGuard, requirePermission('attendance.delete', 'all'), requirePermission('profiles.manage', 'all'), async (_req, res) => {
   if (!isAdminTestingToolsEnabled()) {
     return res.status(403).json({ message: 'Herramienta de pruebas deshabilitada en este entorno.' })
   }
   try {
     const q = _req.query as Record<string, unknown>
     const where = buildAdminAttendanceWhere(q)
-    await attachResolvedSchoolYearToAttendanceWhere(prisma, where, q, _req.user?.role ?? 'ADMIN')
+    await attachResolvedSchoolYearToAttendanceWhere(prisma, where, q, _req.user?.role ?? 'ADMIN', true)
     const matches = await prisma.attendance.findMany({
       where,
       select: { id: true },
@@ -1248,8 +1248,8 @@ r.delete('/:id', authGuard, requirePermission('attendance.delete', 'all'), async
 
 async function buildAttendanceStatsWhereAsync(query: Record<string, unknown>, user: { role: string; sub: string }) {
   const where = buildAdminAttendanceWhere(query)
-  await attachResolvedSchoolYearToAttendanceWhere(prisma, where, query, user.role)
   const scope = await userPermissionScope(user.sub, 'attendance.read', user.role)
+  await attachResolvedSchoolYearToAttendanceWhere(prisma, where, query, user.role, scope === 'all')
   if (scope !== 'all') {
     where.userId = user.sub
   }

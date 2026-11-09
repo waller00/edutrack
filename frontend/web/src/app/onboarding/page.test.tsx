@@ -76,6 +76,49 @@ describe('OnboardingPage', () => {
     expect(mockedApi.mock.calls.some(([url]) => String(url).includes('/auth/profile'))).toBe(false)
   })
 
+  /** El cuerpo que mandó `PUT /auth/profile`. */
+  function profileBody() {
+    const call = mockedApi.mock.calls.find(([url]) => String(url).includes('/auth/profile'))
+    return JSON.parse(String((call?.[1] as RequestInit | undefined)?.body))
+  }
+
+  it('una cuenta aprobada (la creó Administración o Secretaría) completa sus datos sin mandar perfil', async () => {
+    // El servidor no deja que una cuenta aprobada se cambie el perfil: mandarlo era un 403.
+    respond(() => ({}), baseMeResponse({ role: 'TEACHER', isApproved: true }))
+    render(<OnboardingPage />)
+    await screen.findByText('Completa tu registro')
+    expect(screen.queryByLabelText('Perfil')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Guardar y enviar a validación/ }))
+
+    await waitFor(() => expect(mockedApi.mock.calls.some(([url]) => String(url).includes('/auth/profile'))).toBe(true))
+    expect(profileBody()).not.toHaveProperty('role')
+  })
+
+  it('una cuenta pendiente que pidió Secretaría no pasa a Personal al completar sus datos', async () => {
+    respond(() => ({}), baseMeResponse({ role: 'SECRETARIA', isApproved: false }))
+    render(<OnboardingPage />)
+    await screen.findByText('Completa tu registro')
+    expect(screen.queryByLabelText('Perfil')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Guardar y enviar a validación/ }))
+
+    await waitFor(() => expect(mockedApi.mock.calls.some(([url]) => String(url).includes('/auth/profile'))).toBe(true))
+    expect(profileBody()).not.toHaveProperty('role')
+  })
+
+  it('una cuenta pendiente de Docente o Personal todavía elige entre los dos', async () => {
+    respond(() => ({}), baseMeResponse({ role: 'STAFF', isApproved: false }))
+    render(<OnboardingPage />)
+    await screen.findByText('Completa tu registro')
+    fireEvent.change(screen.getByLabelText('Perfil'), { target: { value: 'TEACHER' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Guardar y enviar a validación/ }))
+
+    await waitFor(() => expect(mockedApi.mock.calls.some(([url]) => String(url).includes('/auth/profile'))).toBe(true))
+    expect(profileBody().role).toBe('TEACHER')
+  })
+
   it('muestra error 409 al guardar perfil duplicado', async () => {
     respond(() => {
       throw Object.assign(new Error('409 Conflict'), { message: '409 username taken' })

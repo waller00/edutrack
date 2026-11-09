@@ -22,6 +22,7 @@ const {
       update: vi.fn(),
       findUniqueOrThrow: vi.fn(),
       delete: vi.fn(),
+      count: vi.fn(),
     },
     assessmentGrade: { count: vi.fn() },
     periodGrade: { count: vi.fn() },
@@ -713,10 +714,10 @@ describe('adecuaciones', () => {
     })
   })
 
-  it('Dirección no llega al resto de la ficha por el permiso de adecuaciones', async () => {
+  it('el docente no llega a la ficha', async () => {
     const res = await request(app())
       .get(`/admin/students/${STUDENT_ID}`)
-      .set('Authorization', `Bearer ${tok('DIRECCION')}`)
+      .set('Authorization', `Bearer ${tok('TEACHER', 'teacher-1')}`)
 
     expect(res.status).toBe(403)
   })
@@ -730,6 +731,72 @@ describe('adecuaciones', () => {
     expect(res.status).toBe(403)
     expect(prismaMock.studentAccommodation.create).not.toHaveBeenCalled()
   })
+})
+
+describe('mensualidades: un permiso aparte de la matrícula', () => {
+  const PAID_MONTH = {
+    studentId: STUDENT_ID,
+    id: 'tm-1',
+    schoolYearId: 'sy-1',
+    year: 2026,
+    month: 3,
+    paid: true,
+    paidAt: new Date('2026-03-05T12:00:00Z'),
+    amountCents: 250000,
+    notes: null,
+    createdAt: new Date('2026-03-05T12:00:00Z'),
+    updatedAt: new Date('2026-03-05T12:00:00Z'),
+  };
+  const PAID_YEAR = { ...PAID_MONTH, id: 'ty-1', month: undefined };
+
+  beforeEach(() => {
+    prismaMock.student.findUnique.mockResolvedValue(studentRow({ tuitionYears: [PAID_YEAR] }));
+    prismaMock.$queryRaw.mockResolvedValue([PAID_MONTH]);
+  });
+
+  it('Dirección abre la ficha, pero sin las cuotas', async () => {
+    const res = await request(app())
+      .get(`/admin/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok('DIRECCION', 'dir-1')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.firstName).toBe('Ana');
+    expect(res.body.tuitionYears).toEqual([]);
+    expect(res.body.tuitionMonths).toEqual([]);
+  });
+
+  it('Secretaría ve las cuotas en la ficha', async () => {
+    const res = await request(app())
+      .get(`/admin/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok('SECRETARIA', 'sec-1')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.tuitionMonths).toHaveLength(1);
+    expect(res.body.tuitionYears).toHaveLength(1);
+  });
+
+  it('Dirección no puede mandar cuotas al guardar un estudiante', async () => {
+    const res = await request(app())
+      .put(`/admin/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok('DIRECCION', 'dir-1')}`)
+      .send({ firstName: 'Ana', tuitionMonths: [] });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('TUITION_FORBIDDEN');
+    expect(prismaMock.student.update).not.toHaveBeenCalled();
+  });
+
+  it('a Dirección los filtros por cuota no le aplican', async () => {
+    prismaMock.student.count.mockResolvedValue(0);
+    prismaMock.student.findMany.mockResolvedValue([]);
+    const res = await request(app())
+      .get('/admin/students?tuitionYear=2026&tuitionMonth=3&tuitionPaid=false')
+      .set('Authorization', `Bearer ${tok('DIRECCION', 'dir-1')}`);
+
+    expect(res.status).toBe(200);
+    // Sin el permiso no se consulta ninguna cuota: ni para filtrar ni para la vista previa.
+    expect(prismaMock.$queryRaw).not.toHaveBeenCalled();
+  });
 })
 
 describe('materias bajas', () => {

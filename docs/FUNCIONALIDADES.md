@@ -39,15 +39,16 @@ EduTrack es una **plataforma de gestión administrativa integral** orientada a i
 
 | Código | Etiqueta habitual | Uso principal |
 |--------|-------------------|---------------|
-| `ADMIN` | Administrador | Gestión completa del sistema, **incluida la edición de las libretas**; sin "Mi trabajo" |
+| `ADMIN` | Administrador | Todo, **incluida la edición de las libretas**; único perfil con **auditoría** y **Roles / Perfiles**; sin "Mi trabajo" |
 | `TEACHER` | Docente | Su agenda, pase de lista y libretas; sus asistencias y licencias |
 | `STAFF` | Personal | Sólo "Mi trabajo": sus asistencias y sus licencias |
-| `ADSCRIPTO` | Adscripto | Ve todo el centro; observa las libretas, **no las edita ni visa** |
-| `DIRECCION` | Dirección | Ve todo el centro; único rol que **visa** libretas, **no las edita** |
+| `DIRECCION` | Dirección | **Todo lo de libretas y estudiantes, salvo las mensualidades**: edita, cierra, reabre, corrige y **visa**. Del personal, sólo lo suyo |
+| `ADSCRIPTO` | Adscripto | Lo mismo que Dirección, **salvo visar** |
+| `SECRETARIA` | Secretaría | **Control del personal**, matrícula y **mensualidades**, ciclos lectivos y cursos, y **configuración del sistema**. Sin libretas, ni asistencia ni indicadores de estudiantes |
 | `STUDENT` | Estudiante | Rol reconocido en modelo; **sin panel operativo** en home (lista vacía) |
 | Perfiles personalizados | Configurables | Matriz de permisos editable por administrador |
 
-> **Nota:** Los roles built-in de permisos son **ADMIN, TEACHER, STAFF, ADSCRIPTO y DIRECCION**. Inspección se retiró: no se lista y el arranque la borra en cuanto queda sin usuarios. `STUDENT` existe en el modelo pero sin panel operativo. No hay rol `PADRE` ni `DOCENTE` (ese era nomenclatura antigua).
+> **Nota:** Los roles built-in de permisos son **ADMIN, TEACHER, STAFF, ADSCRIPTO, DIRECCION y SECRETARIA**. Inspección se retiró: no se lista y el arranque la borra en cuanto queda sin usuarios. `STUDENT` existe en el modelo pero sin panel operativo. No hay rol `PADRE` ni `DOCENTE` (ese era nomenclatura antigua).
 
 > **Por qué built-in y no perfiles personalizados:** que el visado quede sólo en Dirección y que
 > nadie más pueda tocarlo es una regla del reglamento, no una preferencia de configuración.
@@ -71,8 +72,31 @@ Los permisos se expresan como `módulo.acción` con alcance **`own`** (solo lo p
 
 **Docente y staff (por defecto):** lectura de propias asistencias, eventos, licencias y notificaciones.
 
+**Qué ve cada perfil del liceo** (09/11/2026; los grupos son los del menú, §18):
+
+| Grupo | Administración | Dirección | Adscripción | Secretaría | Docente | Personal |
+|-------|:-:|:-:|:-:|:-:|:-:|:-:|
+| Mi trabajo (lo propio) | — | Sí | Sí | Sí | Sí | Sí |
+| Personal (asistencia, licencias, agenda, usuarios, indicadores, exportaciones) | Sí | No | No | Sí | No | No |
+| Estudiantes: matrícula | Sí | Sí | Sí | Sí | No | No |
+| Estudiantes: asistencia, justificativos, adecuaciones e indicadores | Sí | Sí | Sí | No | Su pase de lista | No |
+| Mensualidades (`tuition.manage`) | Sí | No | No | Sí | No | No |
+| Académico: ciclos lectivos y cursos | Sí | No | No | Sí | No | No |
+| Libretas: ver, editar, cerrar, reabrir, corregir, exportar y configurar | Sí | Sí | Sí | No | Las suyas | No |
+| Visar libretas (`gradebook.endorse`) | Sí | Sí | No | No | No | No |
+| Configuración del sistema | Sí | No | No | Sí | No | No |
+| Roles / Perfiles y Auditoría | Sí | No | No | No | No | No |
+
+Dirección, Adscripción y Secretaría están **fijos permiso por permiso**: cada uno se fuerza o se
+apaga al arrancar (`ENFORCED_PROFILE_PERMISSION_SCOPES` y `REVOKED_PROFILE_PERMISSION_IDS`), así la
+base de producción dice exactamente esto aunque esos perfiles se hayan editado a mano. La auditoría
+y la configuración del sistema también quedan apagadas y fijas en el resto de los perfiles.
+Secretaría edita usuarios pero no se cambia su propio perfil (`OWN_ROLE_CHANGE`), ni nadie promueve
+a Administrador desde Usuarios. Las herramientas de prueba (vaciar la base, borrar toda la agenda o
+toda la asistencia) piden además `profiles.manage`: son sólo de Administración.
+
 Los administradores pueden **crear perfiles personalizados** y asignar permisos adicionales o distintos desde **Roles / Perfiles**.
-Lo que fija el sistema en un perfil del sistema (por ejemplo, que Dirección no califica o que
+Lo que fija el sistema en un perfil del sistema (por ejemplo, que Adscripción no visa o que
 Administración edita las libretas) se muestra fijo, con su motivo, y no se puede cambiar; los
 perfiles del sistema tampoco se renombran.
 
@@ -173,7 +197,10 @@ Registro **sin login obligatorio** del alumnado:
 - Contacto, tutor, dirección, notas de acceso al liceo.
 - Vencimiento de ficha médica.
 - Estados de matrícula: activo, retirado, egresado, transferido.
-- **Cuotas**: seguimiento anual y/o mensual (pagado, monto, notas).
+- **Cuotas**: seguimiento anual y/o mensual (pagado, monto, notas), en **Mensualidades**
+  (`/admin/tuition`), con su propio permiso (`tuition.manage`: Administración y Secretaría). Dirección
+  y Adscripción gestionan la matrícula sin ver los pagos: la ficha y la lista no les traen cuotas, y
+  mandarlas al guardar es 403 (`TUITION_FORBIDDEN`).
 - Filtros por ciclo lectivo y curso.
 
 **Pantalla estudiante con cuenta:** `/student/attendance` (consulta limitada si el usuario tiene rol STUDENT y permisos).
@@ -439,7 +466,7 @@ sólo para quien ve las de todos) y `/libreta/[id]`, que abre el Libro del Profe
 - **Docente titular:** `planificacion`, `desarrollo`, `evaluaciones` y `cierre`. Lo que Dirección
   le observó en el visado lo ve en *Cierre de períodos*, en el panel de esa reunión. La libreta ya
   no tiene sección de mensajes: la supervisión le escribe por la mensajería 1 a 1.
-- **Supervisión** (Dirección, adscripción, inspección): las mismas cuatro, de sólo lectura, y
+- **Supervisión** (Administración, Dirección y Adscripción): las mismas cuatro, que también editan, y
   **Revisión y visado** (`visado`): de a una reunión cerrada, primero lo que cerró el docente (C, R
   y juicio de cada alumno, informe del grupo, y si dio lo que planificó: planificación al lado del
   desarrollo clase a clase) y abajo la decisión: visar, hacer una observación o reabrir. También
@@ -492,9 +519,9 @@ todavía no se habilita, está cerrado o reabierto, y si al alumno le falta comp
   dicta qué sólo existe en el horario. Es idempotente, sólo reescribe el titular si cambió, no
   revive libretas archivadas y respeta la oferta del ciclo (un curso no ofertado no genera
   libretas). El resumen avisa las clases sin asignatura o curso, que no generan libreta.
-- **Acceso:** el titular, y por un tiempo el suplente que cubrió alguna de sus clases. Adscripción
-  y Dirección leen todas las del centro pero **no** califican: leer y escribir son permisos
-  distintos (`gradebook.read` vs `gradebook.grade`). Administración lee y edita todas.
+- **Acceso:** el titular, y por un tiempo el suplente que cubrió alguna de sus clases.
+  Administración, Dirección y Adscripción leen y editan todas las del centro (`gradebook.read` y
+  `gradebook.grade` con alcance `all`); Secretaría no tiene libretas.
 - **Acceso del suplente: provisorio y sólo a lo suyo.**
   - Dura desde su primera clase cubierta hasta **7 días después de la última**. Después la libreta
     desaparece de "Mis libretas" y no la puede abrir. La tarjeta y la libreta dicen hasta cuándo.
@@ -506,11 +533,10 @@ todavía no se habilita, está cerrado o reabierto, y si al alumno le falta comp
     y las puede corregir como las suyas.
 - **Calificar y planificar también son permisos distintos.** `gradebook.grade` cubre evaluaciones,
   notas y juicios conceptuales; `gradebook.plan`, la planificación y el desarrollo del curso.
-  **Dirección y Adscripción no tienen ninguno de los dos:** ven la libreta, Dirección la visa y
-  Adscripción la observa, y le avisan al docente lo que está mal cargado, pero no la editan. Como
-  la autorización lee los permisos de la base, esos permisos se les apagan solos al arrancar
-  (`REVOKED_PROFILE_PERMISSION_IDS`). **Administración tiene los dos** (y cierra y reabre
-  períodos): corrige cualquier libreta. Las pantallas lo respetan (`access.canGrade` y
+  **Administración, Dirección y Adscripción tienen los dos** (y cierran y reabren períodos):
+  corrigen cualquier libreta; además Dirección la visa y Adscripción la observa. Hasta el
+  09/11/2026 Dirección y Adscripción la veían sin editarla; como la autorización lee los permisos de
+  la base, el arranque se los prende (`ENFORCED_PROFILE_PERMISSION_SCOPES`). Las pantallas lo respetan (`access.canGrade` y
   `access.canPlan` en `GET /gradebook/:id`). Si administración corrige la planificación de otro,
   queda en la auditoría (`GRADEBOOK_PLANNING_UPDATED`) y la planificación muestra quién la modificó
   por última vez. Un registro del desarrollo se corrige en la misma fila
@@ -655,11 +681,12 @@ todavía no se habilita, está cerrado o reabierto, y si al alumno le falta comp
       agrupadas por tramo** (con «No rindió» y «Sin nota»), la R, la C, el juicio del docente y
       las faltas a la materia en esta reunión y en el año. Esas cuentan cada clase una vez: no son
       las del boletín.
-    - **Administración corrige ahí mismo** una nota, la R, la C o el juicio del docente, aunque la
-      libreta esté cerrada y sin reabrirla (`/admin/gradebook/corrections`): con motivo
-      obligatorio, queda en el historial como corrección de administración, en la auditoría, y al
-      docente le llega el aviso con el motivo. Después se relee el alumno y la matriz (la R cambia
-      el promedio y las alertas). Dirección y Adscripción no ven «Corregir».
+    - **Administración, Dirección y Adscripción corrigen ahí mismo** una nota, la R, la C o el
+      juicio del docente, aunque la libreta esté cerrada y sin reabrirla
+      (`/admin/gradebook/corrections`): con motivo obligatorio, queda en el historial como
+      corrección, en la auditoría, y al docente le llega el aviso con el motivo y quién corrigió
+      («Dirección corrigió la R de…», `correctorOffice`). Después se relee el alumno y la matriz (la
+      R cambia el promedio y las alertas). El docente y Secretaría no ven «Corregir».
     - «Anterior / Siguiente» recorre la lista que deja el filtro; si el alumno salió del filtro (se
       le escribió el juicio con «Sin juicio»), sigue desde su lugar.
     - Sólo `gradebook.read` `all` (no el docente), y una cantidad fija de consultas por alumno sin
@@ -1105,7 +1132,7 @@ Documentado en detalle en `docs/REPORTES.md`.
 ## 15. Auditoría
 
 **Pantalla:** `/admin/audit`  
-**Permiso:** `audit.read`
+**Permiso:** `audit.read` (**sólo Administración**: en los demás perfiles del sistema queda apagado y fijo)
 
 - Registro de acciones relevantes (quién, qué, cuándo, metadatos).
 - Consulta desde la interfaz de auditoría.
@@ -1115,7 +1142,8 @@ Documentado en detalle en `docs/REPORTES.md`.
 
 ## 16. Configuración del sistema
 
-**Pantalla:** `/admin/settings`
+**Pantalla:** `/admin/settings` \
+**Permiso:** `settings.manage` (Administración y Secretaría)
 
 Secciones:
 
@@ -1264,6 +1292,9 @@ Funcionalidades **no** implementadas:
 | **Visitante** | Registrarse (queda pendiente de aprobación), verificar email, recuperar contraseña |
 | **Usuario pendiente** | Completar perfil; sin módulos operativos hasta aprobación |
 | **Administrador** | Todo lo anterior + usuarios, asistencias, eventos, licencias, académico, reportes, analítica, consultas, auditoría, configuración, perfiles |
+| **Dirección** | Todo lo de libretas y estudiantes (salvo mensualidades), incluido visar; del personal, sólo lo suyo |
+| **Adscripción** | Lo mismo que Dirección, salvo visar |
+| **Secretaría** | Control del personal, matrícula y mensualidades, ciclos lectivos y cursos, configuración del sistema |
 | **Docente / Staff** | Ver propias asistencias, eventos, licencias; notificaciones; **pasar lista de sus clases** |
 | **Estudiante** | Sin cuenta ni login. Es un registro administrativo: su matrícula, cuotas y asistencia las gestionan administración y sus docentes |
 | **Dispositivo biométrico** | Enviar fichadas ADMS autenticadas |

@@ -37,16 +37,45 @@ describe('onboarding por permisos reales', () => {
     expect(steps.some((step) => step.module.id === 'staff-attendance')).toBe(false)
   })
 
-  it('Dirección puede visar y Adscripción observar, sin indicarles que editen notas', () => {
+  it('Dirección y Adscripción recorren las libretas y los estudiantes; sólo Dirección visa', () => {
     for (const role of ['ADSCRIPTO', 'DIRECCION'] as const) {
       const steps = onboardingSteps(profile(role))
+      // Ni el personal (sólo lo suyo en «Mi trabajo»), ni ciclos y cursos, ni mensualidades,
+      // configuración del sistema o auditoría.
+      expect(steps.map((step) => step.module.id)).toEqual([
+        'profile', 'gradebook-config', 'students', 'my-agenda', 'gradebooks', 'student-attendance',
+        'gradebook-control', 'teachers-meeting', 'student-indicators', 'my-attendance', 'my-licenses', 'messages',
+      ])
       const books = steps.find((step) => step.module.id === 'gradebooks')!
       const control = steps.find((step) => step.module.id === 'gradebook-control')!
-      expect(books.actions.join(' ')).not.toMatch(/Registrar evaluaciones|Cargar planificación|cerrar un período/)
+      expect(books.actions.join(' ')).toMatch(/Registrar evaluaciones/)
+      expect(books.actions.join(' ')).toMatch(/Cargar planificación/)
       expect(control.actions.join(' ')).toContain('observaciones')
+      expect(control.actions.join(' ')).toContain('Reabrir')
       expect(control.actions.some((text) => text.includes('Visar'))).toBe(role === 'DIRECCION')
-      expect(steps.find((step) => step.module.id === 'staff-attendance')?.actions).toEqual([])
-      expect(steps.find((step) => step.module.id === 'student-attendance')?.actions.join(' ')).toContain('justificativos')
+      expect(steps.find((step) => step.module.id === 'teachers-meeting')?.actions.join(' ')).toContain('Corregir')
+      const studentAttendance = steps.find((step) => step.module.id === 'student-attendance')?.actions.join(' ')
+      expect(studentAttendance).toContain('justificativos')
+      expect(studentAttendance).toContain('Listas sin pasar')
+    }
+  })
+
+  it('Secretaría recorre el personal, la matrícula y las mensualidades, ciclos, cursos y la configuración', () => {
+    const steps = onboardingSteps(profile('SECRETARIA'))
+    expect(steps.map((step) => step.module.id)).toEqual([
+      'profile', 'school-years', 'courses', 'users', 'students', 'agenda', 'my-agenda', 'my-attendance',
+      'my-licenses', 'staff-attendance', 'staff-licenses', 'staff-indicators', 'tuition', 'messages', 'settings',
+    ])
+    expect(steps.find((step) => step.module.id === 'tuition')?.actions.join(' ')).toContain('pagos')
+    expect(steps.find((step) => step.module.id === 'staff-attendance')?.actions.join(' ')).toContain('sueldos')
+    expect(steps.find((step) => step.module.id === 'users')?.actions.join(' ')).toContain('Crear cuentas')
+  })
+
+  it('la auditoría sólo aparece en la guía de Administración; la configuración, también en la de Secretaría', () => {
+    for (const role of BUILTIN_PROFILE_ROLES) {
+      const ids = onboardingSteps(profile(role)).map((step) => step.module.id)
+      expect(ids.includes('audit'), role).toBe(role === 'ADMIN')
+      expect(ids.includes('settings'), role).toBe(role === 'ADMIN' || role === 'SECRETARIA')
     }
   })
 

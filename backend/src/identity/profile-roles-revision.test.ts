@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
  * Revisiones de perfiles que tienen que llegar a una base de producción que ya tiene sus filas:
- * Dirección y Adscripción ven todo el centro (20/10/2026), Administración vuelve a editar las
- * libretas (25/10/2026) e Inspección se retira.
+ * Administración vuelve a editar las libretas (25/10/2026), Dirección y Adscripción tienen todo lo
+ * de libretas y estudiantes y del personal sólo lo suyo, aparece Secretaría (09/11/2026) e
+ * Inspección se retira.
  */
 
 const { prismaMock } = vi.hoisted(() => ({
@@ -16,6 +17,7 @@ const { prismaMock } = vi.hoisted(() => ({
 vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
 
 import { enforceProfilePermissionScopes } from './profile-permissions-repository.js'
+import { ENFORCED_PROFILE_PERMISSION_SCOPES } from './profile-permissions-defaults.js'
 import { ensureBuiltinOrgRoles } from './org-role-seed.js'
 
 describe('enforceProfilePermissionScopes', () => {
@@ -32,20 +34,36 @@ describe('enforceProfilePermissionScopes', () => {
     }))
   }
 
-  it('sube a "all" la asistencia, la agenda y las licencias de Dirección y Adscripción', async () => {
+  it('a Dirección y Adscripción les deja lo suyo del personal y les prende libretas y estudiantes', async () => {
     await enforceProfilePermissionScopes(prismaMock as never)
 
     for (const role of ['DIRECCION', 'ADSCRIPTO']) {
+      // Antes veían la asistencia, la agenda y las licencias de todos: ahora, sólo las suyas.
       for (const permission of ['attendance.read', 'events.read', 'licenses.read']) {
+        expect(calls()).toContainEqual({ role, permission, data: { enabled: true, scope: 'OWN' } })
+      }
+      for (const permission of ['gradebook.grade', 'gradebook.plan', 'gradebook.manage', 'students.manage', 'academic-config.manage']) {
         expect(calls()).toContainEqual({ role, permission, data: { enabled: true, scope: 'ALL' } })
       }
+    }
+    expect(calls()).toContainEqual({ role: 'DIRECCION', permission: 'gradebook.endorse', data: { enabled: true, scope: 'ALL' } })
+    expect(calls().some((c) => c.role === 'ADSCRIPTO' && c.permission === 'gradebook.endorse')).toBe(false)
+  })
+
+  it('a Secretaría le prende el personal, la matrícula, las mensualidades, lo académico y la configuración', async () => {
+    await enforceProfilePermissionScopes(prismaMock as never)
+
+    for (const permission of ['users.update', 'attendance.update', 'events.create', 'tuition.manage', 'courses.manage', 'settings.manage']) {
+      expect(calls()).toContainEqual({ role: 'SECRETARIA', permission, data: { enabled: true, scope: 'ALL' } })
     }
   })
 
   it('le prende a Administración la edición de las libretas y sus avisos', async () => {
     const updated = await enforceProfilePermissionScopes(prismaMock as never)
 
-    expect(updated).toBe(10)
+    // Una fila por permiso forzado (el mock cuenta 1 en cada una).
+    const enforced = Object.values(ENFORCED_PROFILE_PERMISSION_SCOPES).reduce((n, grants) => n + Object.keys(grants ?? {}).length, 0)
+    expect(updated).toBe(enforced)
     for (const permission of ['gradebook.grade', 'gradebook.plan', 'gradebook.close']) {
       expect(calls()).toContainEqual({ role: 'ADMIN', permission, data: { enabled: true, scope: 'ALL' } })
     }

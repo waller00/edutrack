@@ -138,8 +138,10 @@ docker compose up -d --build auth  # rebuild solo el backend
 
 > **El registro público (`POST /auth/register`) nunca da ADMIN.** Un ADMIN nace únicamente del
 > bootstrap; nunca agregarlo al esquema del registro (la lista de usuarios oculta a los ADMIN, así que
-> una cuenta así ni se ve). Dirección y Adscripto sí se piden, y ven todo el centro: "Aprobar" nombra
-> el perfil y lo advierte (`approvalConfirmMessage`). El registro tiene su propio rate limit por IP y
+> una cuenta así ni se ve). Dirección, Adscripto y Secretaría sí se piden, y ven datos de todo el
+> centro: "Aprobar" nombra el perfil y dice qué ve (`approvalConfirmMessage`). Quien edita usuarios
+> sin ser ADMIN (Secretaría) no se cambia su propio perfil (`OWN_ROLE_CHANGE`) ni toca la cuenta de
+> Administración (pide `profiles.manage`). El registro tiene su propio rate limit por IP y
 > sus errores no enumeran los perfiles válidos. `keycloak-apply-realm-settings.sh` apaga en cada
 > deploy el password grant de los clientes públicos del realm (`admin-cli`).
 
@@ -171,7 +173,9 @@ docker compose up -d --build auth  # rebuild solo el backend
 > **Borrar físicamente sólo lo que no tiene historial.** Estudiantes con notas, asistencias o cuotas
 > pagas (`STUDENT_HAS_HISTORY`), ciclos con libretas y orientaciones en uso (se desactivan) no se
 > borran: las cascadas se llevaban escolaridad, listas y libretas. `DELETE /events/purge-all` y
-> `/attendance/purge-all` son herramientas de pruebas (`isAdminTestingToolsEnabled`).
+> `/attendance/purge-all` son herramientas de pruebas (`isAdminTestingToolsEnabled`) y, como
+> `/admin/testing`, piden además `profiles.manage`: Secretaría configura el sistema y borra agenda y
+> asistencia, pero vaciar datos de pruebas es sólo de Administración.
 
 > **Un usuario con historial no se borra: se da de baja.** Borrarlo arrastra en cascada su
 > asistencia, sus licencias y los eventos que creó (con ellos, listas de estudiantes y suplencias).
@@ -306,19 +310,26 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 
 > **`gradebook.grade` y `gradebook.plan` son permisos distintos a propósito.** El primero cubre
 > evaluaciones, notas y juicios conceptuales; el segundo, planificación y desarrollo del curso.
-> **Editan la libreta el docente (lo suyo, `own`) y Administración (todas, `all`).** `grade`, `plan`
-> y `close`; Administración además reabre un período (`gradebook.manage`) y corrige fuera de plazo,
-> y lo que escribe quien no es el docente queda auditado como corrección. **Dirección y Adscripción
-> la ven y no la editan**: Dirección visa, Adscripción observa (el arranque les apaga grade, plan,
-> close y manage). Para sacarle un permiso a un rol que ya lo tiene en producción no alcanza con
-> los defaults: la autorización lee la base, así que va en `REVOKED_PROFILE_PERMISSION_IDS` (con su
-> motivo). Prender uno apagado o cambiar el **alcance** de uno que ya existe tampoco llega (el sync
-> sólo crea filas faltantes): va en `ENFORCED_PROFILE_PERMISSION_SCOPES`.
+> **Editan la libreta el docente (lo suyo, `own`) y Administración, Dirección y Adscripción (todas,
+> `all`).** `grade`, `plan` y `close`, reabrir un período (`gradebook.manage`) y corregir fuera de
+> plazo; lo que escribe quien no es el docente queda auditado como corrección. **Visar es sólo de
+> Dirección** (y Administración): Adscripción observa. Secretaría no tiene libretas. Para sacarle un
+> permiso a un rol que ya lo tiene en producción no alcanza con los defaults: la autorización lee la
+> base, así que va en `REVOKED_PROFILE_PERMISSION_IDS` (con su motivo). Prender uno apagado o
+> cambiar el **alcance** de uno que ya existe tampoco llega (el sync sólo crea filas faltantes): va
+> en `ENFORCED_PROFILE_PERMISSION_SCOPES`.
 
-> **Perfiles:** Administrador; Docente; **Personal** (`STAFF`, no docente: sólo sus ingresos y sus
-> licencias); **Dirección** y **Adscripción** ven todo el centro como Administración pero sólo
-> editan lo suyo (visar / justificar). Inspección se retiró (`RETIRED_ORG_ROLE_CODES`): no se lista
-> y el arranque la borra en cuanto queda sin usuarios. Los "Mis …" del menú (agenda, asistencias,
+> **Perfiles (09/11/2026):** Administrador (todo; único con **Auditoría** y **Roles / Perfiles**);
+> Docente; **Personal** (`STAFF`, no docente: sólo sus ingresos y sus licencias); **Dirección**:
+> todo lo de libretas y estudiantes salvo las mensualidades, y visa; del personal sólo lo suyo, y
+> sin ciclos lectivos ni cursos; **Adscripción**: lo mismo que Dirección salvo visar;
+> **Secretaría** (`SECRETARIA`): control del personal, matrícula y mensualidades (no la asistencia
+> ni los indicadores de estudiantes), ciclos lectivos, cursos y configuración del sistema.
+> Dirección, Adscripción y Secretaría están **fijos permiso por permiso** (cada uno en `ENFORCED_…`
+> o `REVOKED_…`, con su motivo; `gradebook-permissions.test.ts` exige que no quede ninguno sin
+> decidir): al cambiar uno de esos perfiles, moverlo de lista, no tocar sólo la matriz. Auditoría y
+> configuración del sistema quedan apagadas y fijas en los demás. Inspección se retiró
+> (`RETIRED_ORG_ROLE_CODES`): no se lista y el arranque la borra en cuanto queda sin usuarios. Los "Mis …" del menú (agenda, asistencias,
 > licencias) no fijan alcance: quien ve todo conserva lo propio. **La cuenta de Administración no
 > tiene "Mi trabajo"** (es la del sistema) y **Personal ve en el menú sólo "Mi trabajo"**: quien
 > no puede abrir nada más que lo suyo no recibe Inicio ni Configuración (`visibleNavGroups`); los
@@ -361,8 +372,14 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 
 > **Exportar libretas y boletines es `gradebook.export`, no `exports.create`.** `exports.create`
 > con alcance `all` abre también `/exports`: asistencia del personal y novedades de sueldos. Sólo
-> administración lo tiene; Dirección y Adscripción exportan libretas con `gradebook.export` (`all`)
-> y cada docente las suyas (`own`, acotado por `loadContext`).
+> Administración y Secretaría lo tienen; Dirección y Adscripción exportan libretas con
+> `gradebook.export` (`all`) y cada docente las suyas (`own`, acotado por `loadContext`).
+
+> **Mensualidades es `tuition.manage`, no `students.manage`** (Administración y Secretaría).
+> Dirección y Adscripción gestionan la matrícula sin ver los pagos: `/admin/students` no les trae
+> cuotas en la lista ni en la ficha y mandarlas al guardar es 403 (`TUITION_FORBIDDEN`). El
+> catálogo de cursos que usa la matrícula lo leen por `students.manage` (`requireCatalogRead` en
+> `routes/courses.ts`), sin tener el módulo Cursos.
 
 > **C = conducta, R = rendimiento. La nota oficial es R.** C es la conducta en la asignatura
 > (`PeriodGrade.conductValueHundredths`, escala `CONDUCTA`); R, el rendimiento que pone el docente
@@ -475,14 +492,15 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > «cargando» (antes se perdía lo que se escribía para otro alumno) y el panel pregunta antes de
 > salir con un juicio sin guardar.
 
-> **Administración corrige desde la reunión sin reabrir** (`routes/admin-gradebook-corrections.ts`,
-> `/admin/gradebook/corrections`): una nota de una evaluación, o la R, la C o el juicio del docente
-> de un alumno, aunque la libreta esté cerrada. Es la única excepción al período cerrado
-> (`assessmentWritePermissions` sigue congelándolo para todos): sólo `gradebook.manage` y
-> `gradebook.grade` con alcance `all`, motivo obligatorio, revisión con origen `ADMIN_CORRECTION` y el
-> motivo (`GradeRevision.reason`, `PeriodGradeRevision.reason`), auditoría `GRADE_CORRECTED` y aviso
-> al docente (`GRADEBOOK_GRADE_CORRECTED`). El estado del período no cambia; un ciclo cerrado
-> (`ARCHIVED`) sigue de sólo lectura. Dirección y Adscripción no corrigen.
+> **Administración, Dirección y Adscripción corrigen desde la reunión sin reabrir**
+> (`routes/admin-gradebook-corrections.ts`, `/admin/gradebook/corrections`): una nota de una
+> evaluación, o la R, la C o el juicio del docente de un alumno, aunque la libreta esté cerrada. Es
+> la única excepción al período cerrado (`assessmentWritePermissions` sigue congelándolo para todos):
+> sólo `gradebook.manage` y `gradebook.grade` con alcance `all`, motivo obligatorio, revisión con
+> origen `ADMIN_CORRECTION` y el motivo (`GradeRevision.reason`, `PeriodGradeRevision.reason`),
+> auditoría `GRADE_CORRECTED` y aviso al docente (`GRADEBOOK_GRADE_CORRECTED`) que dice quién
+> corrigió (`correctorOffice`). El estado del período no cambia; un ciclo cerrado (`ARCHIVED`) sigue
+> de sólo lectura.
 
 > **Se visa dentro de la libreta, después de mirarla.** El paso Visado de Control es una bandeja
 > (estado en palabras, `reviewState`) con "Revisar", que abre `/libreta/:id/visado?reunion=`:
@@ -543,6 +561,8 @@ y `lib/messages/`.
 > (`services/student-indicators/trajectory.ts`): sin fallo cargado, lo dice la matrícula del año
 > siguiente. Los routers montados con alcance `all` le pasan `institutionWide` a
 > `resolveSchoolYearIdForList`: sin eso, Dirección y Adscripción veían siempre el ciclo activo.
+> Nada de `role === 'ADMIN'` para decidir qué se ve: Secretaría gestiona cursos, ciclos y personal
+> como Administración (en `routes/courses.ts` lo decide `catalogViewer` por permisos).
 
 > **Nombres, descripciones, íconos y permisos de cada sección salen de
 > `lib/navigation/modules.ts`.** Lo usan el menú (agrupado por destinatario: Mi trabajo, Personal,

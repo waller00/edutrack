@@ -136,9 +136,13 @@ describe('approvalConfirmMessage', () => {
     expect(msg).toBe('¿Aprobar a Ana Rey como Docente? Le va a llegar un correo avisándole.')
   })
 
-  it.each(['DIRECCION', 'ADSCRIPTO'])('avisa que %s ve todo el centro', (role) => {
+  it.each([
+    ['DIRECCION', 'las libretas y los estudiantes de todo el centro'],
+    ['ADSCRIPTO', 'las libretas y los estudiantes de todo el centro'],
+    ['SECRETARIA', 'el personal, la matrícula y las mensualidades de todo el centro'],
+  ])('avisa qué ve %s de todo el centro', (role, scope) => {
     const msg = approvalConfirmMessage(u({ id: '1', email: 'a@x.com', firstName: 'Ana', lastName: 'Rey', role }))
-    expect(msg).toContain('ve todo el centro')
+    expect(msg).toContain(scope)
     expect(msg).toContain('Revisar')
   })
 })

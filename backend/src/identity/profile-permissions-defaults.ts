@@ -6,6 +6,7 @@ export const ROLE_LABELS = {
   STAFF: 'Personal',
   ADSCRIPTO: 'Adscripto',
   DIRECCION: 'Dirección',
+  SECRETARIA: 'Secretaría',
 } as const
 
 /** Claves para las que existe matriz canónica en código (seed). */
@@ -39,35 +40,42 @@ function perm(
   return { id, module, action, label, enabled, scope }
 }
 
-/**
- * Lo que Dirección y Adscripción ven, igual que Administración: todo el centro, sólo lectura.
- * Crear o editar (usuarios, horario, licencias, cursos, configuración) sigue siendo de
- * Administración, y `exports.create` también: con alcance all abre sueldos y asistencia del personal.
- * Los "Mis …" del menú aceptan alcance all, así que no pierden sus asistencias, agenda ni licencias.
+/*
+ * Los permisos se arman por grupo, como el menú: Mi trabajo, Personal, Estudiantes, Académico,
+ * Libretas y Configuración. Cada perfil del liceo es una suma de grupos (09/11/2026):
+ *
+ * - Administración: todo.
+ * - Dirección: todo lo de libretas y estudiantes, salvo las mensualidades. El control del personal
+ *   no le incumbe (ve lo suyo en "Mi trabajo"), y ciclos lectivos y cursos tampoco.
+ * - Adscripción: lo mismo que Dirección, salvo visar.
+ * - Secretaría: el control del personal; de estudiantes, la matrícula y las mensualidades (no su
+ *   asistencia ni sus indicadores); ciclos lectivos y cursos, y la configuración del sistema.
+ * - La auditoría es sólo de Administración.
  */
-function supervisionReadAll(): DefaultProfilePermission[] {
+
+/** "Mi trabajo": la agenda, las asistencias y las licencias propias. */
+function ownWork(): DefaultProfilePermission[] {
   return [
-    perm('users.read', 'Usuarios', 'read', 'Ver usuarios', true, 'all'),
-    perm('attendance.read', 'Asistencia del personal', 'read', 'Ver asistencia del personal', true, 'all'),
-    perm('events.read', 'Agenda y clases', 'read', 'Ver eventos', true, 'all'),
-    perm('licenses.read', 'Licencias', 'read', 'Ver licencias', true, 'all'),
-    perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
-    perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
-    perm('analytics.read', 'Indicadores del personal', 'read', 'Ver indicadores del personal', true, 'all'),
-    perm('reports.read', 'Reportes', 'read', 'Ver reportes', true, 'all'),
-    perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
-    perm('gradebook.read', 'Libreta', 'read', 'Ver libretas del centro', true, 'all'),
-    perm('academic-analytics.read', 'Rendimiento académico', 'read', 'Ver rendimiento académico', true, 'all'),
-    perm('student-attendance.read', 'Asistencia de estudiantes', 'read', 'Ver el pase de lista del centro', true, 'all'),
-    perm('student-reports.read', 'Reportes de estudiantes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
-    perm('audit.read', 'Auditoría', 'read', 'Ver auditoría', true, 'all'),
+    perm('attendance.read', 'Asistencia del personal', 'read', 'Ver mis asistencias', true, 'own'),
+    perm('events.read', 'Agenda y clases', 'read', 'Ver mis eventos', true, 'own'),
+    perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
   ]
 }
 
-// TEACHER y STAFF ("Personal") ya no comparten matriz: Personal es el funcionario no docente
-// (limpieza, administración) y sólo ve sus ingresos y sus licencias.
-export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly DefaultProfilePermission[]> = {
-  ADMIN: [
+/** Avisos y mensajería: cada uno lo suyo, en todos los perfiles. */
+function personalTools(): DefaultProfilePermission[] {
+  return [
+    perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
+    perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
+  ]
+}
+
+/**
+ * Personal: cuentas, asistencia, licencias, horario e indicadores de docentes y funcionarios.
+ * `exports.create` va acá: con alcance all abre la asistencia del personal y las novedades de sueldos.
+ */
+function staffControl(): DefaultProfilePermission[] {
+  return [
     perm('users.read', 'Usuarios', 'read', 'Ver usuarios', true, 'all'),
     perm('users.create', 'Usuarios', 'create', 'Crear usuarios', true, 'all'),
     perm('users.update', 'Usuarios', 'update', 'Editar usuarios', true, 'all'),
@@ -87,42 +95,92 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('analytics.read', 'Indicadores del personal', 'read', 'Ver indicadores del personal', true, 'all'),
     perm('reports.read', 'Reportes', 'read', 'Ver reportes', true, 'all'),
     perm('exports.create', 'Exportaciones', 'create', 'Crear exportaciones', true, 'all'),
+  ]
+}
+
+/** Académico: los ciclos lectivos y los cursos, con sus asignaturas y orientaciones. */
+function academicStructure(): DefaultProfilePermission[] {
+  return [
     perm('school-years.manage', 'Ciclos lectivos', 'manage', 'Gestionar ciclos lectivos', true, 'all'),
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
     perm('courses.manage', 'Cursos', 'manage', 'Gestionar cursos y materias', true, 'all'),
-    perm('students.manage', 'Estudiantes', 'manage', 'Gestionar estudiantes', true, 'all'),
+  ]
+}
+
+/** La matrícula: datos, contactos y acceso al aula virtual de cada estudiante. */
+function studentsManage(): DefaultProfilePermission {
+  return perm('students.manage', 'Estudiantes', 'manage', 'Gestionar estudiantes', true, 'all')
+}
+
+/**
+ * Mensualidades: cuotas y pagos. Es un permiso aparte de la matrícula: Dirección y Adscripción
+ * gestionan estudiantes sin ver los pagos (la ficha no les trae las cuotas).
+ */
+function tuitionManage(): DefaultProfilePermission {
+  return perm('tuition.manage', 'Mensualidades', 'manage', 'Gestionar cuotas y pagos de estudiantes', true, 'all')
+}
+
+/** El seguimiento de los estudiantes: adecuaciones, pase de lista, justificativos e indicadores. */
+function studentFollowUp(): DefaultProfilePermission[] {
+  return [
     perm('students.accommodations', 'Estudiantes', 'accommodations', 'Cargar adecuaciones', true, 'all'),
-    perm('academic-config.manage', 'Configuración académica', 'manage', 'Gestionar escalas, períodos y tipos de actividad', true, 'all'),
-    perm('gradebook.read', 'Libreta', 'read', 'Ver libretas', true, 'all'),
-    // Administración edita todo, también la libreta del docente: notas, C y R, juicios,
-    // planificación, desarrollo y cierre. Lo que escribe quien no es el docente queda auditado
-    // como corrección (`periodGradeOrigin`, `isSupervisorWrite`).
-    perm('gradebook.grade', 'Libreta', 'grade', 'Calificar en las libretas', true, 'all'),
-    perm('gradebook.plan', 'Libreta', 'plan', 'Planificar y registrar el desarrollo en las libretas', true, 'all'),
-    perm('gradebook.close', 'Libreta', 'close', 'Cerrar los períodos de las libretas', true, 'all'),
-    perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
-    perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all'),
-    perm('gradebook.inspect', 'Libreta', 'inspect', 'Consultar libretas y registrar visitas de inspección', true, 'all'),
-    perm('gradebook.manage', 'Libreta', 'manage', 'Reabrir períodos cerrados (con motivo)', true, 'all'),
-    perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
-    perm('academic-analytics.read', 'Rendimiento académico', 'read', 'Ver rendimiento académico', true, 'all'),
-    perm('student-reports.read', 'Reportes de estudiantes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
     perm('student-attendance.take', 'Asistencia de estudiantes', 'take', 'Pasar lista de clases', true, 'all'),
     perm('student-attendance.read', 'Asistencia de estudiantes', 'read', 'Ver pase de lista', true, 'all'),
     perm('student-attendance.justify', 'Asistencia de estudiantes', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
     perm('student-attendance.manage', 'Asistencia de estudiantes', 'manage', 'Controlar y justificar el pase de lista', true, 'all'),
-    perm('settings.manage', 'Configuración', 'manage', 'Gestionar configuración del sistema', true, 'all'),
+    perm('student-reports.read', 'Reportes de estudiantes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
+    perm('academic-analytics.read', 'Rendimiento académico', 'read', 'Ver rendimiento académico', true, 'all'),
+  ]
+}
+
+/**
+ * Libretas, salvo el visado: verlas, editarlas (notas, C y R, juicios, planificación, desarrollo y
+ * cierre), controlarlas, reabrir sus períodos, exportarlas y configurarlas. Lo que escribe quien no
+ * es el docente queda auditado como corrección (`periodGradeOrigin`, `isSupervisorWrite`).
+ * Libretas y boletines van con `gradebook.export` y no con `exports.create`, que abre sueldos.
+ */
+function gradebookWork(): DefaultProfilePermission[] {
+  return [
+    perm('gradebook.read', 'Libreta', 'read', 'Ver libretas', true, 'all'),
+    perm('gradebook.grade', 'Libreta', 'grade', 'Calificar en las libretas', true, 'all'),
+    perm('gradebook.plan', 'Libreta', 'plan', 'Planificar y registrar el desarrollo en las libretas', true, 'all'),
+    perm('gradebook.close', 'Libreta', 'close', 'Cerrar los períodos de las libretas', true, 'all'),
+    perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
+    perm('gradebook.inspect', 'Libreta', 'inspect', 'Consultar libretas y registrar visitas de inspección', true, 'all'),
+    perm('gradebook.manage', 'Libreta', 'manage', 'Reabrir períodos cerrados (con motivo)', true, 'all'),
+    perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
+    perm('academic-config.manage', 'Configuración académica', 'manage', 'Gestionar escalas, períodos y tipos de actividad', true, 'all'),
+  ]
+}
+
+/** Visar es de Dirección: es un permiso y no un `if` en una ruta (nota funcional del pliego). */
+function gradebookEndorse(): DefaultProfilePermission {
+  return perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all')
+}
+
+function settingsManage(): DefaultProfilePermission {
+  return perm('settings.manage', 'Configuración', 'manage', 'Gestionar configuración del sistema', true, 'all')
+}
+
+// TEACHER y STAFF ("Personal") ya no comparten matriz: Personal es el funcionario no docente
+// (limpieza, administración) y sólo ve sus ingresos y sus licencias.
+export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly DefaultProfilePermission[]> = {
+  ADMIN: [
+    ...staffControl(),
+    ...academicStructure(),
+    studentsManage(),
+    tuitionManage(),
+    ...studentFollowUp(),
+    ...gradebookWork(),
+    gradebookEndorse(),
+    settingsManage(),
     perm('audit.read', 'Auditoría', 'read', 'Ver auditoría', true, 'all'),
     perm('profiles.manage', 'Perfiles', 'manage', 'Gestionar perfiles', true, 'all'),
-    perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
-    perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
+    ...personalTools(),
   ],
   TEACHER: [
-    perm('attendance.read', 'Asistencia del personal', 'read', 'Ver mis asistencias', true, 'own'),
-    perm('events.read', 'Agenda y clases', 'read', 'Ver mis eventos', true, 'own'),
-    perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
-    perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
-    perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
+    ...ownWork(),
+    ...personalTools(),
     perm('student-attendance.take', 'Asistencia de estudiantes', 'take', 'Pasar lista de mis clases', true, 'own'),
     perm('student-attendance.read', 'Asistencia de estudiantes', 'read', 'Ver el pase de lista de mis clases', true, 'own'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver mis libretas', true, 'own'),
@@ -135,40 +193,22 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
   STAFF: [
     perm('attendance.read', 'Asistencia del personal', 'read', 'Ver mis asistencias', true, 'own'),
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
-    perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
-    perm('messaging.use', 'Mensajería', 'use', 'Enviar y recibir mensajes', true, 'own'),
+    ...personalTools(),
   ],
-  // Adscripto: ve todo el centro como Administración; controla y observa las libretas y justifica
-  // faltas, pero NO visa ni edita la libreta del docente.
-  ADSCRIPTO: [
-    ...supervisionReadAll(),
-    perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
-    // Libretas y boletines van con un permiso propio y no con `exports.create`: ese, con alcance
-    // all, abre también `/exports`, donde están la asistencia del personal y las novedades de sueldos.
-    perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
-    // Justificar es trabajo de adscripción, no del docente. Se le da el permiso acotado y no
-    // `student-attendance.manage`, que además habilita reabrir listas ya cerradas.
-    perm('student-attendance.justify', 'Asistencia de estudiantes', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
-    // Adecuaciones sin `students.manage`: las carga desde la hoja del alumno en la libreta.
-    perm('students.accommodations', 'Estudiantes', 'accommodations', 'Cargar adecuaciones', true, 'all'),
-  ],
-  // Dirección: ve todo el centro como Administración y es el único rol con `gradebook.endorse`.
-  // Ese permiso, y no un `if` en una ruta, es lo que cumple la nota funcional del pliego ("el
-  // visado formal corresponde al rol Director").
-  //
-  // Sin `gradebook.grade`, `gradebook.close`, `gradebook.plan` ni `gradebook.manage` (se apagan en
-  // `REVOKED_PROFILE_PERMISSION_IDS`): el director ve la libreta del docente y la visa, pero no la
-  // edita. Si algo está mal cargado, lo observa o le escribe.
-  DIRECCION: [
-    ...supervisionReadAll(),
-    perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
-    perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
-    perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all'),
-    // En ciclo básico dirección también justifica faltas, previa o posteriormente. Igual que
-    // adscripción: el permiso acotado, sin `manage`.
-    perm('student-attendance.justify', 'Asistencia de estudiantes', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
-    // Adecuaciones sin `students.manage`: las carga desde la hoja del alumno en la libreta.
-    perm('students.accommodations', 'Estudiantes', 'accommodations', 'Cargar adecuaciones', true, 'all'),
+  // Dirección: todo lo de libretas y estudiantes, salvo las mensualidades; es el único perfil, con
+  // Administración, que visa. Del personal, sólo lo suyo.
+  DIRECCION: [...ownWork(), ...personalTools(), ...gradebookWork(), gradebookEndorse(), studentsManage(), ...studentFollowUp()],
+  // Adscripción: lo mismo que Dirección, salvo visar.
+  ADSCRIPTO: [...ownWork(), ...personalTools(), ...gradebookWork(), studentsManage(), ...studentFollowUp()],
+  // Secretaría: el control del personal, la matrícula y las mensualidades, ciclos lectivos y cursos,
+  // y la configuración del sistema. Ni libretas, ni asistencia ni indicadores de los estudiantes.
+  SECRETARIA: [
+    ...staffControl(),
+    studentsManage(),
+    tuitionManage(),
+    ...academicStructure(),
+    settingsManage(),
+    ...personalTools(),
   ],
 } as const
 
@@ -183,19 +223,47 @@ function revoke(ids: readonly string[], reason: string): Record<string, string> 
   return Object.fromEntries(ids.map((id) => [id, reason]))
 }
 
+const idsOf = (perms: readonly DefaultProfilePermission[]) => perms.map((p) => p.id)
+
 /** Escribir en la libreta: notas, C y R, juicios, planificación, desarrollo y cierre. */
 const GRADEBOOK_EDIT_PERMISSION_IDS = ['gradebook.grade', 'gradebook.plan', 'gradebook.close'] as const
 
-/** Lo que la supervisión no hace sobre la libreta del docente: tampoco reabrir un período. */
-const SUPERVISION_GRADEBOOK_WRITE_IDS = [...GRADEBOOK_EDIT_PERMISSION_IDS, 'gradebook.manage'] as const
+/** Lo propio de "Mi trabajo": quien no controla al personal lo ve con alcance own. */
+const OWN_WORK_IDS = idsOf(ownWork())
 
-const SUPERVISION_SEES_ALL_IDS = ['attendance.read', 'events.read', 'licenses.read'] as const
+/** El grupo Personal, salvo lo propio de "Mi trabajo". */
+const STAFF_CONTROL_ONLY_IDS = idsOf(staffControl()).filter((id) => !OWN_WORK_IDS.includes(id))
+
+const ACADEMIC_STRUCTURE_IDS = idsOf(academicStructure())
+const STUDENT_FOLLOW_UP_IDS = idsOf(studentFollowUp())
+const GRADEBOOK_WORK_IDS = idsOf(gradebookWork())
+
+/** Lo que fija la política en todos los perfiles que no son Administración. */
+const AUDIT_ONLY_ADMIN = revoke(['audit.read'], 'La auditoría es sólo de Administración.')
+const PROFILES_ONLY_ADMIN = revoke(['profiles.manage'], 'Los perfiles los gestiona sólo Administración.')
+const SETTINGS_SECRETARIA_ADMIN = revoke(['settings.manage'], 'La configuración del sistema es de Secretaría y Administración.')
+
+const OWN_WORK_REASON = 'Del personal ve sólo lo suyo, en «Mi trabajo»: el control del personal es de Secretaría.'
+
+/** Lo que Dirección y Adscripción no tienen: el personal, lo académico y las mensualidades. */
+const SUPERVISION_REVOKED: Readonly<Record<string, string>> = {
+  ...revoke(STAFF_CONTROL_ONLY_IDS, 'El control del personal es de Secretaría y Administración.'),
+  ...revoke(ACADEMIC_STRUCTURE_IDS, 'Los ciclos lectivos y los cursos los gestionan Secretaría y Administración.'),
+  ...revoke(['tuition.manage'], 'Las mensualidades son de Secretaría y Administración.'),
+  ...SETTINGS_SECRETARIA_ADMIN,
+  ...AUDIT_ONLY_ADMIN,
+  ...PROFILES_ONLY_ADMIN,
+}
 
 /**
  * Permisos que el arranque **fuerza** en bases existentes, con su alcance. El sync de defaults sólo
  * crea los permisos que faltan (`update: {}`): cambiar el alcance de uno que ya existe en la matriz
  * no llega a producción. Lo que se agregue acá pisa lo que haya en esa fila (habilitado + alcance),
  * y en Roles / Perfiles se muestra fijo, con su motivo: si no, el cambio se perdía al arrancar.
+ *
+ * Dirección, Adscripción y Secretaría quedan fijos permiso por permiso (09/11/2026): cada uno se
+ * fuerza o se apaga (`REVOKED_PROFILE_PERMISSION_IDS`). Así la base de producción dice lo que pidió
+ * el liceo aunque esos perfiles se hayan editado a mano antes.
  */
 export const ENFORCED_PROFILE_PERMISSION_SCOPES: Partial<Record<BuiltinProfileRole, Readonly<Record<string, EnforcedGrant>>>> = {
   // Administración edita todo, también la libreta (25/10/2026). Hasta entonces se le apagaba.
@@ -203,9 +271,30 @@ export const ENFORCED_PROFILE_PERMISSION_SCOPES: Partial<Record<BuiltinProfileRo
     ...enforce(GRADEBOOK_EDIT_PERMISSION_IDS, 'all', 'Administración edita todo, también las libretas.'),
     ...enforce(['notifications.read'], 'own', 'Todos los perfiles ven sus propios avisos.'),
   },
-  // Dirección y Adscripción pasaron de ver lo propio a ver todo el centro (20/10/2026).
-  DIRECCION: enforce(SUPERVISION_SEES_ALL_IDS, 'all', 'Dirección ve todo el centro, como Administración.'),
-  ADSCRIPTO: enforce(SUPERVISION_SEES_ALL_IDS, 'all', 'Adscripción ve todo el centro, como Administración.'),
+  // Hasta el 25/10/2026 Dirección y Adscripción veían la libreta sin editarla, y hasta el 09/11/2026
+  // veían también todo el personal.
+  DIRECCION: {
+    ...enforce(OWN_WORK_IDS, 'own', OWN_WORK_REASON),
+    ...enforce(
+      [...GRADEBOOK_WORK_IDS, 'gradebook.endorse', 'students.manage', ...STUDENT_FOLLOW_UP_IDS],
+      'all',
+      'Dirección tiene todo lo de libretas y estudiantes, salvo las mensualidades.',
+    ),
+  },
+  ADSCRIPTO: {
+    ...enforce(OWN_WORK_IDS, 'own', OWN_WORK_REASON),
+    ...enforce(
+      [...GRADEBOOK_WORK_IDS, 'students.manage', ...STUDENT_FOLLOW_UP_IDS],
+      'all',
+      'Adscripción tiene lo mismo que Dirección, salvo visar.',
+    ),
+  },
+  SECRETARIA: {
+    ...enforce([...OWN_WORK_IDS, ...STAFF_CONTROL_ONLY_IDS], 'all', 'Secretaría lleva el control del personal.'),
+    ...enforce(['students.manage', 'tuition.manage'], 'all', 'Secretaría gestiona la matrícula y las mensualidades.'),
+    ...enforce(ACADEMIC_STRUCTURE_IDS, 'all', 'Secretaría gestiona los ciclos lectivos y los cursos.'),
+    ...enforce(['settings.manage'], 'all', 'La configuración del sistema es de Secretaría y Administración.'),
+  },
 }
 
 /**
@@ -248,7 +337,8 @@ export const REMOVED_PROFILE_PERMISSION_IDS: Record<BuiltinProfileRole, Set<stri
   TEACHER: new Set(['attendance.create', 'events.create', 'events.update', 'licenses.create', ...TEACHER_CATALOG_PERMISSION_IDS]),
   STAFF: new Set(['attendance.create', 'licenses.create', ...STAFF_ACADEMIC_PERMISSION_IDS]),
   ADSCRIPTO: new Set(),
-  DIRECCION: new Set(['gradebook.plan']),
+  DIRECCION: new Set(),
+  SECRETARIA: new Set(),
 }
 
 /** Motivo de un permiso que ya no es del perfil y está apagado. */
@@ -261,14 +351,32 @@ export const REMOVED_PERMISSION_REASON = 'No corresponde a este perfil.'
  * Perfiles se muestran fijos, apagados y con el motivo.
  */
 export const REVOKED_PROFILE_PERMISSION_IDS: Partial<Record<BuiltinProfileRole, Readonly<Record<string, string>>>> = {
-  // Dirección y Adscripción ven la libreta del docente; Dirección la visa y Adscripción la observa.
-  // Ninguna la edita ni reabre sus períodos (25/10/2026).
-  DIRECCION: revoke(SUPERVISION_GRADEBOOK_WRITE_IDS, 'Dirección ve las libretas y las visa; no las edita.'),
-  ADSCRIPTO: revoke(SUPERVISION_GRADEBOOK_WRITE_IDS, 'Adscripción ve las libretas y las observa; no las edita.'),
+  // El personal, ciclos lectivos y cursos, las mensualidades, la configuración del sistema y la
+  // auditoría no son de Dirección ni de Adscripción (09/11/2026).
+  DIRECCION: SUPERVISION_REVOKED,
+  ADSCRIPTO: {
+    ...SUPERVISION_REVOKED,
+    ...revoke(['gradebook.endorse'], 'Visar libretas es de Dirección.'),
+  },
+  // Secretaría: ni libretas ni el seguimiento de los estudiantes (asistencia, indicadores, adecuaciones).
+  SECRETARIA: {
+    ...revoke([...GRADEBOOK_WORK_IDS, 'gradebook.endorse'], 'Las libretas son de Dirección, Adscripción y Administración.'),
+    ...revoke(STUDENT_FOLLOW_UP_IDS, 'La asistencia, los indicadores y las adecuaciones de los estudiantes son de Dirección y Adscripción.'),
+    ...AUDIT_ONLY_ADMIN,
+    ...PROFILES_ONLY_ADMIN,
+  },
   // Personal no es docente: sin agenda de clases, cursos, pase de lista ni libretas (20/10/2026).
-  STAFF: revoke(STAFF_ACADEMIC_PERMISSION_IDS, 'Personal sólo ve sus asistencias y sus licencias.'),
+  STAFF: {
+    ...revoke(STAFF_ACADEMIC_PERMISSION_IDS, 'Personal sólo ve sus asistencias y sus licencias.'),
+    ...SETTINGS_SECRETARIA_ADMIN,
+    ...AUDIT_ONLY_ADMIN,
+  },
   // El docente no ve "Cursos": ninguna pantalla suya lo usa; sus libretas filtran por sus grupos (02/11/2026).
-  TEACHER: revoke(TEACHER_CATALOG_PERMISSION_IDS, 'El docente ve sus grupos y asignaturas en sus libretas.'),
+  TEACHER: {
+    ...revoke(TEACHER_CATALOG_PERMISSION_IDS, 'El docente ve sus grupos y asignaturas en sus libretas.'),
+    ...SETTINGS_SECRETARIA_ADMIN,
+    ...AUDIT_ONLY_ADMIN,
+  },
 }
 
 /**
@@ -318,7 +426,7 @@ export function normalizePermissionId(module: string, action: string) {
       .trim()
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[̀-ͯ]/g, '')
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(?:^-|-$)/g, '')
   return `${clean(module)}.${clean(action)}`

@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { Prisma, AuditAction } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
-import { authGuard, requirePermission } from '../middlewares/auth.js'
+import { authGuard, requireAnyPermission, requirePermission, userPermissionScope } from '../middlewares/auth.js'
 import { requireSchoolYearAccess } from '../middlewares/school-year-access.js'
 import { z } from 'zod'
 import { onlyDigits, isValidUruguayanCI } from '../identity/uruguay-ci.js'
@@ -271,14 +271,24 @@ async function replyProfilePayload(res: { json: (b: unknown) => void }) {
 
 // --- Roles de organización (CRUD liviano para roles custom) ---
 // Los retirados (Inspección) no se listan: el arranque los borra en cuanto quedan sin usuarios.
-r.get('/org-roles', requirePermission('profiles.manage', 'all'), async (_req, res) => {
-  const rows = await prisma.orgRole.findMany({
-    where: { code: { notIn: [...RETIRED_ORG_ROLE_CODES] } },
-    orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
-    select: { id: true, code: true, label: true, builtIn: true, active: true, sortOrder: true },
-  })
-  res.json(rows)
-})
+// La lista la piden también Usuarios (el perfil al crear o editar una cuenta): Secretaría gestiona
+// cuentas sin gestionar perfiles. Son sólo códigos y nombres.
+r.get(
+  '/org-roles',
+  requireAnyPermission([
+    ['profiles.manage', 'all'],
+    ['users.create', 'all'],
+    ['users.update', 'all'],
+  ]),
+  async (_req, res) => {
+    const rows = await prisma.orgRole.findMany({
+      where: { code: { notIn: [...RETIRED_ORG_ROLE_CODES] } },
+      orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+      select: { id: true, code: true, label: true, builtIn: true, active: true, sortOrder: true },
+    })
+    res.json(rows)
+  },
+)
 
 r.post('/org-roles', requirePermission('profiles.manage', 'all'), async (req, res) => {
   const parsed = z.object({
@@ -713,7 +723,13 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
   const targetRoleCode = target.orgRole?.code ?? ''
 
   const p = parsed.data
+  const actor = (req as any).user
+  const actorId = actor?.id ?? actor?.sub
   if (targetRoleCode === 'ADMIN') {
+    // Secretaría también edita usuarios; la cuenta del sistema la toca sólo Administración.
+    if ((await userPermissionScope(actorId, 'profiles.manage', actor?.role)) !== 'all') {
+      return res.status(403).json({ message: 'La cuenta de Administración sólo la edita Administración.' })
+    }
     if (p.isActive === false) {
       return res.status(403).json({ message: 'No se puede dar de baja al usuario administrador.' })
     }
@@ -726,6 +742,10 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
   }
   if (p.role && normalizeOrgRoleCode(p.role) === 'ADMIN' && targetRoleCode !== 'ADMIN') {
     return res.status(403).json({ message: 'No se puede promover a administrador desde esta pantalla.' })
+  }
+  // Secretaría también edita usuarios: cambiarse el propio perfil sería darse permisos que no tiene.
+  if (p.role && id === actorId && normalizeOrgRoleCode(p.role) !== targetRoleCode) {
+    return res.status(403).json({ message: 'No podés cambiar tu propio perfil. Pedíselo a Administración.', code: 'OWN_ROLE_CHANGE' })
   }
 
   let data: Record<string, unknown>
@@ -1338,7 +1358,8 @@ r.get('/audit-logs', requirePermission('audit.read', 'all'), async (req, res) =>
 // Antes que `/students`: Dirección y Adscripción cargan adecuaciones sin gestionar estudiantes.
 r.use('/students/:id/accommodations', requirePermission('students.accommodations', 'all'), adminStudentAccommodationsRoutes)
 r.use('/students', requirePermission('students.manage', 'all'), adminStudentsRoutes)
-r.use('/tuition', requirePermission('students.manage', 'all'), adminTuitionRoutes)
+// Mensualidades es su propio permiso: Dirección y Adscripción gestionan estudiantes sin los pagos.
+r.use('/tuition', requirePermission('tuition.manage', 'all'), adminTuitionRoutes)
 // Nombre y logo del boletín: son configuración del sistema.
 r.use('/institution', requirePermission('settings.manage', 'all'), adminInstitutionRoutes)
 // El router se monta con lectura y cada ruta pide lo suyo: adscripción justifica sin poder

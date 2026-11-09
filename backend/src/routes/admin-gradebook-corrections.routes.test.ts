@@ -156,13 +156,22 @@ describe('corregir una nota de una evaluación', () => {
   })
 
   it.each([
-    ['DIRECCION', 'd-1'],
-    ['ADSCRIPTO', 'ad-1'],
     ['TEACHER', 't-1'],
-  ])('%s no corrige: ve la libreta y no la edita', async (role, sub) => {
+    ['SECRETARIA', 'sec-1'],
+  ])('%s no corrige desde la reunión', async (role, sub) => {
     const res = await request(app()).put(assessmentUrl).set('Authorization', `Bearer ${tok(role, sub)}`).send({ valueHundredths: 700, reason: 'Corrección' })
     expect(res.status).toBe(403)
     expect(saveGradesMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['DIRECCION', 'd-1', 'Dirección'],
+    ['ADSCRIPTO', 'ad-1', 'Adscripción'],
+  ])('%s corrige como administración, y el aviso al docente dice quién fue', async (role, sub, office) => {
+    const res = await request(app()).put(assessmentUrl).set('Authorization', `Bearer ${tok(role, sub)}`).send({ valueHundredths: 700, reason: 'Error de carga' })
+    expect(res.status).toBe(200)
+    expect(saveGradesMock).toHaveBeenCalledWith(expect.objectContaining({ origin: 'ADMIN_CORRECTION' }))
+    expect(notifyMock.mock.calls[0][1].title).toBe(`${office} corrigió la nota de «Escrito 2» de Pérez, Ana`)
   })
 })
 

@@ -514,6 +514,7 @@ export default function RegisterPage() {
                   <option value="STAFF">Personal</option>
                   <option value="ADSCRIPTO">Adscripto</option>
                   <option value="DIRECCION">Dirección</option>
+                  <option value="SECRETARIA">Secretaría</option>
                 </select>
               </FormField>
 

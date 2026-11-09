@@ -588,6 +588,55 @@ describe("admin routes (prisma mock)", () => {
     expect(prismaMock.user.update).not.toHaveBeenCalled();
   });
 
+  describe("Secretaría gestiona cuentas, no perfiles", () => {
+    const secretariaHdr = () => ({
+      Authorization: `Bearer ${signAccessToken({ sub: "sec", email: "s@s.com", role: "SECRETARIA" })}`,
+    });
+
+    it("no se cambia su propio perfil", async () => {
+      prismaMock.user.findUnique.mockResolvedValue({ id: "sec", orgRole: { code: "SECRETARIA" }, firstName: "S", lastName: "C" });
+      const res = await request(app()).put("/admin/users/sec").set(secretariaHdr()).send({ role: "DIRECCION" });
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe("OWN_ROLE_CHANGE");
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
+    });
+
+    it("le cambia el perfil a otra persona", async () => {
+      prismaMock.user.update.mockResolvedValue({});
+      const res = await request(app()).put("/admin/users/u1").set(secretariaHdr()).send({ role: "DIRECCION" });
+      expect(res.status).toBe(200);
+      expect(prismaMock.user.update).toHaveBeenCalled();
+    });
+
+    it("no edita la cuenta de Administración", async () => {
+      prismaMock.user.findUnique.mockResolvedValue({ id: "adm", orgRole: { code: "ADMIN" }, firstName: "A", lastName: "B" });
+      const res = await request(app()).put("/admin/users/adm").set(secretariaHdr()).send({ username: "otro" });
+      expect(res.status).toBe(403);
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
+    });
+
+    it("lee los perfiles para asignarlos, pero no los gestiona", async () => {
+      prismaMock.orgRole.findMany.mockResolvedValueOnce([]);
+      expect((await request(app()).get("/admin/org-roles").set(secretariaHdr())).status).toBe(200);
+      expect((await request(app()).get("/admin/profiles").set(secretariaHdr())).status).toBe(403);
+      expect((await request(app()).post("/admin/org-roles").set(secretariaHdr()).send({ code: "X1", label: "X" })).status).toBe(403);
+    });
+
+    it("la auditoría es sólo de Administración", async () => {
+      for (const role of ["SECRETARIA", "DIRECCION", "ADSCRIPTO"]) {
+        const hdr = { Authorization: `Bearer ${signAccessToken({ sub: "x", email: "x@x.com", role })}` };
+        expect((await request(app()).get("/admin/audit-logs").set(hdr)).status, role).toBe(403);
+      }
+    });
+
+    it("las mensualidades son de Secretaría, no de Dirección", async () => {
+      const hdr = (role: string) => ({ Authorization: `Bearer ${signAccessToken({ sub: "x", email: "x@x.com", role })}` });
+      expect((await request(app()).get("/admin/tuition").set(hdr("DIRECCION"))).status).toBe(403);
+      expect((await request(app()).get("/admin/tuition").set(hdr("ADSCRIPTO"))).status).toBe(403);
+      expect((await request(app()).get("/admin/system-settings").set(hdr("DIRECCION"))).status).toBe(403);
+    });
+  });
+
   it("PUT /admin/users/:id 400 cédula inválida", async () => {
     const res = await request(app())
       .put("/admin/users/u1")

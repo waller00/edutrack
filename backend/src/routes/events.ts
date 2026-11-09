@@ -1147,6 +1147,7 @@ r.get('/all', authGuard, requirePermission('events.read', 'all'), async (req, re
       ? undefined
       : await resolveSchoolYearIdForList(prisma, {
           role: user.role,
+          institutionWide: true,
           requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
         })
 
@@ -1252,7 +1253,7 @@ r.get('/all', authGuard, requirePermission('events.read', 'all'), async (req, re
 // Eliminar todos los eventos (solo ADMIN)
 // Borrado FÍSICO de toda la agenda: en cascada se lleva las listas de estudiantes y las suplencias.
 // Es una herramienta de pruebas (el borrado normal es lógico), así que sólo existe donde lo están.
-r.delete('/purge-all', authGuard, requirePermission('events.delete', 'all'), async (_req, res) => {
+r.delete('/purge-all', authGuard, requirePermission('events.delete', 'all'), requirePermission('profiles.manage', 'all'), async (_req, res) => {
   if (!isAdminTestingToolsEnabled()) {
     return res.status(403).json({ message: 'Herramienta de pruebas deshabilitada en este entorno.' })
   }

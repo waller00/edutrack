@@ -62,13 +62,44 @@ describe('courses / subjects', () => {
     prismaMock.subject.findMany.mockResolvedValueOnce([
       { id: subjectId, name: 'Matemática', code: 'MAT', description: null, sortOrder: 0, isActive: true, courseId },
     ])
-    const tok = signAccessToken({ sub: 'd', email: 'd@d.com', role: 'DIRECCION' })
+    const tok = signAccessToken({ sub: 's', email: 's@s.com', role: 'SECRETARIA' })
     const res = await request(app())
       .get(`/courses/${courseId}/subjects?schoolYearId=${'sy-default'}`)
       .set('Authorization', `Bearer ${tok}`)
     expect(res.status).toBe(200)
     expect(Array.isArray(res.body)).toBe(true)
     expect(res.body[0].name).toBe('Matemática')
+  })
+
+  it('Dirección lee los cursos y sus orientaciones para la matrícula, no el resto del catálogo', async () => {
+    // No tiene el módulo Cursos, pero gestiona estudiantes: el curso y la orientación de cada uno.
+    prismaMock.course.findMany.mockResolvedValueOnce([{ id: courseId, name: '7.º', isActive: true, offerings: [] }])
+    prismaMock.course.findFirst.mockResolvedValueOnce({ id: courseId })
+    prismaMock.courseOrientation.findMany.mockResolvedValueOnce([])
+    const tok = signAccessToken({ sub: 'd', email: 'd@d.com', role: 'DIRECCION' })
+    expect((await request(app()).get('/courses').set('Authorization', `Bearer ${tok}`)).status).toBe(200)
+    const orientations = await request(app()).get(`/courses/${courseId}/orientations`).set('Authorization', `Bearer ${tok}`)
+    expect(orientations.status).toBe(200)
+    for (const path of [`/courses/${courseId}/subjects`, '/courses/orientations']) {
+      const res = await request(app()).get(path).set('Authorization', `Bearer ${tok}`)
+      expect(res.status, path).toBe(403)
+    }
+  })
+
+  it('quien gestiona cursos sin ser ADMIN (Secretaría) elige el ciclo y ve lo inactivo', async () => {
+    const { resolveSchoolYearIdForList } = await import('../services/school-year-service.js')
+    prismaMock.course.findMany.mockResolvedValueOnce([])
+    const tok = signAccessToken({ sub: 's', email: 's@s.com', role: 'SECRETARIA' })
+    const res = await request(app())
+      .get('/courses?all=1&includeNotOffered=1&schoolYearId=sy-2025')
+      .set('Authorization', `Bearer ${tok}`)
+    expect(res.status).toBe(200)
+    expect(vi.mocked(resolveSchoolYearIdForList)).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({ institutionWide: true, requestedSchoolYearId: 'sy-2025' }),
+    )
+    // `all=1` e `includeNotOffered=1`: sin filtrar por activo ni por oferta del ciclo.
+    expect(prismaMock.course.findMany.mock.calls[0][0].where).toEqual({})
   })
 
   it('el docente no lee el catálogo de cursos', async () => {

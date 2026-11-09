@@ -5,21 +5,21 @@ import { prisma } from '../db/prisma.js'
 import { requirePermission, userPermissionScope } from '../middlewares/auth.js'
 import { recordAuditEventNow } from '../services/audit-log.js'
 import { GradingError, saveGrades } from '../services/gradebook/grading.js'
-import { correctedNotification, notifyGradeBook, resolveGradeBookRecipients } from '../services/gradebook/notifications.js'
+import { correctedNotification, correctorOffice, notifyGradeBook, resolveGradeBookRecipients } from '../services/gradebook/notifications.js'
 import { isOutOfScale } from '../services/gradebook/period-closure.js'
 import { writePeriodGrades } from '../services/gradebook/period-grade-history.js'
 import { conductScale, isConductValue, periodScaleFor } from '../services/gradebook/period-scale.js'
 import { loadRosterForScope } from '../services/student-attendance/roster.js'
 
 /**
- * Correcciones de administración desde la Reunión de profesores: una nota de una evaluación, o la
- * R, la C o el juicio del docente de un alumno en un período.
+ * Correcciones desde la Reunión de profesores: una nota de una evaluación, o la R, la C o el juicio
+ * del docente de un alumno en un período.
  *
  * Es la excepción explícita al período cerrado: fuera de acá, una libreta cerrada no la edita nadie
- * (`assessmentWritePermissions`). Sólo Administración —`gradebook.manage` y `gradebook.grade` con
- * alcance `all`—, siempre con motivo, sin cambiar el estado del período, con su revisión (origen
- * `ADMIN_CORRECTION` y el motivo), su auditoría y un aviso al docente. Dirección y Adscripción ven
- * la libreta y no la editan.
+ * (`assessmentWritePermissions`). Sólo quien tiene `gradebook.manage` y `gradebook.grade` con
+ * alcance `all` (Administración, Dirección y Adscripción, que tienen todo lo de libretas), siempre
+ * con motivo, sin cambiar el estado del período, con su revisión (origen `ADMIN_CORRECTION` y el
+ * motivo), su auditoría y un aviso al docente que dice quién corrigió.
  */
 const r = Router()
 
@@ -63,14 +63,14 @@ type Fail = { status: number; message: string; code: string }
 type Ready = { book: Book; student: Awaited<ReturnType<typeof loadRosterForScope>>[number]; userId: string }
 
 /**
- * Lo común a las dos correcciones: quien corrige es Administración, la libreta existe y no es de
- * un ciclo cerrado, y el alumno es de su grupo.
+ * Lo común a las dos correcciones: quien corrige edita todas las libretas, la libreta existe y no
+ * es de un ciclo cerrado, y el alumno es de su grupo.
  */
 async function prepare(req: any): Promise<Ready | Fail> {
   const userId = req.user?.id ?? req.user?.sub
   const gradeScope = await userPermissionScope(userId, 'gradebook.grade', req.user?.role)
   if (gradeScope !== 'all') {
-    return { status: 403, message: 'Las correcciones de la reunión son de administración.', code: 'NOT_ADMIN' }
+    return { status: 403, message: 'Las correcciones de la reunión son de Administración, Dirección y Adscripción.', code: 'NOT_ADMIN' }
   }
   const book = await loadBook(req.params.gradeBookId)
   if (!book) return { status: 404, message: 'Libreta no encontrada', code: 'GRADEBOOK_NOT_FOUND' }
@@ -92,8 +92,9 @@ async function prepare(req: any): Promise<Ready | Fail> {
 const isFail = (value: Ready | Fail): value is Fail => 'status' in value
 
 /**
- * ¿Puede corregir desde la reunión? Administración: `gradebook.manage` y `gradebook.grade` con
- * alcance `all`. El panel del alumno lo usa para ofrecer «Corregir» sólo a quien después puede.
+ * ¿Puede corregir desde la reunión? `gradebook.manage` y `gradebook.grade` con alcance `all`
+ * (Administración, Dirección y Adscripción). El panel del alumno lo usa para ofrecer «Corregir»
+ * sólo a quien después puede.
  */
 export async function canCorrectGrades(req: any): Promise<boolean> {
   const userId = req.user?.id ?? req.user?.sub
@@ -127,6 +128,7 @@ async function afterCorrection(
       what: details.what,
       reason: details.reason,
       gradeBookId: ready.book.id,
+      by: correctorOffice(req.user?.role),
     }),
   )
 }
@@ -283,5 +285,5 @@ r.put('/gradebooks/:gradeBookId/periods/:periodId/students/:studentId', async (r
 
 export default r
 
-/** Se monta con `gradebook.manage` `all`: sólo Administración lo tiene. */
+/** Se monta con `gradebook.manage` `all`: Administración, Dirección y Adscripción. */
 export const correctionsGuard = requirePermission('gradebook.manage', 'all')

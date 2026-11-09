@@ -235,7 +235,7 @@ export const AFTERNOON_SLOTS = [[14, 0, 14, 45], [14, 45, 15, 30]] as const
 
 export type StaffSpec = {
   key: string
-  role: 'TEACHER' | 'DIRECCION' | 'ADSCRIPTO' | 'STAFF' | 'INSPECCION'
+  role: 'TEACHER' | 'DIRECCION' | 'ADSCRIPTO' | 'SECRETARIA' | 'STAFF' | 'INSPECCION'
   gender: 'F' | 'M'
   /** Rótulo para las notas del perfil ("Profesora de Inglés", "Secretaria"). */
   title: string
@@ -260,7 +260,7 @@ export const STAFF: readonly StaffSpec[] = [
   { key: 'SUBDIR', role: 'DIRECCION', gender: 'M', title: 'Subdirector', shift: [9, 0, 15, 0] },
   { key: 'ADS1', role: 'ADSCRIPTO', gender: 'F', title: 'Adscripta de 7.º y 8.º', shift: [7, 10, 13, 15] },
   { key: 'ADS2', role: 'ADSCRIPTO', gender: 'M', title: 'Adscripto de 9.º', shift: [7, 10, 13, 15] },
-  { key: 'SEC', role: 'STAFF', gender: 'F', title: 'Secretaria', shift: [8, 0, 14, 0] },
+  { key: 'SEC', role: 'SECRETARIA', gender: 'F', title: 'Secretaria', shift: [8, 0, 14, 0] },
   { key: 'ADM', role: 'STAFF', gender: 'M', title: 'Administrativo (tesorería y cuotas)', shift: [9, 0, 15, 0] },
   { key: 'INSP', role: 'INSPECCION', gender: 'F', title: 'Inspectora de Educación Media Básica' },
   { key: 'ESP1', role: 'TEACHER', gender: 'F', title: 'Profesora de Idioma Español', canCover: ['Idioma Español', 'Literatura'] },

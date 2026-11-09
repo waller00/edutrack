@@ -243,6 +243,7 @@ r.get('/mine', requirePermission('gradebook.read'), async (req: any, res) => {
     const { userId, readScope } = await scopesOf(req)
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
+      institutionWide: readScope === 'all',
       requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
     })
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })

@@ -2,15 +2,16 @@ import { describe, it, expect } from 'vitest'
 import { DEFAULT_PROFILE_PERMISSIONS } from './profile-permissions-defaults.js'
 
 describe('DEFAULT_PROFILE_PERMISSIONS', () => {
-  it('Administración, Dirección y Adscripción leen los cursos (courses.read); el docente y Personal no', () => {
+  it('Administración y Secretaría leen los cursos (courses.read); Dirección, Adscripción, el docente y Personal no', () => {
     // Garantiza el acceso de lectura de cursos por permiso (no por rol hardcodeado),
-    // de modo que cualquier rol que herede courses.read pueda listar el catálogo.
-    for (const role of ['ADMIN', 'ADSCRIPTO', 'DIRECCION'] as const) {
+    // de modo que cualquier rol que herede courses.read pueda listar el catálogo. Dirección y
+    // Adscripción leen el que necesita la matrícula por `students.manage` (`requireCatalogRead`).
+    for (const role of ['ADMIN', 'SECRETARIA'] as const) {
       const grant = DEFAULT_PROFILE_PERMISSIONS[role].find((p) => p.id === 'courses.read')
       expect(grant, `${role} debe tener courses.read`).toBeDefined()
       expect(grant?.enabled).toBe(true)
     }
-    for (const role of ['TEACHER', 'STAFF'] as const) {
+    for (const role of ['DIRECCION', 'ADSCRIPTO', 'TEACHER', 'STAFF'] as const) {
       expect(DEFAULT_PROFILE_PERMISSIONS[role].find((p) => p.id === 'courses.read'), role).toBeUndefined()
     }
   })

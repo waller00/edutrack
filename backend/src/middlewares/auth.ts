@@ -153,6 +153,28 @@ async function loadPermissionScopes(userId: string): Promise<Map<string, "own" |
   return scopes;
 }
 
+/**
+ * Alcanza con uno de los permisos, cada uno con su alcance. Para lecturas que comparten pantallas
+ * de distintos módulos: el catálogo de cursos lo piden Cursos y también Estudiantes, y quien
+ * gestiona estudiantes (Dirección) no tiene por eso el módulo Cursos.
+ */
+export function requireAnyPermission(grants: ReadonlyArray<readonly [string, ("own" | "all")?]>) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const u = (req as any).user;
+    const userId = u?.id ?? u?.sub;
+    if (!userId) return res.status(403).json({ message: "Prohibido" });
+    try {
+      for (const [permissionCode, requiredScope] of grants) {
+        const scope = await userPermissionScope(userId, permissionCode, u?.role);
+        if (scope && (requiredScope !== "all" || scope === "all")) return next();
+      }
+    } catch {
+      return res.status(403).json({ message: "Prohibido" });
+    }
+    return res.status(403).json({ message: "Prohibido" });
+  };
+}
+
 export function requirePermission(permissionCode: string, requiredScope?: "own" | "all") {
   return async (req: Request, res: Response, next: NextFunction) => {
     const u = (req as any).user;

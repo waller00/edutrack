@@ -353,6 +353,7 @@ r.get('/periods', async (req: any, res) => {
   try {
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
+      institutionWide: true,
       requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
     })
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
@@ -604,6 +605,7 @@ r.post('/gradebooks/provision', async (req: any, res) => {
   try {
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
+      institutionWide: true,
       requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
     })
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
@@ -627,6 +629,7 @@ const alertRuleSchema = z.object({
 function requestedSchoolYear(req: any) {
   return resolveSchoolYearIdForList(prisma, {
     role: req.user?.role,
+    institutionWide: true,
     requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
   })
 }

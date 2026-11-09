@@ -22,6 +22,7 @@ import {
   validateStudentPhoto,
 } from '../services/student-photo.js'
 import { pendingResolvedAt } from '../services/student-indicators/subjects-ape.js'
+import { userPermissionScope } from '../middlewares/auth.js'
 
 const r = Router()
 
@@ -30,6 +31,7 @@ async function scopedSchoolYearWhere(req: Request): Promise<Prisma.StudentWhereI
   if (allYears) return {}
   const id = await resolveSchoolYearIdForList(prisma, {
     role: req.user?.role,
+    institutionWide: true,
     requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
   })
   if (!id) return {}
@@ -40,8 +42,36 @@ async function scopedSchoolYearId(req: Request): Promise<string | null> {
   if (req.query.allYears === '1') return null
   return resolveSchoolYearIdForList(prisma, {
     role: req.user?.role,
+    institutionWide: true,
     requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
   })
+}
+
+/**
+ * ¿Ve y edita cuotas? Las mensualidades son su propio permiso (`tuition.manage`): Dirección y
+ * Adscripción gestionan la matrícula sin ver los pagos. A quien no lo tiene, la lista y la ficha no
+ * le traen cuotas, los filtros por cuota no le aplican y mandarlas al guardar es 403.
+ */
+async function managesTuition(req: Request): Promise<boolean> {
+  const user = req.user
+  if (!user) return false
+  return (await userPermissionScope(user.id ?? user.sub, 'tuition.manage', user.role)) === 'all'
+}
+
+const TUITION_FORBIDDEN = { message: 'Las cuotas se gestionan en Mensualidades.', code: 'TUITION_FORBIDDEN' }
+
+function sendsTuition(body: { tuitionYears?: unknown; tuitionMonths?: unknown }): boolean {
+  return body.tuitionYears !== undefined || body.tuitionMonths !== undefined
+}
+
+/** Las cuotas de la lista, sólo para quien gestiona mensualidades. */
+async function tuitionPreview(access: boolean, studentIds: string[], year?: number) {
+  return access ? findTuitionMonths(studentIds, year) : {}
+}
+
+/** La ficha, sin cuotas para quien no gestiona mensualidades. */
+async function detailFor(req: Request, detail: ReturnType<typeof serializeStudentDetail>) {
+  return (await managesTuition(req)) ? detail : { ...detail, tuitionYears: [], tuitionMonths: [] }
 }
 
 const enrollmentStatusZ = z.enum(['ACTIVE', 'WITHDRAWN', 'GRADUATED', 'TRANSFERRED'])
@@ -546,10 +576,13 @@ r.get('/', async (req, res) => {
     const courseId = ((req.query.courseId as string) || '').trim()
     const orientationId = ((req.query.orientationId as string) || '').trim()
     const status = ((req.query.status as string) || '').trim().toUpperCase()
-    const tuitionYear = (req.query.tuitionYear as string) || ''
-    const tuitionPreviewYear = (req.query.tuitionPreviewYear as string) || ''
-    const tuitionMonth = (req.query.tuitionMonth as string) || ''
-    const tuitionPaid = (req.query.tuitionPaid as string) || ''
+    // Sin mensualidades, los filtros por cuota no aplican y la lista no trae cuotas.
+    const tuitionAccess = await managesTuition(req)
+    const tuitionQuery = (key: string) => (tuitionAccess ? (req.query[key] as string) || '' : '')
+    const tuitionYear = tuitionQuery('tuitionYear')
+    const tuitionPreviewYear = tuitionQuery('tuitionPreviewYear')
+    const tuitionMonth = tuitionQuery('tuitionMonth')
+    const tuitionPaid = tuitionQuery('tuitionPaid')
 
     const allYears = req.query.allYears === '1'
     // Opt-in: evita una llamada sincrónica al web service de Moodle en cada listado.
@@ -672,7 +705,8 @@ r.get('/', async (req, res) => {
         })
       }
 
-      const tuitionMonthsByStudent = await findTuitionMonths(
+      const tuitionMonthsByStudent = await tuitionPreview(
+        tuitionAccess,
         [...enrollmentRows.map((row) => row.studentId), ...orphanRows.map((row) => row.id)],
         previewYear,
       )
@@ -765,7 +799,8 @@ r.get('/', async (req, res) => {
     ])
 
     const rowsAny = rows as any[]
-    const tuitionMonthsByStudent = await findTuitionMonths(
+    const tuitionMonthsByStudent = await tuitionPreview(
+      tuitionAccess,
       rowsAny.map((row) => row.id),
       previewYear,
     )
@@ -884,7 +919,7 @@ r.get('/:id', async (req, res) => {
     const enrollment = rowAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
     const tuitionMonths = (await findTuitionMonths([row.id]))[row.id] ?? []
-    return res.json(serializeStudentDetail({
+    return res.json(await detailFor(req, serializeStudentDetail({
       ...rowAny,
       schoolYearId: enrollment?.schoolYearId ?? null,
       courseId: courseOffering?.courseId ?? null,
@@ -897,7 +932,7 @@ r.get('/:id', async (req, res) => {
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? null,
       moodleVerification: moodleVerifications.get(row.id),
       tuitionMonths,
-    }))
+    })))
   } catch (e) {
     console.error('[admin/students/:id]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -913,6 +948,7 @@ r.post('/', async (req, res) => {
     })
   }
   const body = parsed.data
+  if (sendsTuition(body) && !(await managesTuition(req))) return res.status(403).json(TUITION_FORBIDDEN)
   try {
     if (body.email) {
       const conflict = await findEmailConflict(body.email)
@@ -1052,7 +1088,7 @@ r.post('/', async (req, res) => {
     const enrollment = createdAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
     const createdTuitionMonths = (await findTuitionMonths([created.id]))[created.id] ?? []
-    return res.status(201).json(serializeStudentDetail({
+    return res.status(201).json(await detailFor(req, serializeStudentDetail({
       ...createdAny,
       schoolYearId: enrollment?.schoolYearId ?? resolvedSchoolYearId,
       courseId: courseOffering?.courseId ?? null,
@@ -1065,7 +1101,7 @@ r.post('/', async (req, res) => {
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? body.withdrawalAcademicYear ?? null,
       moodleVerification: (await safeStudentMoodleVerifications([created.id])).get(created.id),
       tuitionMonths: createdTuitionMonths,
-    }))
+    })))
   } catch (e: unknown) {
     const code = (e as { code?: string }).code
     if (code === 'P2002') {
@@ -1346,6 +1382,7 @@ r.put('/:id', async (req: any, res) => {
   if (Object.keys(body).length === 0) {
     return res.status(400).json({ message: 'Sin cambios' })
   }
+  if (sendsTuition(body) && !(await managesTuition(req))) return res.status(403).json(TUITION_FORBIDDEN)
   try {
     const existing = await (prisma.student as any).findUnique({
       where: { id },
@@ -1587,7 +1624,7 @@ r.put('/:id', async (req: any, res) => {
     const enrollment = updatedAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
     const updatedTuitionMonths = (await findTuitionMonths([updated.id]))[updated.id] ?? []
-    return res.json(serializeStudentDetail({
+    return res.json(await detailFor(req, serializeStudentDetail({
       ...updatedAny,
       schoolYearId: enrollment?.schoolYearId ?? targetSchoolYearId ?? null,
       courseId: courseOffering?.courseId ?? null,
@@ -1600,7 +1637,7 @@ r.put('/:id', async (req: any, res) => {
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? body.withdrawalAcademicYear ?? null,
       moodleVerification: (await safeStudentMoodleVerifications([updated.id])).get(updated.id),
       tuitionMonths: updatedTuitionMonths,
-    }))
+    })))
   } catch (e: unknown) {
     const code = (e as { code?: string }).code
     if (code === 'P2002') {

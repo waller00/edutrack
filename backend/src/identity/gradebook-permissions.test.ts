@@ -22,15 +22,46 @@ function scopeOf(role: BuiltinProfileRole, id: string): 'own' | 'all' | null {
   return found?.enabled ? found.scope : null
 }
 
+const holdersOf = (id: string) => ALL_ROLES.filter((role) => scopeOf(role, id) !== null).sort()
+
 const ALL_ROLES = BUILTIN_PROFILE_ROLES
 const SUPERVISION = ['ADSCRIPTO', 'DIRECCION'] as const
+/** Los perfiles que el liceo definió permiso por permiso (09/11/2026). */
+const FIXED_ROLES = ['DIRECCION', 'ADSCRIPTO', 'SECRETARIA'] as const
 
-describe('roles built-in de la libreta', () => {
+const CATALOG = [...new Set(Object.values(DEFAULT_PROFILE_PERMISSIONS).flatMap((perms) => perms.map((p) => p.id)))]
+const GRADEBOOK_IDS = CATALOG.filter((id) => id.startsWith('gradebook.') || id === 'academic-config.manage')
+const STUDENT_FOLLOW_UP = [
+  'students.manage',
+  'students.accommodations',
+  'student-attendance.take',
+  'student-attendance.read',
+  'student-attendance.justify',
+  'student-attendance.manage',
+  'student-reports.read',
+  'academic-analytics.read',
+]
+const STAFF_CONTROL = [
+  'users.read', 'users.create', 'users.update', 'users.security',
+  'attendance.read', 'attendance.update', 'attendance.delete',
+  'events.read', 'events.create', 'events.update', 'events.cancel', 'events.delete',
+  'licenses.read', 'licenses.create', 'licenses.update', 'licenses.delete',
+  'analytics.read', 'reports.read', 'exports.create',
+]
+const OWN_WORK = ['attendance.read', 'events.read', 'licenses.read']
+const ACADEMIC_STRUCTURE = ['school-years.manage', 'courses.read', 'courses.manage']
+
+describe('roles built-in', () => {
   it('el catálogo de OrgRole y la matriz de permisos declaran los mismos roles', () => {
     // Si divergen, un rol existe pero arranca sin ningún permiso (o al revés, se siembran
     // permisos para un rol que no existe). Ninguno de los dos falla ruidosamente en runtime.
     expect([...BUILTIN_ORG_ROLE_CODES].sort()).toEqual([...ALL_ROLES].sort())
     expect(Object.keys(ROLE_LABELS).sort()).toEqual([...ALL_ROLES].sort())
+  })
+
+  it('Secretaría es un perfil del sistema', () => {
+    expect(ROLE_LABELS.SECRETARIA).toBe('Secretaría')
+    expect(BUILTIN_ORG_ROLE_ROWS.find((r) => r.code === 'SECRETARIA')?.label).toBe('Secretaría')
   })
 
   it('Inspección se retiró: no es del sistema ni tiene matriz', () => {
@@ -55,141 +86,192 @@ describe('roles built-in de la libreta', () => {
       expect(row.code).toMatch(/^[A-Z][A-Z0-9_]*$/)
     }
   })
+
+  it('ningún perfil declara dos veces el mismo permiso', () => {
+    for (const role of ALL_ROLES) {
+      const ids = DEFAULT_PROFILE_PERMISSIONS[role].map((p) => p.id)
+      expect(ids.length, role).toBe(new Set(ids).size)
+    }
+  })
 })
 
-describe('visado: sólo Dirección', () => {
-  it('gradebook.endorse lo tienen únicamente DIRECCION y ADMIN', () => {
-    const withEndorse = ALL_ROLES.filter((role) => scopeOf(role, 'gradebook.endorse') !== null)
-    expect(withEndorse.sort()).toEqual(['ADMIN', 'DIRECCION'])
+describe('libretas: Dirección y Adscripción tienen todo; visar es de Dirección', () => {
+  it('Dirección tiene cada permiso de libretas con alcance all, también visar', () => {
+    for (const id of GRADEBOOK_IDS) expect(scopeOf('DIRECCION', id), id).toBe('all')
   })
 
-  it('ADSCRIPTO controla y observa, pero no visa', () => {
-    expect(scopeOf('ADSCRIPTO', 'gradebook.review')).toBe('all')
+  it('Adscripción tiene lo mismo que Dirección, salvo visar', () => {
+    for (const id of GRADEBOOK_IDS.filter((id) => id !== 'gradebook.endorse')) {
+      expect(scopeOf('ADSCRIPTO', id), id).toBe('all')
+    }
     expect(scopeOf('ADSCRIPTO', 'gradebook.endorse')).toBeNull()
+    expect(REVOKED_PROFILE_PERMISSION_IDS.ADSCRIPTO?.['gradebook.endorse']).toMatch(/Dirección/)
   })
 
-  it('gradebook.inspect quedó sólo en ADMIN', () => {
-    const withInspect = ALL_ROLES.filter((role) => scopeOf(role, 'gradebook.inspect') !== null)
-    expect(withInspect).toEqual(['ADMIN'])
-  })
-})
-
-const GRADEBOOK_WRITE = ['gradebook.grade', 'gradebook.plan', 'gradebook.close'] as const
-
-describe('editar la libreta: el docente lo suyo y Administración todo', () => {
-  it('TEACHER califica, planifica y cierra con alcance own', () => {
-    for (const id of GRADEBOOK_WRITE) expect(scopeOf('TEACHER', id), id).toBe('own')
-    expect(scopeOf('TEACHER', 'gradebook.read')).toBe('own')
+  it('visan sólo Dirección y Administración', () => {
+    expect(holdersOf('gradebook.endorse')).toEqual(['ADMIN', 'DIRECCION'])
   })
 
-  it('Administración edita todas las libretas: notas, C y R, planificación y cierre', () => {
-    for (const id of GRADEBOOK_WRITE) {
+  it('editan la libreta el docente (lo suyo), Administración, Dirección y Adscripción', () => {
+    for (const id of ['gradebook.grade', 'gradebook.plan', 'gradebook.close']) {
+      expect(holdersOf(id), id).toEqual(['ADMIN', 'ADSCRIPTO', 'DIRECCION', 'TEACHER'])
+      expect(scopeOf('TEACHER', id), id).toBe('own')
+    }
+  })
+
+  it('reabren períodos y corrigen desde la reunión Administración, Dirección y Adscripción', () => {
+    expect(holdersOf('gradebook.manage')).toEqual(['ADMIN', 'ADSCRIPTO', 'DIRECCION'])
+  })
+
+  it('en bases que los tenían apagados, el arranque se los prende', () => {
+    for (const role of SUPERVISION) {
+      for (const id of ['gradebook.grade', 'gradebook.plan', 'gradebook.close', 'gradebook.manage', 'academic-config.manage']) {
+        expect(ENFORCED_PROFILE_PERMISSION_SCOPES[role]?.[id]?.scope, `${role} ${id}`).toBe('all')
+      }
+    }
+    expect(REMOVED_PROFILE_PERMISSION_IDS.DIRECCION.has('gradebook.plan')).toBe(false)
+  })
+
+  it('Secretaría no tiene nada de las libretas, y Personal tampoco', () => {
+    for (const id of GRADEBOOK_IDS) {
+      expect(scopeOf('SECRETARIA', id), id).toBeNull()
+      expect(REVOKED_PROFILE_PERMISSION_IDS.SECRETARIA?.[id], id).toBeDefined()
+      expect(scopeOf('STAFF', id), id).toBeNull()
+    }
+  })
+
+  it('Administración edita todas las libretas', () => {
+    for (const id of ['gradebook.grade', 'gradebook.plan', 'gradebook.close']) {
       expect(scopeOf('ADMIN', id), id).toBe('all')
-      // En bases viejas esas filas estaban apagadas: el arranque las vuelve a prender.
       expect(ENFORCED_PROFILE_PERMISSION_SCOPES.ADMIN?.[id]?.scope, `forzar ${id} a ADMIN`).toBe('all')
-      expect(REMOVED_PROFILE_PERMISSION_IDS.ADMIN.has(id)).toBe(false)
     }
     expect(REVOKED_PROFILE_PERMISSION_IDS.ADMIN).toBeUndefined()
   })
+})
 
-  it('sólo el docente y Administración escriben en la libreta', () => {
-    for (const id of GRADEBOOK_WRITE) {
-      const holders = ALL_ROLES.filter((role) => scopeOf(role, id) !== null)
-      expect(holders.sort(), id).toEqual(['ADMIN', 'TEACHER'])
+describe('estudiantes: Dirección y Adscripción todo, salvo las mensualidades', () => {
+  it('matrícula, adecuaciones, pase de lista, justificativos e indicadores con alcance all', () => {
+    for (const role of SUPERVISION) {
+      for (const id of STUDENT_FOLLOW_UP) {
+        expect(scopeOf(role, id), `${role} ${id}`).toBe('all')
+        expect(ENFORCED_PROFILE_PERMISSION_SCOPES[role]?.[id]?.scope, `forzar ${id} a ${role}`).toBe('all')
+      }
     }
   })
 
-  it('gradebook.manage (reabrir períodos) es sólo de ADMIN', () => {
-    const withManage = ALL_ROLES.filter((role) => scopeOf(role, 'gradebook.manage') !== null)
-    expect(withManage).toEqual(['ADMIN'])
+  it('las mensualidades son de Secretaría y Administración', () => {
+    expect(holdersOf('tuition.manage')).toEqual(['ADMIN', 'SECRETARIA'])
+    for (const role of SUPERVISION) {
+      expect(REVOKED_PROFILE_PERMISSION_IDS[role]?.['tuition.manage'], role).toMatch(/mensualidades/)
+    }
+  })
+
+  it('Secretaría gestiona la matrícula, sin la asistencia, los indicadores ni las adecuaciones', () => {
+    expect(scopeOf('SECRETARIA', 'students.manage')).toBe('all')
+    for (const id of STUDENT_FOLLOW_UP.filter((id) => id !== 'students.manage')) {
+      expect(scopeOf('SECRETARIA', id), id).toBeNull()
+      expect(REVOKED_PROFILE_PERMISSION_IDS.SECRETARIA?.[id], id).toBeDefined()
+    }
+  })
+
+  it('el docente pasa lista de lo suyo pero no justifica; Personal no tiene nada de estudiantes', () => {
+    expect(scopeOf('TEACHER', 'student-attendance.take')).toBe('own')
+    expect(scopeOf('TEACHER', 'student-attendance.justify')).toBeNull()
+    for (const id of [...STUDENT_FOLLOW_UP, 'tuition.manage']) expect(scopeOf('STAFF', id), id).toBeNull()
+  })
+
+  it('reabrir listas cerradas (student-attendance.manage) es de Administración, Dirección y Adscripción', () => {
+    expect(holdersOf('student-attendance.manage')).toEqual(['ADMIN', 'ADSCRIPTO', 'DIRECCION'])
   })
 })
 
-describe('Dirección y Adscripción ven la libreta; no la editan', () => {
-  it('no califican, no planifican, no cierran ni reabren', () => {
+describe('personal: lo controlan Secretaría y Administración', () => {
+  it('Secretaría tiene todo el grupo Personal con alcance all', () => {
+    for (const id of STAFF_CONTROL) expect(scopeOf('SECRETARIA', id), id).toBe('all')
+  })
+
+  it('Dirección y Adscripción ven sólo lo suyo, en «Mi trabajo»', () => {
     for (const role of SUPERVISION) {
-      expect(scopeOf(role, 'gradebook.read'), role).toBe('all')
-      for (const id of [...GRADEBOOK_WRITE, 'gradebook.manage']) {
-        expect(scopeOf(role, id), `${role} no debe tener ${id}`).toBeNull()
+      for (const id of OWN_WORK) {
+        expect(scopeOf(role, id), `${role} ${id}`).toBe('own')
+        expect(ENFORCED_PROFILE_PERMISSION_SCOPES[role]?.[id]?.scope, `${role} ${id}`).toBe('own')
+      }
+      for (const id of STAFF_CONTROL.filter((id) => !OWN_WORK.includes(id))) {
+        expect(scopeOf(role, id), `${role} ${id}`).toBeNull()
+        expect(REVOKED_PROFILE_PERMISSION_IDS[role]?.[id], `${role} ${id}`).toMatch(/personal/)
       }
     }
   })
 
-  it('el arranque les apaga esos permisos en bases que los tuvieran, con su motivo', () => {
-    for (const role of SUPERVISION) {
-      for (const id of [...GRADEBOOK_WRITE, 'gradebook.manage']) {
-        expect(REVOKED_PROFILE_PERMISSION_IDS[role]?.[id], `apagar ${id} a ${role}`).toMatch(/no las edita/)
-      }
-    }
-  })
-
-  it('Personal tampoco escribe en la libreta', () => {
-    for (const id of GRADEBOOK_WRITE) expect(scopeOf('STAFF', id), id).toBeNull()
+  it('exports.create (asistencia del personal y sueldos) es de Administración y Secretaría', () => {
+    expect(holdersOf('exports.create')).toEqual(['ADMIN', 'SECRETARIA'])
   })
 })
 
-describe('supervisión: Dirección y Adscripción ven lo mismo que Administración', () => {
-  const READ_ALL = [
-    'users.read',
-    'attendance.read',
-    'events.read',
-    'licenses.read',
-    'analytics.read',
-    'reports.read',
-    'courses.read',
-    'gradebook.read',
-    'academic-analytics.read',
-    'student-attendance.read',
-    'student-reports.read',
-    'audit.read',
-  ]
+describe('académico: ciclos lectivos y cursos', () => {
+  it('los gestionan Secretaría y Administración', () => {
+    for (const id of ACADEMIC_STRUCTURE) expect(holdersOf(id), id).toEqual(['ADMIN', 'SECRETARIA'])
+  })
 
-  it('leen todo el centro', () => {
+  it('Dirección y Adscripción no los tienen (en bases viejas se les apagan)', () => {
     for (const role of SUPERVISION) {
-      for (const id of READ_ALL) {
-        expect(scopeOf(role, id), `${role} debe ver ${id}`).toBe('all')
-        expect(scopeOf('ADMIN', id), `ADMIN también tiene ${id}`).toBe('all')
+      for (const id of ACADEMIC_STRUCTURE) {
+        expect(REVOKED_PROFILE_PERMISSION_IDS[role]?.[id], `${role} ${id}`).toBeDefined()
       }
     }
   })
 
-  it('no crean ni editan lo de Administración', () => {
-    const ADMIN_ONLY = [
-      'users.create', 'users.update', 'users.security',
-      'attendance.update', 'attendance.delete',
-      'events.create', 'events.update', 'events.cancel', 'events.delete',
-      'licenses.create', 'licenses.update', 'licenses.delete',
-      'exports.create', 'school-years.manage', 'courses.manage', 'students.manage',
-      'academic-config.manage', 'settings.manage', 'profiles.manage', 'student-attendance.manage',
-    ]
-    for (const role of SUPERVISION) {
-      for (const id of ADMIN_ONLY) {
-        expect(scopeOf(role, id), `${role} no debe tener ${id}`).toBeNull()
-      }
+  it('el docente no ve el catálogo de cursos: sus libretas filtran por sus propios grupos', () => {
+    expect(scopeOf('TEACHER', 'courses.read')).toBeNull()
+    expect(REVOKED_PROFILE_PERMISSION_IDS.TEACHER?.['courses.read']).toBeDefined()
+    expect(REMOVED_PROFILE_PERMISSION_IDS.TEACHER.has('courses.read')).toBe(true)
+    expect(policyLockFor('TEACHER', 'courses.read')).toMatchObject({ enabled: false, scope: null })
+    expect(scopeOf('TEACHER', 'gradebook.read')).toBe('own')
+  })
+})
+
+describe('configuración y auditoría', () => {
+  it('la configuración del sistema es de Secretaría y Administración', () => {
+    expect(holdersOf('settings.manage')).toEqual(['ADMIN', 'SECRETARIA'])
+    for (const role of ['DIRECCION', 'ADSCRIPTO', 'TEACHER', 'STAFF'] as const) {
+      expect(policyLockFor(role, 'settings.manage'), role).toMatchObject({ enabled: false })
     }
   })
 
-  it('cargan adecuaciones sin gestionar estudiantes; el docente no', () => {
-    for (const role of [...SUPERVISION, 'ADMIN'] as const) {
-      expect(scopeOf(role, 'students.accommodations'), `${role} carga adecuaciones`).toBe('all')
+  it('la auditoría es sólo de Administración, y no se puede prender en otro perfil del sistema', () => {
+    expect(holdersOf('audit.read')).toEqual(['ADMIN'])
+    for (const role of ALL_ROLES.filter((role) => role !== 'ADMIN')) {
+      expect(policyLockFor(role, 'audit.read'), role).toEqual({
+        enabled: false,
+        scope: null,
+        reason: 'La auditoría es sólo de Administración.',
+      })
     }
-    expect(scopeOf('TEACHER', 'students.accommodations')).toBeNull()
-    expect(scopeOf('STAFF', 'students.accommodations')).toBeNull()
   })
 
-  it('el alcance nuevo se fuerza en bases que tenían la línea base propia', () => {
-    for (const role of SUPERVISION) {
+  it('los perfiles los gestiona sólo Administración', () => {
+    expect(holdersOf('profiles.manage')).toEqual(['ADMIN'])
+  })
+})
+
+describe('perfiles fijos: Dirección, Adscripción y Secretaría', () => {
+  it('cada permiso del catálogo se fuerza o se apaga, salvo los avisos y los mensajes propios', () => {
+    for (const role of FIXED_ROLES) {
       const enforced = ENFORCED_PROFILE_PERMISSION_SCOPES[role] ?? {}
-      expect(Object.keys(enforced).sort()).toEqual(['attendance.read', 'events.read', 'licenses.read'])
-      for (const grant of Object.values(enforced)) expect(grant.scope).toBe('all')
+      const revoked = REVOKED_PROFILE_PERMISSION_IDS[role] ?? {}
+      const undecided = CATALOG.filter(
+        (id) => !(id in enforced) && !(id in revoked) && !['notifications.read', 'messaging.use'].includes(id),
+      )
+      expect(undecided, role).toEqual([])
+      expect(Object.keys(enforced).filter((id) => id in revoked), `${role}: forzado y apagado a la vez`).toEqual([])
     }
   })
 
   it('lo forzado coincide con la matriz y siempre dice por qué', () => {
     for (const role of ALL_ROLES) {
-      for (const [id, grant] of Object.entries(ENFORCED_PROFILE_PERMISSION_SCOPES[role] ?? {})) {
-        expect(scopeOf(role, id), `la matriz de ${role} debe coincidir con lo forzado (${id})`).toBe(grant.scope)
-        expect(grant.reason.length, `${role} ${id}`).toBeGreaterThan(10)
+      for (const [id, enforced] of Object.entries(ENFORCED_PROFILE_PERMISSION_SCOPES[role] ?? {})) {
+        expect(scopeOf(role, id), `la matriz de ${role} debe coincidir con lo forzado (${id})`).toBe(enforced.scope)
+        expect(enforced.reason.length, `${role} ${id}`).toBeGreaterThan(10)
       }
       for (const [id, reason] of Object.entries(REVOKED_PROFILE_PERMISSION_IDS[role] ?? {})) {
         expect(scopeOf(role, id), `${role} no puede sembrar ${id} y apagarlo`).toBeNull()
@@ -198,9 +280,10 @@ describe('supervisión: Dirección y Adscripción ven lo mismo que Administraci�
     }
   })
 
-  it('reciben notificaciones', () => {
-    for (const role of SUPERVISION) {
-      expect(scopeOf(role, 'notifications.read')).toBe('own')
+  it('todos reciben sus avisos y usan la mensajería', () => {
+    for (const role of ALL_ROLES) {
+      expect(scopeOf(role, 'notifications.read'), role).toBe('own')
+      expect(scopeOf(role, 'messaging.use'), role).toBe('own')
     }
   })
 })
@@ -232,8 +315,10 @@ describe('permisos fijos en Roles / Perfiles', () => {
       reason: 'Administración edita todo, también las libretas.',
     })
     const direccion = permissionLocksFor('DIRECCION', new Set())
-    expect(direccion.get('gradebook.grade')).toMatchObject({ enabled: false, scope: null })
-    expect(direccion.get('attendance.read')).toMatchObject({ enabled: true, scope: 'all' })
+    expect(direccion.get('gradebook.grade')).toMatchObject({ enabled: true, scope: 'all' })
+    expect(direccion.get('attendance.read')).toMatchObject({ enabled: true, scope: 'own' })
+    expect(direccion.get('users.read')).toMatchObject({ enabled: false, scope: null })
+    expect(permissionLocksFor('SECRETARIA', new Set()).get('tuition.manage')).toMatchObject({ enabled: true, scope: 'all' })
   })
 
   it('un permiso que dejó de ser del perfil queda fijo sólo si está apagado', () => {
@@ -258,80 +343,13 @@ describe('permisos fijos en Roles / Perfiles', () => {
   })
 })
 
-describe('lectura y análisis', () => {
-  it('la supervisión lee libretas de todo el centro', () => {
-    for (const role of SUPERVISION) {
-      expect(scopeOf(role, 'gradebook.read')).toBe('all')
-    }
-  })
-
-  it('los indicadores académicos son de ADMIN, DIRECCION y ADSCRIPTO', () => {
-    const withAnalytics = ALL_ROLES.filter((role) => scopeOf(role, 'academic-analytics.read') !== null)
-    expect(withAnalytics.sort()).toEqual(['ADMIN', 'ADSCRIPTO', 'DIRECCION'])
-  })
-
-  it('la parametrización académica queda sólo en ADMIN', () => {
-    const withConfig = ALL_ROLES.filter((role) => scopeOf(role, 'academic-config.manage') !== null)
-    expect(withConfig).toEqual(['ADMIN'])
-  })
-
-  it('el docente no ve el catálogo de cursos: sus libretas filtran por sus propios grupos', () => {
-    expect(scopeOf('TEACHER', 'courses.read')).toBeNull()
-    // En bases que ya lo tenían se apaga, y Roles / Perfiles no lo deja volver a prender.
-    expect(REVOKED_PROFILE_PERMISSION_IDS.TEACHER?.['courses.read']).toBeDefined()
-    expect(REMOVED_PROFILE_PERMISSION_IDS.TEACHER.has('courses.read')).toBe(true)
-    expect(policyLockFor('TEACHER', 'courses.read')).toMatchObject({ enabled: false, scope: null })
-    // El selector de ciclo de sus libretas no dependía de este permiso (`requireSchoolYearAccess`).
-    expect(scopeOf('TEACHER', 'gradebook.read')).toBe('own')
-  })
-})
-
-describe('inasistencias: adscripción justifica, el docente no', () => {
-  it('ADSCRIPTO justifica faltas de todo el centro', () => {
-    // En cursos superiores la justificación es administrativa, no del docente.
-    expect(scopeOf('ADSCRIPTO', 'student-attendance.justify')).toBe('all')
-    expect(scopeOf('ADSCRIPTO', 'student-attendance.read')).toBe('all')
-  })
-
-  it('reportes y alertas: adscripción y dirección sí, el docente y Personal no', () => {
-    for (const role of ['ADMIN', ...SUPERVISION] as const) {
-      expect(scopeOf(role, 'student-reports.read'), `${role} debe ver reportes`).toBe('all')
-    }
-    for (const role of ['TEACHER', 'STAFF'] as const) {
-      expect(scopeOf(role, 'student-reports.read'), `${role} no debe ver reportes`).toBeNull()
-    }
-  })
-
-  it('DIRECCION también justifica, previa o posteriormente', () => {
-    expect(scopeOf('DIRECCION', 'student-attendance.justify')).toBe('all')
-    expect(scopeOf('DIRECCION', 'student-attendance.read')).toBe('all')
-    expect(scopeOf('DIRECCION', 'student-attendance.manage')).toBeNull()
-  })
-
-  it('el docente pasa lista pero no justifica', () => {
-    expect(scopeOf('TEACHER', 'student-attendance.take')).toBe('own')
-    expect(scopeOf('TEACHER', 'student-attendance.justify')).toBeNull()
-  })
-
-  it('justificar y controlar son permisos distintos', () => {
-    // `manage` además reabre listas cerradas: adscripción no necesita eso para justificar.
-    expect(scopeOf('ADSCRIPTO', 'student-attendance.manage')).toBeNull()
-    const withManage = ALL_ROLES.filter((role) => scopeOf(role, 'student-attendance.manage') !== null)
-    expect(withManage).toEqual(['ADMIN'])
-  })
-})
-
 describe('exportar libretas y boletines', () => {
-  it('supervisión exporta todas y cada docente las suyas', () => {
+  it('Administración, Dirección y Adscripción exportan todas; cada docente las suyas', () => {
     expect(scopeOf('ADMIN', 'gradebook.export')).toBe('all')
     expect(scopeOf('DIRECCION', 'gradebook.export')).toBe('all')
     expect(scopeOf('ADSCRIPTO', 'gradebook.export')).toBe('all')
     expect(scopeOf('TEACHER', 'gradebook.export')).toBe('own')
     expect(scopeOf('STAFF', 'gradebook.export')).toBeNull()
-  })
-
-  it('nadie fuera de administración recibe exports.create: abre la nómina y la asistencia del personal', () => {
-    const withGeneralExports = ALL_ROLES.filter((role) => scopeOf(role, 'exports.create') !== null)
-    expect(withGeneralExports).toEqual(['ADMIN'])
+    expect(scopeOf('SECRETARIA', 'gradebook.export')).toBeNull()
   })
 })

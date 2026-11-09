@@ -73,6 +73,15 @@ describe('admin testing routes', () => {
     expect(res.status).toBe(400)
   })
 
+  it('Secretaría configura el sistema pero no usa las herramientas de prueba', async () => {
+    const tok = signAccessToken({ sub: 'sec-1', email: 'sec@e.com', role: 'SECRETARIA' as 'ADMIN' })
+    const res = await request(app())
+      .post('/admin/testing/wipe-operational')
+      .set('Authorization', `Bearer ${tok}`)
+      .send({ confirm: 'BORRAR' })
+    expect(res.status).toBe(403)
+  })
+
   it('403 si herramientas deshabilitadas', async () => {
     vi.mocked(isAdminTestingToolsEnabled).mockReturnValue(false)
     const res = await request(app())

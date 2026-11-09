@@ -19,7 +19,7 @@ const FILTERS = [{ id: 'all', label: 'Todos' }, { id: 'pending', label: 'Pendien
 export default function AdminTuitionPage() {
   const schoolYear = useOptionalAdminSchoolYear()
   const selectedYear = schoolYear?.years.find((item) => item.id === (schoolYear.selectedId ?? schoolYear.activeId))?.code
-  return <RoleGuard allow={[]} permission="students.manage" permissionScope="all">
+  return <RoleGuard allow={[]} permission="tuition.manage" permissionScope="all">
     {schoolYear?.loading ? <div role="status" className="responsive-page flex items-center gap-2 text-slate-500"><Loader2 className="h-5 w-5 animate-spin" aria-hidden />Cargando mensualidades…</div> : <TuitionWorkspace initialYear={selectedYear ?? new Date().getFullYear()} />}
   </RoleGuard>
 }

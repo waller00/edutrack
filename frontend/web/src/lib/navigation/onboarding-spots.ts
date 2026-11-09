@@ -213,7 +213,7 @@ export const SCREEN_SPOTS: Partial<Record<ModuleId, Spot[]>> = {
       title: 'Lo que cerró el docente',
       text: 'C, R y juicio de cada alumno, el informe del grupo, y lo planificado al lado de lo dictado.',
     },
-    { target: 'visado.decision', title: 'Tu decisión', text: 'Visala si está bien, o hacé una observación diciendo sobre qué y qué hay que corregir.' },
+    { target: 'visado.decision', title: 'Tu decisión', text: 'Visala si está bien (visar es de Dirección), u observala diciendo sobre qué y qué hay que corregir.' },
     { target: 'visado.next', title: 'Seguí con la próxima', text: 'Te lleva a la siguiente libreta de la reunión que espera revisión.' },
   ],
   'teachers-meeting': [

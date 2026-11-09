@@ -12,17 +12,20 @@ export function mergeSchoolYearIntoAttendanceEventWhere(where: any, schoolYearId
 
 /**
  * Ciclo lectivo admin (query `schoolYearId` / `allYears=1`), alineado con eventos/cursos.
- * No aplica filtro si `allYears=1` o si no hay año resuelto.
+ * No aplica filtro si `allYears=1` o si no hay año resuelto. `institutionWide`: quien ve la
+ * asistencia de todo el personal elige el ciclo, sea cual sea su perfil (Secretaría).
  */
 export async function attachResolvedSchoolYearToAttendanceWhere(
   prisma: PrismaClient,
   where: any,
   query: Record<string, unknown>,
   viewerRole: string,
+  institutionWide = false,
 ) {
   if (query.allYears === '1') return
   const schoolYearId = await resolveSchoolYearIdForList(prisma, {
     role: viewerRole,
+    institutionWide,
     requestedSchoolYearId: typeof query.schoolYearId === 'string' ? query.schoolYearId : undefined,
   })
   if (!schoolYearId) return

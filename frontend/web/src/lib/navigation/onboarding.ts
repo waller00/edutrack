@@ -65,6 +65,7 @@ const CONTENT: Partial<Record<ModuleId, StepContent>> = {
     task: 'Consultá la asistencia de un estudiante', instructions: 'Buscá por nombre, documento o curso y abrí «Ver asistencia». En la ficha, revisá las faltas y llegadas tarde. Usá las fechas y el filtro «Sólo faltas» para encontrar el registro que necesitás.',
     capabilities: [
       { permission: 'student-attendance.justify', scope: 'all', text: 'Agregar licencias o justificativos desde la ficha, con sus fechas y motivo, o justificar una falta desde su registro.' },
+      { permission: 'student-attendance.take', scope: 'all', text: 'Pasar una lista que quedó sin pasar, desde «Listas sin pasar».' },
       { permission: 'student-attendance.manage', scope: 'all', text: 'Controlar y gestionar las listas de asistencia del centro.' },
     ],
   },
@@ -75,7 +76,7 @@ const CONTENT: Partial<Record<ModuleId, StepContent>> = {
   },
   tuition: {
     task: 'Revisá cuotas y pagos', instructions: 'Elegí un mes y un estudiante para consultar sus cuotas y los pagos registrados.',
-    capabilities: [{ permission: 'students.manage', scope: 'all', text: 'Gestionar cuotas y registrar pagos de estudiantes.' }],
+    capabilities: [{ permission: 'tuition.manage', scope: 'all', text: 'Gestionar cuotas y registrar pagos de estudiantes.' }],
   },
   'school-years': { task: 'Ubicá el ciclo lectivo', instructions: 'Revisá los ciclos lectivos y la oferta de cursos. Desde esta pantalla podés gestionar el año que va a usar la institución.' },
   courses: {
@@ -87,9 +88,15 @@ const CONTENT: Partial<Record<ModuleId, StepContent>> = {
     capabilities: [
       { permission: 'gradebook.review', scope: 'all', text: 'Registrar controles y observaciones para el docente.' },
       { permission: 'gradebook.endorse', scope: 'all', text: 'Visar cada libreta desde «Revisión y visado», después de revisar lo que cerró el docente.' },
+      { permission: 'gradebook.manage', scope: 'all', text: 'Reabrir una reunión ya cerrada, con motivo, para que el docente la corrija.' },
     ],
   },
-  'teachers-meeting': { task: 'Explorá una reunión de profesores', instructions: 'Seleccioná un grupo y una reunión para consultar la matriz de calificaciones y los juicios de los estudiantes.' },
+  'teachers-meeting': {
+    task: 'Explorá una reunión de profesores', instructions: 'Seleccioná un grupo y una reunión para consultar la matriz de calificaciones y los juicios de los estudiantes.',
+    capabilities: [
+      { permission: 'gradebook.manage', scope: 'all', text: 'Corregir una nota, la R, la C o el juicio de un estudiante sin reabrir la libreta, con motivo: el docente recibe un aviso.' },
+    ],
+  },
   'gradebook-config': { task: 'Revisá los criterios de evaluación', instructions: 'Ubicá los períodos, las escalas y los tipos de actividad que usan las libretas. Desde aquí podés configurar los criterios de la institución.' },
   settings: { task: 'Conocé los ajustes de la institución', instructions: 'Revisá los datos de la institución, los horarios y las tolerancias. Identificá dónde se configuran los avisos y las integraciones.' },
   profiles: { task: 'Revisá qué puede hacer cada perfil', instructions: 'Seleccioná un perfil y consultá sus permisos y alcances. Desde esta pantalla podés gestionar también los roles personalizados.' },

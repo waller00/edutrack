@@ -11,6 +11,8 @@ export const BUILTIN_ORG_ROLE_ROWS = [
   // depender de cómo un admin arme una matriz a mano.
   { code: 'ADSCRIPTO', label: 'Adscripto', sortOrder: 3 },
   { code: 'DIRECCION', label: 'Dirección', sortOrder: 4 },
+  // Control del personal, matrícula y mensualidades, ciclos lectivos y cursos, y configuración.
+  { code: 'SECRETARIA', label: 'Secretaría', sortOrder: 5 },
 ] as const
 
 /** Códigos de los roles built-in; no se pueden recrear ni renombrar desde la administración. */

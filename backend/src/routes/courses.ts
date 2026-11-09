@@ -2,7 +2,8 @@ import { Router } from 'express'
 import type { Request } from 'express'
 import { z } from 'zod'
 import { prisma } from '../db/prisma.js'
-import { authGuard, requirePermission } from '../middlewares/auth.js'
+import { authGuard, requireAnyPermission, requirePermission, userPermissionScope } from '../middlewares/auth.js'
+import type { JwtPayload } from '../types.js'
 import { ensureCourseOffering, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
 const r = Router()
@@ -121,20 +122,45 @@ function serializeCourse(course: any) {
   }
 }
 
+/**
+ * Qué ve del catálogo quien pide. Quien gestiona cursos (Administración, Secretaría) ve también lo
+ * inactivo, lo no ofertado y todos los ciclos; con alcance institucional (también quien gestiona
+ * estudiantes) elige el ciclo, y si no, ve el activo. Antes era `role === 'ADMIN'`: Secretaría
+ * gestionaba cursos atada al ciclo activo y sin ver lo inactivo.
+ */
+type CatalogViewer = { role: string; manages: boolean; institutionWide: boolean }
+
+async function catalogViewer(user: JwtPayload): Promise<CatalogViewer> {
+  const userId = user.id ?? user.sub
+  const [manage, read, students] = await Promise.all([
+    userPermissionScope(userId, 'courses.manage', user.role),
+    userPermissionScope(userId, 'courses.read', user.role),
+    userPermissionScope(userId, 'students.manage', user.role),
+  ])
+  const manages = manage === 'all'
+  return { role: user.role, manages, institutionWide: manages || read === 'all' || students === 'all' }
+}
+
+function schoolYearIdFor(viewer: CatalogViewer, query: Request['query']) {
+  return resolveSchoolYearIdForList(prisma, {
+    role: viewer.role,
+    institutionWide: viewer.institutionWide,
+    requestedSchoolYearId: typeof query.schoolYearId === 'string' ? query.schoolYearId : undefined,
+  })
+}
+
+/** El catálogo lo leen Cursos y también Estudiantes (el curso y la orientación de la matrícula). */
+const requireCatalogRead = requireAnyPermission([['courses.read'], ['students.manage', 'all']])
+
 async function findCourseVisibleToUser(
   courseId: string,
-  user: { role: string },
+  viewer: CatalogViewer,
   query: Request['query'],
 ): Promise<{ id: string } | null> {
-  const includeInactive = query.all === '1' && user.role === 'ADMIN'
-  const includeNotOffered = query.includeNotOffered === '1' && user.role === 'ADMIN'
-  const allYears = query.allYears === '1' && user.role === 'ADMIN'
-  const schoolYearId = allYears
-    ? undefined
-    : await resolveSchoolYearIdForList(prisma, {
-        role: user.role,
-        requestedSchoolYearId: typeof query.schoolYearId === 'string' ? query.schoolYearId : undefined,
-      })
+  const includeInactive = query.all === '1' && viewer.manages
+  const includeNotOffered = query.includeNotOffered === '1' && viewer.manages
+  const allYears = query.allYears === '1' && viewer.manages
+  const schoolYearId = allYears ? undefined : await schoolYearIdFor(viewer, query)
   const where: any = { id: courseId }
   if (!includeInactive) where.isActive = true
   if (schoolYearId && !includeNotOffered) {
@@ -150,13 +176,10 @@ async function findCourseVisibleToUser(
 
 async function resolveCourseOfferingIdFromQuery(
   courseId: string,
-  user: { role: string },
+  viewer: CatalogViewer,
   query: Request['query'],
 ): Promise<string | null> {
-  const schoolYearId = await resolveSchoolYearIdForList(prisma, {
-    role: user.role,
-    requestedSchoolYearId: typeof query.schoolYearId === 'string' ? query.schoolYearId : undefined,
-  })
+  const schoolYearId = await schoolYearIdFor(viewer, query)
   if (!schoolYearId) return null
   const courseOfferingDelegate = (prisma as any).courseOffering
   if (!courseOfferingDelegate?.findFirst) return null
@@ -169,7 +192,8 @@ async function resolveCourseOfferingIdFromQuery(
 
 r.get('/orientations', authGuard, requirePermission('courses.read'), async (req, res) => {
   try {
-    const includeInactive = req.query.all === '1' && req.user?.role === 'ADMIN'
+    const viewer = await catalogViewer(req.user!)
+    const includeInactive = req.query.all === '1' && viewer.manages
     const where: any = {}
     if (!includeInactive) where.isActive = true
     const list = await (prisma as any).orientation.findMany({
@@ -287,18 +311,17 @@ r.delete('/orientations/:orientationId', authGuard, requirePermission('courses.m
   }
 })
 
-/** Cursos del ciclo lectivo seleccionado (query `schoolYearId` para ADMIN/STAFF; por defecto año activo). `?allYears=1` solo ADMIN ignora el ciclo. */
-r.get('/', authGuard, requirePermission('courses.read'), async (req, res) => {
+/**
+ * Cursos del ciclo lectivo elegido (`schoolYearId`, con alcance institucional; si no, el activo).
+ * `?all=1`, `?includeNotOffered=1` y `?allYears=1` sólo para quien gestiona cursos.
+ */
+r.get('/', authGuard, requireCatalogRead, async (req, res) => {
   try {
-    const includeInactive = req.query.all === '1' && req.user?.role === 'ADMIN'
-    const includeNotOffered = req.query.includeNotOffered === '1' && req.user?.role === 'ADMIN'
-    const allYears = req.query.allYears === '1' && req.user?.role === 'ADMIN'
-    const schoolYearId = allYears
-      ? undefined
-      : await resolveSchoolYearIdForList(prisma, {
-          role: req.user?.role,
-          requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
-        })
+    const viewer = await catalogViewer(req.user!)
+    const includeInactive = req.query.all === '1' && viewer.manages
+    const includeNotOffered = req.query.includeNotOffered === '1' && viewer.manages
+    const allYears = req.query.allYears === '1' && viewer.manages
+    const schoolYearId = allYears ? undefined : await schoolYearIdFor(viewer, req.query)
     const where: any = {}
     if (!includeInactive) where.isActive = true
     if (schoolYearId && !includeNotOffered) {
@@ -436,7 +459,7 @@ r.put('/:courseId', authGuard, requirePermission('courses.manage', 'all'), async
     if (!user) return res.status(401).json({ message: 'No autorizado' })
     const cid = z.string().uuid().safeParse(req.params.courseId)
     if (!cid.success) return res.status(400).json({ message: 'Curso inválido' })
-    const course = await findCourseVisibleToUser(cid.data, user, { ...req.query, all: '1' })
+    const course = await findCourseVisibleToUser(cid.data, await catalogViewer(user), { ...req.query, all: '1' })
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
     const parsed = courseUpdateSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -489,7 +512,7 @@ r.delete('/:courseId', authGuard, requirePermission('courses.manage', 'all'), as
     if (!user) return res.status(401).json({ message: 'No autorizado' })
     const cid = z.string().uuid().safeParse(req.params.courseId)
     if (!cid.success) return res.status(400).json({ message: 'Curso inválido' })
-    const course = await findCourseVisibleToUser(cid.data, user, { ...req.query, all: '1' })
+    const course = await findCourseVisibleToUser(cid.data, await catalogViewer(user), { ...req.query, all: '1' })
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
     const requestedSchoolYearId =
       typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined
@@ -509,22 +532,18 @@ r.delete('/:courseId', authGuard, requirePermission('courses.manage', 'all'), as
   }
 })
 
-r.get('/:courseId/orientations', authGuard, requirePermission('courses.read'), async (req, res) => {
+r.get('/:courseId/orientations', authGuard, requireCatalogRead, async (req, res) => {
   try {
     const user = req.user
     if (!user) return res.status(401).json({ message: 'No autorizado' })
     const cid = z.string().uuid().safeParse(req.params.courseId)
     if (!cid.success) return res.status(400).json({ message: 'Curso inválido' })
-    const course = await findCourseVisibleToUser(cid.data, user, req.query)
+    const viewer = await catalogViewer(user)
+    const course = await findCourseVisibleToUser(cid.data, viewer, req.query)
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
-    const includeInactive = req.query.all === '1' && user.role === 'ADMIN'
-    const allYears = req.query.allYears === '1' && user.role === 'ADMIN'
-    const schoolYearId = allYears
-      ? undefined
-      : await resolveSchoolYearIdForList(prisma, {
-          role: user.role,
-          requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
-        })
+    const includeInactive = req.query.all === '1' && viewer.manages
+    const allYears = req.query.allYears === '1' && viewer.manages
+    const schoolYearId = allYears ? undefined : await schoolYearIdFor(viewer, req.query)
     const where: any = {
       courseId: course.id,
       ...(includeInactive ? {} : { isActive: true, isOffered: true, visibleInFilters: true, orientation: { isActive: true } }),
@@ -558,7 +577,7 @@ r.post('/:courseId/orientations', authGuard, requirePermission('courses.manage',
     if (!user) return res.status(401).json({ message: 'No autorizado' })
     const cid = z.string().uuid().safeParse(req.params.courseId)
     if (!cid.success) return res.status(400).json({ message: 'Curso inválido' })
-    const course = await findCourseVisibleToUser(cid.data, user, { ...req.query, all: '1', includeNotOffered: '1' })
+    const course = await findCourseVisibleToUser(cid.data, await catalogViewer(user), { ...req.query, all: '1', includeNotOffered: '1' })
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
     const parsed = courseOrientationCreateSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -624,7 +643,7 @@ r.delete('/:courseId/orientations/:courseOrientationId', authGuard, requirePermi
     const cid = z.string().uuid().safeParse(req.params.courseId)
     const coid = z.string().uuid().safeParse(req.params.courseOrientationId)
     if (!cid.success || !coid.success) return res.status(400).json({ message: 'Identificador inválido' })
-    const course = await findCourseVisibleToUser(cid.data, user, { ...req.query, all: '1', includeNotOffered: '1' })
+    const course = await findCourseVisibleToUser(cid.data, await catalogViewer(user), { ...req.query, all: '1', includeNotOffered: '1' })
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
     const row = await (prisma as any).courseOrientation.findFirst({
       where: { id: coid.data, courseId: course.id },
@@ -652,21 +671,19 @@ r.get('/:courseId/subjects', authGuard, requirePermission('courses.read'), async
     if (!user) return res.status(401).json({ message: 'No autorizado' })
     const cid = z.string().uuid().safeParse(req.params.courseId)
     if (!cid.success) return res.status(400).json({ message: 'Curso inválido' })
-    const course = await findCourseVisibleToUser(cid.data, user, req.query)
+    const viewer = await catalogViewer(user)
+    const course = await findCourseVisibleToUser(cid.data, viewer, req.query)
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
-    const showInactive = req.query.all === '1' && user.role === 'ADMIN'
+    const showInactive = req.query.all === '1' && viewer.manages
     const orientationId =
       typeof req.query.orientationId === 'string' && z.string().uuid().safeParse(req.query.orientationId).success
         ? req.query.orientationId
         : null
-    const courseOfferingId = await resolveCourseOfferingIdFromQuery(course.id, user, req.query)
+    const courseOfferingId = await resolveCourseOfferingIdFromQuery(course.id, viewer, req.query)
     const fullCourse = await (prisma as any).course.findUnique({ where: { id: course.id }, select: { id: true, level: true } })
-    const schoolYearId = await resolveSchoolYearIdForList(prisma, {
-      role: user.role,
-      requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
-    })
+    const schoolYearId = await schoolYearIdFor(viewer, req.query)
     const includeAllCourseAssignments =
-      !orientationId && showInactive && req.query.includeNotOffered === '1' && user.role === 'ADMIN'
+      !orientationId && showInactive && req.query.includeNotOffered === '1' && viewer.manages
     const assignmentScope: any[] = [
       ...(fullCourse?.level
         ? [{ level: fullCourse.level, courseId: null, orientationId: null }]
@@ -789,7 +806,8 @@ r.post('/:courseId/subjects', authGuard, requirePermission('courses.manage', 'al
     if (!user) return res.status(401).json({ message: 'No autorizado' })
     const cid = z.string().uuid().safeParse(req.params.courseId)
     if (!cid.success) return res.status(400).json({ message: 'Curso inválido' })
-    const course = await findCourseVisibleToUser(cid.data, user, req.query)
+    const viewer = await catalogViewer(user)
+    const course = await findCourseVisibleToUser(cid.data, viewer, req.query)
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
     const parsed = subjectCreateSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -798,12 +816,9 @@ r.post('/:courseId/subjects', authGuard, requirePermission('courses.manage', 'al
         detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
       })
     }
-    const courseOfferingId = await resolveCourseOfferingIdFromQuery(course.id, user, req.query)
+    const courseOfferingId = await resolveCourseOfferingIdFromQuery(course.id, viewer, req.query)
     const fullCourse = await (prisma as any).course.findUnique({ where: { id: course.id }, select: { id: true, level: true } })
-    const schoolYearId = await resolveSchoolYearIdForList(prisma, {
-      role: user.role,
-      requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
-    })
+    const schoolYearId = await schoolYearIdFor(viewer, req.query)
     const associationType =
       parsed.data.associationType ??
       (parsed.data.orientationId ? 'ORIENTACION' : 'TRONCO_COMUN_CURSO')
@@ -875,7 +890,8 @@ r.put('/:courseId/subjects/:subjectId', authGuard, requirePermission('courses.ma
     const cid = z.string().uuid().safeParse(req.params.courseId)
     const sid = z.string().uuid().safeParse(req.params.subjectId)
     if (!cid.success || !sid.success) return res.status(400).json({ message: 'Identificador inválido' })
-    const course = await findCourseVisibleToUser(cid.data, user, req.query)
+    const viewer = await catalogViewer(user)
+    const course = await findCourseVisibleToUser(cid.data, viewer, req.query)
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
     const parsed = subjectUpdateSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -884,7 +900,7 @@ r.put('/:courseId/subjects/:subjectId', authGuard, requirePermission('courses.ma
         detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
       })
     }
-    const courseOfferingId = await resolveCourseOfferingIdFromQuery(course.id, user, req.query)
+    const courseOfferingId = await resolveCourseOfferingIdFromQuery(course.id, viewer, req.query)
     const subjectWhere: any = {
       id: sid.data,
       OR: [
@@ -961,7 +977,7 @@ r.delete('/:courseId/subjects/:subjectId', authGuard, requirePermission('courses
     const cid = z.string().uuid().safeParse(req.params.courseId)
     const sid = z.string().uuid().safeParse(req.params.subjectId)
     if (!cid.success || !sid.success) return res.status(400).json({ message: 'Identificador inválido' })
-    const course = await findCourseVisibleToUser(cid.data, user, req.query)
+    const course = await findCourseVisibleToUser(cid.data, await catalogViewer(user), req.query)
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
     const existing = await (prisma.subject as any).findFirst({
       where: {

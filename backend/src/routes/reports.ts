@@ -657,6 +657,7 @@ r.get('/user-events/:userId', authGuard, requirePermission('reports.read', 'all'
       ? undefined
       : await resolveSchoolYearIdForList(prisma, {
           role: req.user?.role,
+          institutionWide: true,
           requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
         })
 

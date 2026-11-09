@@ -4,6 +4,7 @@ import AdminStudentsPage from './page'
 import { api } from '@/lib/api/client'
 import { emptyStudentDraft, type StudentListRow } from '@/components/admin/students/student-types'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
+import { useOptionalAuth } from '@/contexts/AuthContext'
 
 vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
@@ -12,9 +13,16 @@ vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 vi.mock('@/contexts/AdminSchoolYearContext', () => ({
   useOptionalAdminSchoolYear: vi.fn(),
 }))
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: vi.fn() }))
 
 const mockedApi = vi.mocked(api)
 const mockedYear = vi.mocked(useOptionalAdminSchoolYear)
+const mockedAuth = vi.mocked(useOptionalAuth)
+/** Quién mira: Secretaría (con mensualidades) o Dirección (sin ellas). */
+const viewer = (permissions: Array<{ id: string; scope: 'own' | 'all' }>) =>
+  ({ me: { id: 'u1', role: 'X', permissions } }) as unknown as ReturnType<typeof useOptionalAuth>
+const SECRETARIA = viewer([{ id: 'students.manage', scope: 'all' }, { id: 'tuition.manage', scope: 'all' }])
+const DIRECCION = viewer([{ id: 'students.manage', scope: 'all' }])
 
 const student = {
   id: 's1',
@@ -126,6 +134,7 @@ describe('AdminStudentsPage', () => {
       if (url.startsWith('/admin/students')) return { total: 1, page: 1, pageSize: 20, data: [student] } as never
       return [] as never
     })
+    mockedAuth.mockReturnValue(SECRETARIA)
     render(<AdminStudentsPage />)
     const table = await screen.findByRole('table')
     expect(within(table).queryByRole('columnheader', { name: /Mensualidades/ })).not.toBeInTheDocument()
@@ -139,6 +148,14 @@ describe('AdminStudentsPage', () => {
       expect(call).toBeDefined()
       expect(JSON.parse(call![1]!.body as string)).not.toHaveProperty('tuitionMonths')
     })
+  })
+
+  it('sin el permiso de mensualidades (Dirección) no ofrece el atajo a Mensualidades', async () => {
+    mockedAuth.mockReturnValue(DIRECCION)
+    render(<AdminStudentsPage />)
+    await screen.findByRole('table')
+    expect(screen.queryByRole('link', { name: 'Mensualidades' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Nuevo estudiante/ })).toBeInTheDocument()
   })
 
   it('muestra "Limpiar" con el contador al activar un filtro y lo resetea', async () => {

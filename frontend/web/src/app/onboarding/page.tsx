@@ -25,7 +25,17 @@ type Me = {
   nationalId?: string
   birthdate?: string
   phone?: string
-  role: 'ADMIN' | 'STAFF' | 'TEACHER'
+  role: string
+  isApproved?: boolean
+}
+
+/**
+ * ¿Elige su perfil al completar los datos? Sólo una cuenta pendiente de Docente o Personal. A una
+ * aprobada el servidor no le deja cambiarlo (403: no podía guardar sus datos), y a una que pidió
+ * Dirección, Adscripción o Secretaría el selector la pasaba a Personal.
+ */
+function choosesOwnRole(me: Pick<Me, 'role' | 'isApproved'> | null): boolean {
+  return Boolean(me && me.isApproved === false && (me.role === 'STAFF' || me.role === 'TEACHER'))
 }
 
 /**
@@ -156,7 +166,7 @@ export default function OnboardingPage() {
           lastName,
           phone: phoneLocal ? `+598${normalizeLocalPhoneUY(phoneLocal)}` : undefined,
           birthdate: new Date(birthdate).toISOString(),
-          role,
+          ...(choosesOwnRole(me) ? { role } : {}),
         }),
       })
       globalThis.location.href = '/'
@@ -260,18 +270,20 @@ export default function OnboardingPage() {
                 </p>
               </div>
 
-              <div>
-                <label htmlFor="onboarding-role" className="block text-sm font-medium text-gray-700 mb-2">Perfil</label>
-                <select
-                  id="onboarding-role"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as 'STAFF' | 'TEACHER')}
-                  className="select-field"
-                >
-                  <option value="STAFF">Personal</option>
-                  <option value="TEACHER">Docente</option>
-                </select>
-              </div>
+              {choosesOwnRole(me) && (
+                <div>
+                  <label htmlFor="onboarding-role" className="block text-sm font-medium text-gray-700 mb-2">Perfil</label>
+                  <select
+                    id="onboarding-role"
+                    value={role}
+                    onChange={(e) => setRole(e.target.value as 'STAFF' | 'TEACHER')}
+                    className="select-field"
+                  >
+                    <option value="STAFF">Personal</option>
+                    <option value="TEACHER">Docente</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             {error && (

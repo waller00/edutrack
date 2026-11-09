@@ -6,7 +6,7 @@ export const REGISTER_USERNAME_PATTERN = '^[a-zA-Z0-9._-]{3,30}$'
 export const REGISTER_USERNAME_REGEX = /^[a-zA-Z0-9._-]{3,30}$/
 
 /** Perfiles que se pueden pedir al registrarse. Administrador no: lo asigna un admin. */
-export type RegisterRole = 'TEACHER' | 'STAFF' | 'ADSCRIPTO' | 'DIRECCION' | ''
+export type RegisterRole = 'TEACHER' | 'STAFF' | 'ADSCRIPTO' | 'DIRECCION' | 'SECRETARIA' | ''
 export type RegisterUsernameStatus = 'idle' | 'checking' | 'ok' | 'taken' | 'invalid'
 
 export function isValidRegisterEmail(email: string): boolean {

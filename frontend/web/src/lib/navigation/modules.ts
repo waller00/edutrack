@@ -364,7 +364,8 @@ export const APP_MODULES: readonly AppModule[] = [
     description: 'Las cuotas del mes y los pagos de cada estudiante.',
     group: 'students',
     icon: Receipt,
-    permission: 'students.manage',
+    // Permiso propio: Dirección y Adscripción gestionan estudiantes sin ver los pagos.
+    permission: 'tuition.manage',
     permissionScope: 'all',
     quickAccess: 15,
   },

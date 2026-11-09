@@ -6,6 +6,8 @@ import DateField from '@/components/forms/DateField'
 import FormField, { fieldInputClass } from '@/components/forms/FormField'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import { validateStudent, type StudentFormError, type StudentTabId } from '@/lib/admin/student-form'
 import StudentMoodleBadge from './StudentMoodleBadge'
 import StudentPhotoField from './StudentPhotoField'
@@ -61,6 +63,10 @@ export default function StudentFormModal({
   const firstFieldRef = useRef<HTMLInputElement>(null)
   const accommodationsRef = useRef<StudentAccommodationsPanelHandle>(null)
   const isEdit = mode === 'edit'
+  // Las adecuaciones son de Administración, Dirección y Adscripción (`students.accommodations`):
+  // Secretaría gestiona la matrícula sin ver ese dato sensible, así que no tiene la pestaña.
+  const canAccommodate = hasPermission(useOptionalAuth()?.me, 'students.accommodations', 'all')
+  const tabs = canAccommodate ? TABS : TABS.filter((item) => item.id !== 'adecuaciones')
   const [tab, setTab] = useState<StudentTabId>('datos')
   // Al crear, el contacto arranca plegado: son datos opcionales que ya no traban el alta.
   const [contactOpen, setContactOpen] = useState(false)
@@ -450,7 +456,7 @@ export default function StudentFormModal({
 
         {isEdit && (
           <div role="tablist" aria-label="Secciones de la ficha" className="grid shrink-0 grid-cols-3 gap-1 border-b border-gray-200 px-4 sm:flex sm:flex-wrap sm:px-5">
-            {TABS.map((item) => {
+            {tabs.map((item) => {
               const selected = tab === item.id
               return (
                 <button
@@ -521,7 +527,7 @@ export default function StudentFormModal({
               )}
               {tab === 'trayectoria' && trayectoria}
               {/* Se monta al abrir: tiene su propia consulta. */}
-              {tab === 'adecuaciones' && form.id && (
+              {tab === 'adecuaciones' && canAccommodate && form.id && (
                 <StudentAccommodationsPanel ref={accommodationsRef} studentId={form.id} />
               )}
               {/* Sólo se monta al abrir la pestaña: se auto-consulta, y así no se pide de gusto. */}

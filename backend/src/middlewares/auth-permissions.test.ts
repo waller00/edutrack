@@ -28,8 +28,12 @@ describe('auth middleware — permisos y sesión', () => {
     expect(await userPermissionScope('u1', 'gradebook.grade', 'TEACHER')).toBe('own')
     // Antes cualquier permiso daba `own` a cualquier rol: un docente "podía" editar eventos.
     expect(await userPermissionScope('u1', 'events.update', 'TEACHER')).toBeNull()
-    expect(await userPermissionScope('u1', 'gradebook.grade', 'DIRECCION')).toBeNull()
-    expect(await userPermissionScope('u1', 'gradebook.plan', 'DIRECCION')).toBeNull()
+    // Dirección tiene todo lo de libretas (también editarlas), pero no las mensualidades ni el personal.
+    expect(await userPermissionScope('u1', 'gradebook.grade', 'DIRECCION')).toBe('all')
+    expect(await userPermissionScope('u1', 'tuition.manage', 'DIRECCION')).toBeNull()
+    expect(await userPermissionScope('u1', 'users.read', 'DIRECCION')).toBeNull()
+    expect(await userPermissionScope('u1', 'tuition.manage', 'SECRETARIA')).toBe('all')
+    expect(await userPermissionScope('u1', 'gradebook.read', 'SECRETARIA')).toBeNull()
     expect(await userPermissionScope('u1', 'x', 'ROL_INEXISTENTE')).toBeNull()
   })
 

@@ -67,10 +67,15 @@ describe('matriz de permisos vs. rutas', () => {
 })
 
 describe('invariantes de la matriz (CLAUDE.md)', () => {
-  it('dirección no edita la libreta: ni planifica ni califica', () => {
+  it('dirección tiene todo lo de libretas: también planifica y califica', () => {
     const direccion = grantsOf('DIRECCION')
-    expect(direccion.has('gradebook.plan')).toBe(false)
-    expect(direccion.has('gradebook.grade')).toBe(false)
+    expect(direccion.get('gradebook.plan')).toBe('all')
+    expect(direccion.get('gradebook.grade')).toBe('all')
+  })
+
+  it('las mensualidades no cuelgan de estudiantes: Dirección gestiona estudiantes sin ellas', () => {
+    expect(grantsOf('DIRECCION').get('students.manage')).toBe('all')
+    expect(grantsOf('DIRECCION').has('tuition.manage')).toBe(false)
   })
 
   it('sólo dirección visa', () => {
@@ -80,11 +85,11 @@ describe('invariantes de la matriz (CLAUDE.md)', () => {
     expect(withEndorse).toEqual(['DIRECCION'])
   })
 
-  it('exports.create (asistencia del personal y sueldos) es sólo de administración', () => {
+  it('exports.create (asistencia del personal y sueldos) es de Administración y Secretaría', () => {
     const withExports = (Object.keys(DEFAULT_PROFILE_PERMISSIONS) as BuiltinProfileRole[]).filter((role) =>
       grantsOf(role).has('exports.create'),
     )
-    expect(withExports).toEqual(['ADMIN'])
+    expect(withExports.sort()).toEqual(['ADMIN', 'SECRETARIA'])
   })
 
   it('el docente sólo tiene alcance propio en la libreta', () => {
