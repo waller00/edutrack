@@ -8,6 +8,7 @@ services:
       CUSTOM_HOSTNAME: edutrack-observer
       DISABLE_ONLINE_API: "true"
       DISABLE_COLLECTIONS: crowdsecurity/sshd crowdsecurity/whitelist-good-actors
+      COLLECTIONS: crowdsecurity/base-http-scenarios crowdsecurity/http-cve
       PARSERS: crowdsecurity/nginx-logs crowdsecurity/http-logs crowdsecurity/dateparse-enrich crowdsecurity/syslog-logs
       SCENARIOS: crowdsecurity/http-probing
     volumes:
@@ -35,6 +36,26 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+  cloudflare-worker-bouncer:
+    image: crowdsecurity/cloudflare-worker-bouncer:v0.0.10
+    profiles: ["cloudflare-bouncer"]
+    restart: unless-stopped
+    network_mode: "service:crowdsec"
+    depends_on:
+      - crowdsec
+    volumes:
+      - /root/crowdsec-cloudflare-worker-bouncer.yaml:/etc/crowdsec/bouncers/crowdsec-cloudflare-worker-bouncer.yaml:ro
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.25
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 networks:
   logs:
     external: true

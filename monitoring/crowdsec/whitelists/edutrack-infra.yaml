@@ -21,6 +21,8 @@ whitelist:
     - "10.0.0.0/8"
     - "172.16.0.0/12"
     - "192.168.0.0/16"
+    # Tailscale (administracion/monitoreo), no clientes de internet.
+    - "100.64.0.0/10"
     - "fc00::/7"
     - "fe80::/10"
     # Cloudflare (debe coincidir con nginx.conf).

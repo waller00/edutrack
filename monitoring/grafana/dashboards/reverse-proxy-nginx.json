@@ -336,13 +336,6 @@
       "keepTime": true
     },
     {
-      "title": "CrowdSec",
-      "type": "link",
-      "url": "/d/crowdsec-observation",
-      "includeVars": false,
-      "keepTime": true
-    },
-    {
       "title": "Servidor",
       "type": "link",
       "url": "/d/edutrack-node-host",

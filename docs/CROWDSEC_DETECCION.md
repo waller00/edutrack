@@ -1,5 +1,12 @@
 # CrowdSec: primera etapa de detección
 
+> **Actualización 09/11/2026:** la operación y el dashboard de CrowdSec están en
+> Wazuh. Grafana ya no muestra CrowdSec y Prometheus no scrapea su endpoint.
+> El colector `edutrack-wazuh-log@crowdsec` envía las detecciones al manager y
+> las reglas 100600-100603 las muestran/alertan. La sección "Visualización en
+> Grafana" queda como historial y no debe usarse para operar.
+
+
 ## Estado y alcance
 
 Instalación en producción verificada el 18/10/2026 en modo observación.
@@ -323,3 +330,27 @@ CrowdSec, Prometheus y Alloy. Grafana cargó los nueve paneles automáticamente.
 Verificado: `up{job="crowdsec"}=1`, logs del proyecto CrowdSec en Loki,
 dashboard consultable por API de Grafana, web HTTP 200, CrowdSec saludable,
 simulación global habilitada, bouncers vacíos y ningún puerto publicado.
+
+## Cloudflare Worker Bouncer — 09/11/2026
+
+Se desplegó el Worker Bouncer oficial (`crowdsecurity/cloudflare-worker-bouncer`)
+sobre la misma zona `edutrack-uy.com`; no se creó otra zona.
+
+- Contenedor: `edutrack-crowdsec-cloudflare-worker-bouncer-1`.
+- Perfil Compose: `cloudflare-bouncer` (no arranca con un `up -d` normal).
+- Configuración: `/root/crowdsec-cloudflare-worker-bouncer.yaml` (600 root),
+  fuera del repositorio; contiene el token y la API key del bouncer.
+- Rutas protegidas: `edutrack-uy.com`, `www`, `auth` y `moodle`.
+  **No se protege `api.edutrack-uy.com`**, para no tocar `/iclock`.
+- Acción: `captcha` con Turnstile; no `ban`.
+- Las rutas se configuran en **fail-open**
+  (`request_limit_fail_open=true`). El timer
+  `cloudflare-bouncer-failopen.timer` las corrige cada 60 s si el bouncer las
+  recrea.
+- `simulation: true`: el KV del Worker no contiene decisiones; no hay bloqueo
+  ni challenge efectivo todavía.
+- Fail2ban quedó deshabilitado (web y SSH); SSH solo se usa por VPN.
+
+Pendiente para activar enforcement: probar un challenge controlado y luego
+aplicar solo el escenario `crowdsecurity/http-probing`, con whitelist de
+Tailscale, administración y liceo.
