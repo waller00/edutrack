@@ -1,5 +1,7 @@
 # Backup off-site de PostgreSQL
 
+> **Histórico:** desde el 10/11/2026 el backup operativo es [BACKUP_RESTIC_R2.md](BACKUP_RESTIC_R2.md): restic cifrado en Cloudflare R2, con asistencias, Keycloak, Moodle DB, moodledata y configuración. Este documento queda como referencia del esquema anterior.
+
 Este runbook implementa el primer paso de recuperacion ante desastre para EduTrack: generar un backup diario de PostgreSQL en el Droplet principal y copiarlo a una VPS externa. En esta instalacion el destino inicial propuesto es la VPS de testing:
 
 ```text
