@@ -131,13 +131,42 @@ snapshot_id="$(restic snapshots --latest 1 --json | python3 -c 'import json,sys;
 size_bytes="$(du -sb "$staging" | awk '{print $1}')"
 files_count="$(find "$staging" -type f | wc -l | tr -d ' ')"
 
-python3 - "$STATUS_FILE" "$snapshot_id" "$timestamp" "$size_bytes" "$files_count" "$repo_bytes" <<'PY'
+# Segunda copia: repositorio restic por SFTP en testing.
+testing_ok=0
+testing_snapshot=""
+testing_bytes=0
+testing_env="${TESTING_RESTIC_ENV:-/root/.restic-testing.env}"
+if [[ -r "$testing_env" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$testing_env"
+  set +a
+  echo "==> Snapshot restic testing (SFTP)"
+  if restic backup \
+    --host "$(hostname -s)" \
+    --tag edutrack-daily \
+    "$staging" \
+    "${config_paths[@]}" \
+    "$moodle_data"; then
+    restic forget --keep-daily 30 --prune
+    testing_ok=1
+    testing_snapshot="$(restic snapshots --latest 1 --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[-1]["short_id"] if d else "")')"
+    testing_bytes="$(restic stats --mode raw-data --json | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("total_size", 0)))')"
+    echo "TESTING_BACKUP_OK snapshot=$testing_snapshot"
+  else
+    echo "TESTING_BACKUP_FAILED"
+  fi
+else
+  echo "TESTING_BACKUP_FAILED missing_env=$testing_env"
+fi
+
+python3 - "$STATUS_FILE" "$snapshot_id" "$timestamp" "$size_bytes" "$files_count" "$repo_bytes" "$testing_ok" "$testing_snapshot" "$testing_bytes" <<'PY'
 import json
 import os
 import sys
 from datetime import datetime, timezone
 
-path, snapshot, stamp, size, files, repo_bytes = sys.argv[1:7]
+path, snapshot, stamp, size, files, repo_bytes, testing_ok, testing_snapshot, testing_bytes = sys.argv[1:10]
 data = {
     "last_success": datetime.now(timezone.utc).isoformat(),
     "snapshot": snapshot,
@@ -146,6 +175,10 @@ data = {
     "staging_files": int(files),
     "repository_bytes": int(repo_bytes),
     "repository": "r2:backup-edutrack",
+    "testing_backup_ok": bool(int(testing_ok)),
+    "testing_snapshot": testing_snapshot,
+    "testing_repository_bytes": int(testing_bytes),
+    "testing_repository": "sftp:backup@edutrack-testing-backup:/var/backups/backups/restic-edutrack",
     "retention_days": 30,
 }
 os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -157,4 +190,4 @@ os.replace(tmp, path)
 PY
 
 success=1
-echo "Backup completado: snapshot=$snapshot_id status=$STATUS_FILE"
+echo "Backup completado: snapshot=$snapshot_id testing=$testing_snapshot status=$STATUS_FILE"
