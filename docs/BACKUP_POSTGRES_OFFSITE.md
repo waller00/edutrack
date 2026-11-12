@@ -3,7 +3,7 @@
 Este runbook implementa el primer paso de recuperacion ante desastre para EduTrack: generar un backup diario de PostgreSQL en el Droplet principal y copiarlo a una VPS externa. En esta instalacion el destino inicial propuesto es la VPS de testing:
 
 ```text
-138.197.35.2
+10.108.0.3
 ```
 
 La copia remota no reemplaza los snapshots del proveedor. Es una primera capa enfocada en proteger el dato critico: la base `asistencias`.
@@ -13,12 +13,12 @@ La copia remota no reemplaza los snapshots del proveedor. Es una primera capa en
 ```text
 Droplet produccion
   docker compose -> pg_dump -Fc -> /root/backups/edutrack/postgres
-  scp/ssh      -> 138.197.35.2:/var/backups/backups/backup-prod
+  scp/ssh      -> 10.108.0.3:/var/backups/backups/backup-prod
 ```
 
 ## 1. Preparar la VPS destino
 
-En la VPS `138.197.35.2`, usar el usuario de sistema `backup` y crear el directorio de destino. Si el usuario ya existe, no hace falta crearlo de nuevo:
+En la VPS `10.108.0.3`, usar el usuario de sistema `backup` y crear el directorio de destino. Si el usuario ya existe, no hace falta crearlo de nuevo:
 
 ```bash
 id backup || sudo useradd --system --create-home --shell /bin/bash backup
@@ -38,7 +38,7 @@ sudo ssh-keygen -t ed25519 -f /root/.ssh/edutrack_backup_vps -C "edutrack-backup
 sudo cat /root/.ssh/edutrack_backup_vps.pub
 ```
 
-Copiar la clave publica al usuario `backup` de la VPS destino. En la VPS `138.197.35.2`:
+Copiar la clave publica al usuario `backup` de la VPS destino. En la VPS `10.108.0.3`:
 
 ```bash
 sudo install -d -m 700 -o backup -g backup /home/backup/.ssh
@@ -50,7 +50,7 @@ sudo chmod 600 /home/backup/.ssh/authorized_keys
 Luego validar conectividad desde produccion:
 
 ```bash
-ssh -i /root/.ssh/edutrack_backup_vps backup@138.197.35.2 "test -d /var/backups/backups/backup-prod && echo ok"
+ssh -i /root/.ssh/edutrack_backup_vps backup@10.108.0.3 "test -d /var/backups/backups/backup-prod && echo ok"
 ```
 
 ## 3. Ejecutar un backup manual
@@ -61,7 +61,7 @@ Desde la raiz del repo en el Droplet de produccion:
 cd /root/edutrack
 chmod +x scripts/dc-cloud.sh scripts/backup_pg_offsite.sh
 
-BACKUP_REMOTE_HOST=138.197.35.2 \
+BACKUP_REMOTE_HOST=10.108.0.3 \
 BACKUP_REMOTE_USER=backup \
 BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps \
 BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod \
@@ -88,7 +88,7 @@ sudo crontab -e
 Agregar:
 
 ```cron
-15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=138.197.35.2 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod BACKUP_REMOTE_RETENTION_DAYS=30 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
+15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=10.108.0.3 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod BACKUP_REMOTE_RETENTION_DAYS=30 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
 ```
 
 Con esta configuracion:
@@ -118,7 +118,7 @@ sha256sum -c edutrack-postgres-asistencias-YYYYMMDD-HHMMSS.dump.sha256
 Una vez por mes, copiar un backup desde la VPS destino hacia el entorno de testing y ejecutar el restore existente:
 
 ```bash
-scp backup@138.197.35.2:/var/backups/backups/backup-prod/edutrack-postgres-asistencias-YYYYMMDD-HHMMSS.dump /root/prod-asistencias.dump
+scp backup@10.108.0.3:/var/backups/backups/backup-prod/edutrack-postgres-asistencias-YYYYMMDD-HHMMSS.dump /root/prod-asistencias.dump
 
 cd /root/edutrack
 ./scripts/restore_pg_custom_dump_cloud.sh /root/prod-asistencias.dump

@@ -156,7 +156,7 @@ El proyecto ya incluye scripts utiles:
 - `scripts/import_data_sql_on_server.sh`: importa un SQL plano en servidor.
 - `scripts/restore_pg_custom_dump_cloud.sh`: restaura un dump custom de PostgreSQL.
 - `scripts/backup_pg_offsite.sh`: genera un dump custom y lo copia a una VPS externa por SSH.
-- `docs/BACKUP_POSTGRES_OFFSITE.md`: documenta el backup off-site diario hacia la VPS `138.197.35.2`.
+- `docs/BACKUP_POSTGRES_OFFSITE.md`: documenta el backup off-site diario hacia la VPS `10.108.0.3`.
 - `docs/TESTING_DB_RESTORE.md`: documenta restauracion en entorno de pruebas.
 
 ### Politica recomendada
@@ -170,11 +170,11 @@ El proyecto ya incluye scripts utiles:
 
 ### Backup off-site automatizable
 
-El primer paso operativo de continuidad es ejecutar `scripts/backup_pg_offsite.sh` desde el Droplet de produccion. El destino inicial definido para el proyecto es la VPS de testing `138.197.35.2`, usando una ruta remota separada para backups productivos:
+El primer paso operativo de continuidad es ejecutar `scripts/backup_pg_offsite.sh` desde el Droplet de produccion. El destino inicial definido para el proyecto es la VPS de testing `10.108.0.3`, usando una ruta remota separada para backups productivos:
 
 ```bash
 cd /root/edutrack
-BACKUP_REMOTE_HOST=138.197.35.2 \
+BACKUP_REMOTE_HOST=10.108.0.3 \
 BACKUP_REMOTE_USER=backup \
 BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps \
 BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod \
@@ -190,7 +190,7 @@ El script genera un `.dump` en formato custom (`pg_dump -Fc`), crea un checksum 
 Ejemplo de tarea diaria a las 02:00:
 
 ```cron
-15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=138.197.35.2 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod BACKUP_REMOTE_RETENTION_DAYS=30 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
+15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=10.108.0.3 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod BACKUP_REMOTE_RETENTION_DAYS=30 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
 ```
 
 El detalle completo de instalacion, validacion y prueba mensual de restore esta en `docs/BACKUP_POSTGRES_OFFSITE.md`.

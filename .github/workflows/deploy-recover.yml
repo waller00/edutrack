@@ -79,11 +79,27 @@ jobs:
   recover-testing:
     if: github.event.inputs.target_env == 'testing'
     runs-on: ubuntu-latest
+    environment: testing
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Recover testing stack
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Prepare testing SSH transport
+        id: testing_connection
+        uses: ./.github/actions/production-ssh
         with:
-          host: ${{ secrets.SSH_HOST_TESTING }}
+          enabled: 'true'
+          public-host: ${{ secrets.SSH_HOST_TESTING }}
+          private-host: ${{ vars.TESTING_SSH_TAILSCALE_HOST || '100.98.120.16' }}
+          oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
+          audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
+      - name: Recover testing stack
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        with:
+          host: ${{ steps.testing_connection.outputs.host }}
+          fingerprint: SHA256:IvkEvZ3+GQwB3iZBCcvkenlSz4TD1ubMZda0TPm/nqo
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY_TESTING }}
           port: 22
