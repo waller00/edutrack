@@ -1,6 +1,8 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { AuditAction } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
+import { recordAuditEvent } from '../services/audit-log.js'
 
 /**
  * Adecuaciones del estudiante (`/admin/students/:id/accommodations`).
@@ -88,6 +90,18 @@ function serializeAccommodation(row: any) {
 const actorSelect = { select: { name: true, firstName: true, lastName: true, username: true } }
 const accommodationInclude = { createdBy: actorSelect, updatedBy: actorSelect, teacherSeenBy: actorSelect }
 
+/** La metadata lleva el tipo y los ids: nunca el resumen ni el enlace (datos sensibles del menor). */
+function auditAccommodation(req: any, action: AuditAction, accommodationId: string, kind?: string) {
+  recordAuditEvent({
+    action,
+    actorUserId: req.user?.id ?? req.user?.sub ?? null,
+    req,
+    entityType: 'StudentAccommodation',
+    entityId: accommodationId,
+    metadata: { studentId: req.params.id, ...(kind ? { kind } : {}) },
+  })
+}
+
 function invalid(res: any, error: z.ZodError) {
   return res.status(400).json({
     message: 'Datos inválidos',
@@ -131,6 +145,7 @@ r.post('/', async (req: any, res) => {
       },
       include: accommodationInclude,
     })
+    auditAccommodation(req, AuditAction.STUDENT_ACCOMMODATION_CREATED, created.id, d.kind)
     return res.status(201).json({ data: serializeAccommodation(created) })
   } catch (error) {
     console.error('[admin/students/:id/accommodations POST]', error)
@@ -161,6 +176,7 @@ r.put('/:accommodationId', async (req: any, res) => {
       },
       include: accommodationInclude,
     })
+    auditAccommodation(req, AuditAction.STUDENT_ACCOMMODATION_UPDATED, updated.id, d.kind)
     return res.json({ data: serializeAccommodation(updated) })
   } catch (error) {
     console.error('[admin/students/:id/accommodations PUT]', error)
@@ -174,6 +190,7 @@ r.delete('/:accommodationId', async (req: any, res) => {
       where: { id: req.params.accommodationId, studentId: req.params.id },
     })
     if (deleted.count === 0) return res.status(404).json({ message: 'Adecuación no encontrada' })
+    auditAccommodation(req, AuditAction.STUDENT_ACCOMMODATION_DELETED, req.params.accommodationId)
     return res.status(204).end()
   } catch (error) {
     console.error('[admin/students/:id/accommodations DELETE]', error)

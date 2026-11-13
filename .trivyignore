@@ -1,0 +1,54 @@
+# Excepciones de Trivy. Cada una dice qué es, por qué se acepta y hasta cuándo (`exp:`).
+# Vencida la fecha, Trivy la vuelve a reportar y el deploy se frena: no se renueva sin
+# volver a mirar el motivo.
+
+# ---------------------------------------------------------------------------------------------
+# next 14.2.x (frontend/web). El arreglo es Next >= 15.5.28: versión mayor, con React 19 y las
+# APIs de request asíncronas. Se migra en las vacaciones (dic/ene). Mientras tanto:
+# - `/_next/image` está cerrado en nginx (la app no usa `next/image`): cubre las RCE de SVG/AVIF
+#   y los DoS y la caché del optimizador.
+# - No hay server actions, middleware, rewrites, i18n ni `beforeInteractive`, y el servidor es
+#   Linux (no aplica la RCE de Windows).
+# - Queda expuesto: DoS sobre Server Components. Lo atenúan el rate limit de nginx y Cloudflare.
+GHSA-2464-fhr4-w9xw exp:2027-01-31
+GHSA-2xp9-vwfh-vxw4 exp:2027-01-31
+CVE-2026-75604 exp:2027-01-31
+GHSA-p293-qw3h-jr36 exp:2027-01-31
+GHSA-mwv6-3258-q52c exp:2027-01-31
+GHSA-5j59-xgg2-r9c4 exp:2027-01-31
+GHSA-h25m-26qc-wcjf exp:2027-01-31
+GHSA-q4gf-8mx6-v5v3 exp:2027-01-31
+GHSA-8h8q-6873-q5fj exp:2027-01-31
+CVE-2025-59471 exp:2027-01-31
+CVE-2026-29057 exp:2027-01-31
+CVE-2026-27980 exp:2027-01-31
+CVE-2026-44572 exp:2027-01-31
+CVE-2026-44573 exp:2027-01-31
+CVE-2026-44576 exp:2027-01-31
+CVE-2026-44577 exp:2027-01-31
+CVE-2026-44578 exp:2027-01-31
+CVE-2026-44580 exp:2027-01-31
+CVE-2026-44581 exp:2027-01-31
+CVE-2026-44582 exp:2027-01-31
+CVE-2026-64641 exp:2027-01-31
+CVE-2026-64643 exp:2027-01-31
+CVE-2026-64645 exp:2027-01-31
+CVE-2026-64646 exp:2027-01-31
+CVE-2026-64647 exp:2027-01-31
+CVE-2026-64648 exp:2027-01-31
+CVE-2026-64649 exp:2027-01-31
+CVE-2026-94482 exp:2027-01-31
+
+# postcss empaquetado dentro de next 14 (next/node_modules/postcss): sale con la migración de
+# Next. Sólo procesa el CSS propio en el build; no recibe CSS de usuarios.
+CVE-2026-41305 exp:2027-01-31
+CVE-2026-45623 exp:2027-01-31
+CVE-2026-69153 exp:2027-01-31
+CVE-2026-73646 exp:2027-01-31
+
+# ---------------------------------------------------------------------------------------------
+# zod 3.x (backend). El arreglo es zod >= 4.6.6: versión mayor, se usa en 31 archivos. DoS de
+# memoria con colecciones grandes; lo acota el límite de cuerpo de Express (10 MB) y el rate
+# limit de nginx. Se migra junto con Next.
+CVE-2023-54404 exp:2027-01-31
+GHSA-mrhx-c7xc-m3w5 exp:2027-01-31

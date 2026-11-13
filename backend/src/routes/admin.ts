@@ -607,8 +607,9 @@ r.post('/profiles/:role/permissions', requirePermission('profiles.manage', 'all'
 r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
   const parsed = z
     .object({
-      email: z.string().email(),
-      role: z.string().min(2),
+      // El mensaje llega tal cual a la pantalla: el de zod ("Invalid email") salía en inglés.
+      email: z.string({ required_error: 'Falta el correo.' }).email('El correo no es válido: tiene que tener la forma nombre@ejemplo.com.'),
+      role: z.string({ required_error: 'Falta el perfil.' }).min(2, 'Falta el perfil.'),
       username: usernameSchema.optional(),
     })
     .safeParse(req.body)

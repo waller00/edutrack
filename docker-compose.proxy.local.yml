@@ -6,7 +6,7 @@
 
 services:
   reverse-proxy-local:
-    image: nginx:1.27-alpine
+    image: nginx:1.30-alpine@sha256:583b7f2fce1cdb8da5ad5c39ebd3c33b98b87d493190e548bdee1fa8c619c311
     restart: unless-stopped
     ports:
       - "18080:8080"

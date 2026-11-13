@@ -6,11 +6,22 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+# Ningún proceso de los contenedores puede ganar privilegios nuevos (setuid, file caps) después
+# de arrancar. Los de Postgres y Redis siguen pudiendo bajar de root a su usuario (gosu/su-exec
+# usan setuid() como root, que esto no impide).
+x-no-new-privileges: &no-new-privileges
+  - no-new-privileges:true
+
 services:
   pg:
     logging: *default-logging
+    # Sin digest a propósito: la `postgres:16` de hoy es Debian 13, y si el servidor corre una
+    # vieja (Debian 12), cambiar la glibc debajo de una base existente puede cambiar el orden de
+    # las collations y dejar índices de texto inconsistentes. Fijarla después de ver la variante
+    # que corre (docker exec <pg> cat /etc/os-release) y con un REINDEX planificado si cambia.
     image: postgres:16
     restart: unless-stopped
+    security_opt: *no-new-privileges
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-asistencias}
@@ -25,11 +36,19 @@ services:
 
   redis:
     logging: *default-logging
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    security_opt: *no-new-privileges
+    # Con contraseña: guarda las sesiones (con los tokens de Keycloak). Sin ella, cualquier
+    # contenedor de la red podía leerlas o escribir una. Sale del .env, no del repo.
+    # El comando tiene que empezar con `redis-server`: sólo así el entrypoint de la imagen baja de
+    # root al usuario `redis` (con `sh -c …` correría como root).
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Falta REDIS_PASSWORD en .env (openssl rand -hex 32)}
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Falta REDIS_PASSWORD en .env (openssl rand -hex 32)}"]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # REDISCLI_AUTH y no `-a`: redis-cli no avisa ni deja la contraseña en su línea de comando.
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -39,8 +58,9 @@ services:
 
   keycloak-db:
     logging: *default-logging
-    image: postgres:16
+    image: postgres:16 # sin digest: ver el comentario de `pg`
     restart: unless-stopped
+    security_opt: *no-new-privileges
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
@@ -56,8 +76,10 @@ services:
 
   keycloak:
     logging: *default-logging
-    image: quay.io/keycloak/keycloak:26.3.3
+    # Misma versión que antes (26.3.3), fijada por digest. Subir Keycloak es un cambio aparte.
+    image: quay.io/keycloak/keycloak:26.3.3@sha256:6a7217a100bd3e5de4063a27a538ef999a3c5a88c4b4ec0ffc0a642aee7b2597
     restart: unless-stopped
+    security_opt: *no-new-privileges
     # Modo producción (`start-dev` no es para servir usuarios reales: sin caché de temas, defaults
     # de desarrollo). TLS lo termina Cloudflare/nginx, por eso HTTP queda habilitado detrás del proxy.
     # El primer arranque compila la configuración y tarda un poco más.
@@ -104,6 +126,9 @@ services:
     logging: *default-logging
     build: ./backend
     restart: unless-stopped
+    security_opt: *no-new-privileges
+    # Node sin root, puertos altos: no necesita ninguna capability de Linux.
+    cap_drop: [ALL]
     # Este comando asegura que las tablas se creen antes de iniciar el servidor
     command: ["/app/docker-entrypoint.sh"]
     environment:
@@ -122,7 +147,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@pg:5432/${POSTGRES_DB:-asistencias}?schema=public}
       # Solo lectura para el asistente NL->SQL; si falta, ese modo no ejecuta nada.
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:-}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # Armada acá con la contraseña; un REDIS_URL viejo en el .env ya no se usa.
+      REDIS_URL: redis://:${REDIS_PASSWORD:?Falta REDIS_PASSWORD en .env (openssl rand -hex 32)}@redis:6379
       # --- Keycloak / BFF ---
       # ISSUER es publico: el navegador debe poder abrirlo. INTERNAL es solo backchannel Docker.
       KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-http://localhost:8089/realms/edutrack}
@@ -221,6 +247,8 @@ services:
         NEXT_PUBLIC_LOGROCKET_APP_ID: ${NEXT_PUBLIC_LOGROCKET_APP_ID:-}
         NEXT_PUBLIC_LOGROCKET_FORCE: ${NEXT_PUBLIC_LOGROCKET_FORCE:-false}
     restart: unless-stopped
+    security_opt: *no-new-privileges
+    cap_drop: [ALL]
     # NEXT_PUBLIC_* en runtime no reemplaza lo ya embebido en el bundle de Next al construir la imagen.
     environment:
       # Next standalone usa HOSTNAME para atarse; sin esto escucha solo en la IP

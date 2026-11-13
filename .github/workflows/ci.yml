@@ -26,7 +26,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/web/package-lock.json
 
@@ -62,7 +62,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
@@ -87,6 +87,14 @@ jobs:
         with:
           name: backend-coverage
           path: backend/coverage
+
+  nginx-config:
+    # El reverse-proxy no tiene tests: un error en nginx.conf sólo aparecía al desplegar.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: nginx -t
+        run: bash scripts/check-nginx-config.sh
 
   integration:
     # Tests de integración contra un Postgres real (service container).
@@ -115,7 +123,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: backend/package-lock.json
 

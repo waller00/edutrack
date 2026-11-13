@@ -246,6 +246,27 @@ Reglas criticas incluidas:
 - Watchdog de contenedores: reinicios repetidos, tope alcanzado y watchdog sin
   reportar.
 
+Grupo `edutrack-security-and-backups`
+(`monitoring/grafana/provisioning/alerting/security-backup-alerts.yml`), también
+`severity=critical` (sale por la misma política de Telegram):
+
+| Alerta | Cuándo | Qué mirar |
+|---|---|---|
+| `EduTrack backup atrasado` | más de 30 h sin un backup restic completo en R2, o sin la métrica | `/var/log/edutrack-backup.log`; la métrica la escribe cada hora `check_backup_status.sh` en el textfile collector |
+| `EduTrack rate limit superado en masa` | más de 50 respuestas 429 en 10 min, sostenido 5 min | posible fuerza bruta: IPs en Loki y `cscli decisions list` |
+| `EduTrack pico de accesos denegados (403)` | más de 200 respuestas 403 en 10 min, sostenido 5 min | una cuenta recorriendo datos ajenos, o escrituras cortadas por el chequeo de Origin |
+
+Los umbrales de 429 y 403 son de arranque: después de una semana, mirar el
+máximo normal en Explore (`sum(increase(edutrack_backend_http_requests_total{status_code="403"}[10m]))`)
+y dejarlos en unas 5 veces eso.
+
+Los reportes de la CSP del front llegan al backend (`/security/csp-report`) y
+quedan en Loki como líneas `"msg":"csp-violation"` (directiva y URLs sin query):
+
+```logql
+{container=~".*auth.*"} |= "csp-violation"
+```
+
 La auto-remediacion (reinicio acotado de `web`, `auth` y `reverse-proxy`) esta
 documentada en [AUTO_REMEDIACION.md](AUTO_REMEDIACION.md). PostgreSQL y Keycloak
 no se reinician automaticamente: solo alertan.

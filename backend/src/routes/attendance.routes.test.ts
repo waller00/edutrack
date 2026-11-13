@@ -1065,6 +1065,22 @@ describe("attendance /register (prisma mock)", () => {
     expect(prismaMock.attendance.count.mock.calls[0][0].where.userId).toBe("other-user");
   });
 
+  it("GET /attendance/stats con filtro de estado cuenta cada estado dentro de ese filtro", async () => {
+    // Con "Estado: Tarde" los presentes eran los de todo el período: la tasa de presencia dio 803 %.
+    prismaMock.attendance.count.mockResolvedValue(0);
+    const res = await request(app())
+      .get("/attendance/stats?type=CHECK_IN&status=LATE")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    const wheres = prismaMock.attendance.count.mock.calls.map((call: any[]) => call[0].where);
+    expect(wheres[0].status).toBe("LATE");
+    expect(wheres[1]).toEqual({ AND: [expect.objectContaining({ status: "LATE" }), { status: "PRESENT" }] });
+    for (const where of wheres.slice(1)) {
+      expect(where.AND[0]).toBe(wheres[0]);
+    }
+  });
+
   it("GET /attendance/stats calcula estados de salida cuando se filtra CHECK_OUT", async () => {
     prismaMock.attendance.count
       .mockResolvedValueOnce(4)

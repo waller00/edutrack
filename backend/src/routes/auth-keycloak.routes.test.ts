@@ -490,6 +490,68 @@ describe("auth-keycloak login OIDC", () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe("http://localhost:3000/login?error=account_link");
+    expect(recordAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "AUTH_LOGIN_FAILURE", actorUserId: null, metadata: { reason: "ACCOUNT_LINK_CONFLICT" } }),
+    );
+  });
+
+  it("GET /auth/callback deja el ingreso en la auditoría, con quién entró", async () => {
+    await request(app()).get("/auth/callback?state=state-1&code=abc").set("Cookie", "oauth_state=state-1");
+
+    expect(recordAuditEventMock).toHaveBeenCalledTimes(1);
+    expect(recordAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "AUTH_LOGIN_SUCCESS", actorUserId: "user-1", entityType: "User", entityId: "user-1" }),
+    );
+  });
+
+  it("GET /auth/callback registra como ingreso con Google el que se pidió con Google desde EduTrack", async () => {
+    redisMock.get.mockResolvedValueOnce(JSON.stringify({ codeVerifier: "verifier-1", returnTo: "/", identityProvider: "google" }));
+
+    await request(app()).get("/auth/callback?state=state-1&code=abc").set("Cookie", "oauth_state=state-1");
+
+    expect(recordAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "AUTH_GOOGLE_LOGIN_SUCCESS", actorUserId: "user-1" }),
+    );
+  });
+
+  it("GET /auth/login?provider=google guarda en el state que fue con Google", async () => {
+    await request(app()).get("/auth/login?provider=google&returnTo=/register");
+
+    const stored = JSON.parse(String(redisMock.set.mock.calls[0][1]));
+    expect(stored).toMatchObject({ identityProvider: "google", returnTo: "/register" });
+  });
+
+  it("GET /auth/callback audita el ingreso que no se pudo completar", async () => {
+    exchangeCodeMock.mockRejectedValueOnce(new Error("invalid_grant"));
+
+    const res = await request(app()).get("/auth/callback?state=state-1&code=abc").set("Cookie", "oauth_state=state-1");
+
+    expect(res.headers.location).toBe("http://localhost:3000/login?error=oidc");
+    expect(recordAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "AUTH_LOGIN_FAILURE", metadata: { reason: "OIDC_ERROR" } }),
+    );
+  });
+
+  it("un state ajeno no escribe en la auditoría: cualquiera podría llenarla", async () => {
+    await request(app()).get("/auth/callback?state=state-1&code=abc").set("Cookie", "oauth_state=otro");
+
+    expect(recordAuditEventMock).not.toHaveBeenCalled();
+  });
+
+  it("cerrar sesión queda en la auditoría con quién salió", async () => {
+    const res = await request(app()).post("/auth/logout").set("Cookie", "sid=sid-1");
+
+    expect(res.status).toBe(200);
+    expect(deleteSessionMock).toHaveBeenCalledWith("sid-1");
+    expect(recordAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "AUTH_LOGOUT", actorUserId: "user-1", entityId: "user-1" }),
+    );
+  });
+
+  it("cerrar sesión sin sesión no audita nada", async () => {
+    await request(app()).post("/auth/logout");
+
+    expect(recordAuditEventMock).not.toHaveBeenCalled();
   });
 });
 

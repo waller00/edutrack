@@ -1071,6 +1071,7 @@ function StudentCard({
   libretaLabel,
   detail,
   periods,
+  periodFilter,
   rows,
   periodGrades,
   periodStates,
@@ -1095,6 +1096,8 @@ function StudentCard({
   libretaLabel: string
   detail: GradeBookDetail
   periods: Period[]
+  /** El período elegido en "Filtrar por período" (`''`: todos). */
+  periodFilter: string
   rows: StudentGradeRow[]
   periodGrades: StoredPeriodGrade[]
   periodStates: Map<string, PeriodState>
@@ -1121,6 +1124,12 @@ function StudentCard({
   const ownWorkOnly = Boolean(detail.access.ownWorkOnly)
   // El Excel sale del servidor y pide `gradebook.export` (inspección no lo tiene); imprimir es local.
   const canExport = hasPermission(useOptionalAuth()?.me, 'gradebook.export') && !ownWorkOnly
+  // El detalle sigue al filtro de período, como los bloques: listaba (y dejaba editar y borrar)
+  // las notas de los otros períodos.
+  const detailRows = useMemo(
+    () => (periodFilter ? rows.filter((row) => row.assessment.periodId === periodFilter) : rows),
+    [rows, periodFilter],
+  )
   const photoUrl = useStudentPhoto(gradeBookId, student.studentId, student.hasPhoto)
 
   async function handlePrint() {
@@ -1325,7 +1334,7 @@ function StudentCard({
         <StudentDetailPanel
           gradeBookId={gradeBookId}
           student={student}
-          rows={rows}
+          rows={detailRows}
           decimals={decimals}
           canGrade={canGrade}
           options={options}
@@ -1690,6 +1699,7 @@ export default function EvaluationsBoard({
                 libretaLabel={libretaLabel}
                 detail={detail}
                 periods={periodFilter ? periods.filter((period) => period.id === periodFilter) : periods}
+                periodFilter={periodFilter}
                 rows={rowsByStudent.get(student.studentId) ?? []}
                 periodGrades={(board?.periodGrades ?? []).filter((g) => g.studentId === student.studentId)}
                 periodStates={periodStates}

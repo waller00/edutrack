@@ -189,7 +189,7 @@ describe('Indicadores de estudiantes', () => {
     expect(await screen.findByText(/40 de 100 \(40 %\) estudiantes con notas tienen al menos una materia baja en 2.ª Entrega/)).toBeInTheDocument()
     expect(await screen.findByText(/51 de 58 \(87,9 %\) matriculados en Ciclo 2025 promovieron o egresaron/)).toBeInTheDocument()
     // «Para mirar primero»: los motivos dichos con su número.
-    expect(await screen.findByText('Notas: 3 materias bajas en 2.ª Entrega')).toBeInTheDocument()
+    expect(await screen.findByText('Notas: 3 materias bajas en 2.ª Entrega — Física, Inglés y Matemática')).toBeInTheDocument()
     expect(screen.getByText('Faltas: 26 en el año (pasó las 25)')).toBeInTheDocument()
   })
 
@@ -249,7 +249,7 @@ describe('Indicadores de estudiantes', () => {
     expect(alert).toHaveTextContent('No se pudo calcular quién necesita atención. Sin conexión')
     fail = false
     fireEvent.click(within(alert).getByRole('button', { name: 'Reintentar' }))
-    expect(await screen.findByText('Notas: 3 materias bajas en 2.ª Entrega')).toBeInTheDocument()
+    expect(await screen.findByText('Notas: 3 materias bajas en 2.ª Entrega — Física, Inglés y Matemática')).toBeInTheDocument()
   })
 
   it('«Actualizar» vuelve a pedir todo', async () => {
@@ -277,7 +277,7 @@ describe('las secciones', () => {
     state.query = 'seccion=riesgo&motivo=faltas'
     render(<StudentIndicators />)
     expect(await screen.findByText('Faltas: 26 en el año (pasó las 25)')).toBeInTheDocument()
-    expect(screen.queryByText('Notas: 3 materias bajas en 2.ª Entrega')).not.toBeInTheDocument()
+    expect(screen.queryByText('Notas: 3 materias bajas en 2.ª Entrega — Física, Inglés y Matemática')).not.toBeInTheDocument()
     expect(screen.getByText('Mostrando 1 de 1 estudiantes')).toBeInTheDocument()
     fireEvent.change(screen.getByRole('combobox', { name: 'Motivo' }), { target: { value: 'notas' } })
     expect(routerMock.replace).toHaveBeenCalledWith('/admin/student-indicators?seccion=riesgo&motivo=notas', { scroll: false })

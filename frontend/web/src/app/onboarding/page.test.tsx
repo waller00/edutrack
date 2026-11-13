@@ -48,6 +48,34 @@ describe('OnboardingPage', () => {
     await waitFor(() => expect(window.location.href).toBe('/login'))
   })
 
+  it('con el perfil completo vuelve al inicio: no ofrece mandar el alta otra vez', async () => {
+    respond(() => ({}), baseMeResponse({ isApproved: true, needsProfileCompletion: false }))
+    render(<OnboardingPage />)
+
+    await waitFor(() => expect(window.location.href).toBe('/'))
+    expect(screen.queryByText('Completa tu registro')).not.toBeInTheDocument()
+    expect(mockedApi.mock.calls.some(([url]) => String(url).includes('check-username'))).toBe(false)
+  })
+
+  it('el usuario que ya tiene la cuenta es suyo, no "No disponible", y deja guardar', async () => {
+    // Para el servidor está ocupado: lo ocupa la propia cuenta.
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('/auth/me')) return baseMeResponse({ needsProfileCompletion: true })
+      if (String(url).includes('check-username')) return { available: false, valid: true }
+      return {}
+    })
+    render(<OnboardingPage />)
+
+    expect(await screen.findByText('Es tu usuario')).toBeInTheDocument()
+    expect(screen.queryByText('No disponible')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Guardar y enviar a validación/ }))
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/auth/profile', expect.objectContaining({ method: 'PUT' })),
+    )
+    expect(mockedApi.mock.calls.some(([url]) => String(url).includes('check-username?u=ana.garcia'))).toBe(false)
+  })
+
   it('completa el perfil sin prueba de vida', async () => {
     respond()
     render(<OnboardingPage />)

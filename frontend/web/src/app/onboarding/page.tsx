@@ -12,6 +12,7 @@ import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import DateField from '@/components/forms/DateField'
 import {
   getOnboardingUsernameStatusDisplay,
+  isOwnUsername,
   resolveOnboardingUsernameStatus,
   type OnboardingUsernameStatus,
 } from '@/lib/auth/onboarding-form-helpers'
@@ -58,6 +59,12 @@ export default function OnboardingPage() {
   useEffect(() => {
     api<Me & { needsProfileCompletion: boolean }>('/auth/me')
       .then((data) => {
+        // Es sólo para completar lo que falta: con el perfil completo, volver acá ofrecía mandar el
+        // alta otra vez. Los guardas sólo redirigían hacia el onboarding, nunca desde él.
+        if (data.needsProfileCompletion === false) {
+          globalThis.location.href = '/'
+          return
+        }
         setMe(data)
         setUsername(data.username || '')
         setFirstName(data.firstName || '')
@@ -87,6 +94,12 @@ export default function OnboardingPage() {
       setUsernameStatus('invalid')
       return
     }
+    // El que ya tiene la cuenta figura como ocupado (por ella misma): decía "No disponible" y no
+    // dejaba guardar el perfil.
+    if (isOwnUsername(username, me?.username)) {
+      setUsernameStatus('own')
+      return
+    }
     setUsernameStatus('checking')
     const t = setTimeout(async () => {
       try {
@@ -97,7 +110,7 @@ export default function OnboardingPage() {
       }
     }, 400)
     return () => clearTimeout(t)
-  }, [username])
+  }, [username, me?.username])
 
   async function generateUsername(first: string, last: string) {
     const normalize = (str: string) =>

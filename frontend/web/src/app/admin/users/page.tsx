@@ -96,6 +96,9 @@ function AdminUsersPageContent() {
   const [creating, setCreating] = useState(false)
   const [createForm, setCreateForm] = useState({ email: '', username: '', role: 'TEACHER' })
   const [createSaving, setCreateSaving] = useState(false)
+  // El error del alta va en su formulario: `msg` sólo se ve dentro de la edición, y un alta
+  // rechazada (correo inválido o repetido) no mostraba nada.
+  const [createError, setCreateError] = useState('')
 
   const load = useCallback(async (f: AdminUsersListFilters) => {
     setLoading(true)
@@ -217,11 +220,11 @@ function AdminUsersPageContent() {
     e.preventDefault()
     const username = createForm.username.trim()
     if (username && !REGISTER_USERNAME_REGEX.test(username)) {
-      setMsg('Usuario inválido. Usá 3 a 30 caracteres: letras, números, punto, guion bajo o guion.')
+      setCreateError('Usuario inválido. Usá 3 a 30 caracteres: letras, números, punto, guion bajo o guion.')
       return
     }
     setCreateSaving(true)
-    setMsg('')
+    setCreateError('')
     try {
       await api('/admin/users', {
         method: 'POST',
@@ -236,10 +239,15 @@ function AdminUsersPageContent() {
       setCreateForm({ email: '', username: '', role: 'TEACHER' })
       await load(filters)
     } catch (err: unknown) {
-      setMsg(getAdminUserSaveErrorMessage(err))
+      setCreateError(getAdminUserSaveErrorMessage(err))
     } finally {
       setCreateSaving(false)
     }
+  }
+
+  function closeCreate() {
+    setCreating(false)
+    setCreateError('')
   }
 
   async function resetPassword(u: AdminUserRow) {
@@ -480,18 +488,22 @@ function AdminUsersPageContent() {
             <h2 className="mb-3 text-lg font-semibold text-slate-900">Alta de usuario</h2>
             <form onSubmit={createUser} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="sm:col-span-2">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Correo</label>
+                <label htmlFor="create-user-email" className="mb-1 block text-xs font-medium text-slate-600">Correo</label>
                 <input
+                  id="create-user-email"
                   type="email"
                   required
                   value={createForm.email}
                   onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))}
+                  aria-invalid={createError ? true : undefined}
+                  aria-describedby={createError ? 'create-user-error' : undefined}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Usuario</label>
+                <label htmlFor="create-user-username" className="mb-1 block text-xs font-medium text-slate-600">Usuario</label>
                 <input
+                  id="create-user-username"
                   value={createForm.username}
                   onChange={(e) => setCreateForm((p) => ({ ...p, username: e.target.value }))}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
@@ -502,8 +514,9 @@ function AdminUsersPageContent() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Rol</label>
+                <label htmlFor="create-user-role" className="mb-1 block text-xs font-medium text-slate-600">Rol</label>
                 <select
+                  id="create-user-role"
                   value={createForm.role}
                   onChange={(e) => setCreateForm((p) => ({ ...p, role: e.target.value }))}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
@@ -515,11 +528,16 @@ function AdminUsersPageContent() {
                   ))}
                 </select>
               </div>
+              {createError && (
+                <p id="create-user-error" role="alert" className="text-sm text-red-700 sm:col-span-2 lg:col-span-4">
+                  {createError}
+                </p>
+              )}
               <div className="grid gap-2 sm:col-span-2 sm:flex sm:flex-wrap lg:col-span-4">
                 <button type="submit" disabled={createSaving} className="btn-primary sm:w-auto">
                   {createSaving ? 'Creando…' : 'Crear'}
                 </button>
-                <button type="button" onClick={() => setCreating(false)} className="btn-secondary sm:w-auto">
+                <button type="button" onClick={closeCreate} className="btn-secondary sm:w-auto">
                   Cancelar
                 </button>
               </div>

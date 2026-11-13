@@ -221,6 +221,33 @@ describe('AdminUsersPage', () => {
     expect(mockedApi).not.toHaveBeenCalledWith(`/admin/users/${row.id}`, expect.any(Object))
   })
 
+  it('un alta rechazada dice por qué en el mismo formulario', async () => {
+    // "ana@liceo" pasa la validación del navegador; antes el error quedaba en la ventana de edición, cerrada.
+    mockedApi
+      .mockResolvedValueOnce(orgRoles)
+      .mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [row] })
+      .mockRejectedValueOnce({
+        message: 'El correo no es válido: tiene que tener la forma nombre@ejemplo.com.',
+        status: 400,
+        specific: true,
+      })
+
+    render(<AdminUsersPage />)
+    await screen.findAllByText('user1')
+    fireEvent.click(screen.getByRole('button', { name: 'Nuevo usuario' }))
+    fireEvent.change(screen.getByLabelText('Correo'), { target: { value: 'ana@liceo' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Crear' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('El correo no es válido')
+    expect(screen.getByLabelText('Correo')).toHaveAttribute('aria-invalid', 'true')
+    expect(mockedApi).toHaveBeenCalledWith('/admin/users', expect.objectContaining({ method: 'POST' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Nuevo usuario' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('error al guardar', async () => {
     mockedApi
       .mockResolvedValueOnce(orgRoles)

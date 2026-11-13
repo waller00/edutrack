@@ -12,6 +12,7 @@ const {
   provisionMock,
   resendMock,
   verificationsMock,
+  auditMock,
 } = vi.hoisted(() => ({
   prismaMock: {
     student: {
@@ -54,9 +55,11 @@ const {
   provisionMock: vi.fn(),
   resendMock: vi.fn(),
   verificationsMock: vi.fn(),
+  auditMock: vi.fn(),
 }));
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../services/audit-log.js", () => ({ recordAuditEvent: auditMock }));
 vi.mock("../integrations/moodle/outbox.js", () => ({ enqueueStudentUserUpsert: enqueueMock }));
 vi.mock("../integrations/moodle/object-map.js", () => ({
   getMappedId: getMappedIdMock,
@@ -913,5 +916,88 @@ describe('DELETE /admin/students/:id', () => {
     expect(res.body.code).toBe('STUDENT_HAS_HISTORY')
     expect(res.body.detail).toEqual({ assessmentGrades: 0, periodGrades: 4, attendanceEntries: 120, paidTuitionMonths: 0 })
     expect(prismaMock.student.delete).not.toHaveBeenCalled()
+  })
+})
+
+describe('auditoría de la matrícula', () => {
+  /** Lo que nunca puede quedar en la auditoría: nombre, cédula ni contacto del alumno. */
+  function expectNoPersonalData(call: any) {
+    const text = JSON.stringify(call?.metadata ?? {})
+    for (const personal of ['Ana', 'Díaz', '51234561', '5.123.456-1', 'ana@test.com', 'ana.diaz', 'Más tiempo', 'drive.example']) {
+      expect(text).not.toContain(personal)
+    }
+  }
+
+  function auditCall(action: string) {
+    return auditMock.mock.calls.map((c) => c[0]).find((c: any) => c.action === action)
+  }
+
+  it('registra el alta con ids, sin datos personales', async () => {
+    const res = await request(app()).post('/admin/students').set('Authorization', `Bearer ${tok()}`).send(VALID_CREATE)
+
+    expect(res.status).toBe(201)
+    const call = auditCall('STUDENT_CREATED')
+    expect(call).toMatchObject({ actorUserId: 'admin-1', entityType: 'Student', entityId: STUDENT_ID })
+    expect(call.metadata).toEqual({ schoolYearId: 'sy-1', courseOfferingId: null })
+    expectNoPersonalData(call)
+  })
+
+  it('registra la edición con los nombres de los campos, no con sus valores', async () => {
+    const res = await request(app())
+      .put(`/admin/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ firstName: 'Ana María', email: 'otra@test.com' })
+
+    expect(res.status).toBe(200)
+    const call = auditCall('STUDENT_UPDATED')
+    expect(call.metadata).toEqual({ fields: ['email', 'firstName'] })
+    expect(JSON.stringify(call.metadata)).not.toContain('otra@test.com')
+    expect(JSON.stringify(call.metadata)).not.toContain('Ana María')
+  })
+
+  it('registra la baja definitiva y no la que se rechaza por historial', async () => {
+    for (const counter of [
+      prismaMock.assessmentGrade.count,
+      prismaMock.periodGrade.count,
+      prismaMock.studentAttendanceEntry.count,
+      prismaMock.studentTuitionMonth.count,
+    ]) {
+      counter.mockReset().mockResolvedValue(0)
+    }
+    prismaMock.student.delete.mockReset().mockResolvedValue({ id: STUDENT_ID })
+
+    await request(app()).delete(`/admin/students/${STUDENT_ID}`).set('Authorization', `Bearer ${tok()}`)
+    expect(auditCall('STUDENT_DELETED')).toMatchObject({ entityId: STUDENT_ID })
+
+    auditMock.mockClear()
+    prismaMock.periodGrade.count.mockResolvedValue(3)
+    const res = await request(app()).delete(`/admin/students/${STUDENT_ID}`).set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(409)
+    expect(auditMock).not.toHaveBeenCalled()
+  })
+
+  it('registra la foto borrada sólo si había una', async () => {
+    prismaMock.studentPhoto.deleteMany.mockResolvedValue({ count: 0 })
+    await request(app()).delete(`/admin/students/${STUDENT_ID}/photo`).set('Authorization', `Bearer ${tok()}`)
+    expect(auditMock).not.toHaveBeenCalled()
+
+    prismaMock.studentPhoto.deleteMany.mockResolvedValue({ count: 1 })
+    await request(app()).delete(`/admin/students/${STUDENT_ID}/photo`).set('Authorization', `Bearer ${tok()}`)
+    expect(auditCall('STUDENT_UPDATED')?.metadata).toEqual({ change: 'photo-removed' })
+  })
+
+  it('registra la adecuación con el tipo, nunca el resumen ni el enlace', async () => {
+    prismaMock.studentAccommodation.create.mockResolvedValue({ id: 'ad-1' })
+
+    const res = await request(app())
+      .post(`/admin/students/${STUDENT_ID}/accommodations`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ kind: 'EVALUATION', summary: 'Más tiempo en las pruebas escritas.', externalUrl: 'https://drive.example/informe' })
+
+    expect(res.status).toBe(201)
+    const call = auditCall('STUDENT_ACCOMMODATION_CREATED')
+    expect(call).toMatchObject({ entityType: 'StudentAccommodation', entityId: 'ad-1' })
+    expect(call.metadata).toEqual({ studentId: STUDENT_ID, kind: 'EVALUATION' })
+    expectNoPersonalData(call)
   })
 })

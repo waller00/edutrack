@@ -21,6 +21,7 @@ import {
   generatePayrollNovedadesCsv,
   generatePayrollNovedadesXlsx,
 } from '../services/analytics/exports/payrollNovedadesExport.js'
+import { recordDataExport } from '../services/audit-log.js'
 
 const r = Router()
 
@@ -222,6 +223,12 @@ r.post('/', authGuard, requirePermission('exports.create', 'all'), async (req, r
     }
 
     markDone(exportId, result.buffer)
+    recordDataExport(req, {
+      kind: `report:${reportKey}`,
+      format,
+      entityId: exportId,
+      details: { from, to, allYears: allYearsExport },
+    })
     return res.status(201).json({
       exportId,
       status: 'DONE',

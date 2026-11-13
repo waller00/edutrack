@@ -19,7 +19,7 @@ La arquitectura actual incluye:
 - Despliegue cloud en Droplet Ubuntu con Docker Compose.
 - Integraciones externas: Google (vía Keycloak), Brevo/SMTP, Web Push y APIs de IA opcionales.
 - Scripts de exportación, importación y restauración de base de datos.
-- Análisis de seguridad en CI con Trivy.
+- Análisis de seguridad en CI: Trivy (dependencias, secretos e imágenes) que corta el deploy, Dependabot y un escaneo dinámico semanal con OWASP ZAP.
 
 ## Principios de seguridad aplicados
 
@@ -68,10 +68,14 @@ El sistema debe mantenerse operativo y recuperable. Controles existentes:
 | Datos personales | Validacion de cedula e identidad | Digito verificador de la CI + aprobacion manual |
 | Auditoria | Registro de acciones criticas | Modelo `AuditLog` |
 | Notificaciones | In-app, email y web push | PostgreSQL, Brevo/SMTP, VAPID |
-| Seguridad HTTP | Headers y CORS | Helmet, CORS configurable |
-| Dependencias | Escaneo de vulnerabilidades | GitHub Actions + Trivy |
-| Backups | Exportacion/importacion de DB | Scripts en `scripts/` |
-| Recuperacion | Restore de dump PostgreSQL | `restore_pg_custom_dump_cloud.sh` |
+| Seguridad HTTP | Headers, CORS y CSP | Helmet en la API; HSTS, nosniff, X-Frame-Options y CSP (Report-Only, reportes a `/security/csp-report`) en nginx para el front |
+| CSRF | Chequeo de `Origin` en escrituras | `middlewares/origin-check.ts` (misma lista que CORS; exentos `/auth`, `/iclock`, lectores) |
+| Dependencias | Escaneo y actualización | Trivy en cada push/PR y semanal (`ci-security.yml`), corte en el deploy (`deploy.yml`, excepciones con vencimiento en `.trivyignore`), Dependabot (`.github/dependabot.yml`) |
+| Pruebas dinámicas | DAST pasivo | OWASP ZAP baseline semanal (`dast.yml`, reglas en `.zap/rules.tsv`); cabeceras de producción con `scripts/check-security-headers.sh` |
+| Contenedores | Mínimo privilegio | Usuarios sin root, `no-new-privileges`, `cap_drop: ALL` en `auth` y `web`, Redis con contraseña, imágenes fijadas por digest; `nginx -t` en CI y antes del deploy |
+| Auditoria de datos | Matrícula y descargas | `STUDENT_*`, `STUDENT_ACCOMMODATION_*` y `DATA_EXPORTED` en `AuditLog` (sólo ids, nunca datos personales) |
+| Backups | Cifrados off-site, diarios | restic a Cloudflare R2 + copia en testing (`backup_all_restic.sh`); alerta por Wazuh y Telegram si se atrasa |
+| Recuperacion | Restore de dump PostgreSQL | `restore_pg_custom_dump_cloud.sh` (descifra antes de tocar la base) |
 
 ## Sesiones simultáneas
 
@@ -113,10 +117,11 @@ se borrara la sesión de EduTrack, ese navegador volvería a entrar sin contrase
 
 | Riesgo | Impacto | Mitigacion actual | Mejora recomendada |
 | --- | --- | --- | --- |
-| Perdida de base de datos | Muy alto | Volumen persistente y scripts de restore | Backups automaticos diarios y prueba mensual de restauracion |
-| Exposicion de secretos | Alto | Variables de entorno | Rotacion periodica y gestor de secretos |
+| Perdida de base de datos | Muy alto | Backup diario restic cifrado (app, Keycloak, Moodle) en R2 y testing, con alerta si se atrasa | Prueba mensual de restauracion documentada |
+| Filtracion de un backup | Alto | Repositorios restic cifrados; la contraseña se guarda fuera del servidor | Rotar las credenciales S3 compartidas por chat (pendiente en `BACKUP_RESTIC_R2.md`) |
+| Exposicion de secretos | Alto | Variables de entorno; el deploy rechaza secretos de ejemplo o cortos | Rotacion periodica y gestor de secretos |
 | Caida del Droplet | Alto | Infraestructura documentada con Terraform | Snapshots, backups externos y plan de redeploy |
-| Vulnerabilidades en dependencias | Medio/alto | Trivy en CI | Dependabot/Renovate y politicas de actualizacion |
+| Vulnerabilidades en dependencias | Medio/alto | Trivy corta el deploy; Dependabot semanal; excepciones con vencimiento | Migrar Next 14 → 15.5 y zod 3 → 4 antes del 31/01/2027 (vencen sus excepciones) |
 | Acceso indebido | Alto | Roles, permisos, sesion BFF | TOTP en Keycloak para administradores |
 | Error humano en despliegue | Medio | Docker Compose y scripts | Runbook de despliegue y rollback |
 | Indisponibilidad de email/push | Medio | Canales separados | Cola de reintentos y fallback operativo |
@@ -155,8 +160,10 @@ El proyecto ya incluye scripts utiles:
 - `scripts/export_data_sql.sh`: exporta la base a `data.sql`.
 - `scripts/import_data_sql_on_server.sh`: importa un SQL plano en servidor.
 - `scripts/restore_pg_custom_dump_cloud.sh`: restaura un dump custom de PostgreSQL.
-- `scripts/backup_pg_offsite.sh`: genera un dump custom y lo copia a una VPS externa por SSH.
-- `docs/BACKUP_POSTGRES_OFFSITE.md`: documenta el backup off-site diario hacia la VPS `138.197.35.2`.
+- `scripts/backup_all_restic.sh`: backup diario cifrado con restic (asistencias, Keycloak, Moodle, moodledata y configuración) hacia Cloudflare R2, con segunda copia en testing.
+- `scripts/check_backup_status.sh`: chequeo horario; avisa a Wazuh (`BACKUP_STALE`) y publica la métrica de la alerta de Grafana "backup atrasado".
+- `docs/BACKUP_RESTIC_R2.md`: el backup vigente, restauración y monitoreo.
+- `docs/BACKUP_POSTGRES_OFFSITE.md`: histórico, el esquema anterior.
 - `docs/TESTING_DB_RESTORE.md`: documenta restauracion en entorno de pruebas.
 
 ### Politica recomendada
@@ -170,30 +177,16 @@ El proyecto ya incluye scripts utiles:
 
 ### Backup off-site automatizable
 
-El primer paso operativo de continuidad es ejecutar `scripts/backup_pg_offsite.sh` desde el Droplet de produccion. El destino inicial definido para el proyecto es la VPS de testing por LAN `10.108.0.3`, usando una ruta remota separada para backups productivos:
+Desde el 10/11/2026 el backup es **restic** (`docs/BACKUP_RESTIC_R2.md`):
 
-```bash
-cd /root/edutrack
-BACKUP_REMOTE_HOST=10.108.0.3 \
-BACKUP_REMOTE_USER=backup \
-BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps \
-BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod \
-BACKUP_REMOTE_RETENTION_DAYS=15 \
-BACKUP_LOCAL_RETENTION_DAYS=3 \
-./scripts/backup_pg_offsite.sh
-```
+- Corre todos los días a las 03:00 (cron de root) y respalda asistencias, Keycloak, Moodle, moodledata y la configuración.
+- El repositorio está cifrado y vive en Cloudflare R2, con una segunda copia en testing por SFTP. La contraseña de restic se guarda fuera del servidor.
+- Retención de 15 snapshots diarios (`restic unlock` antes de podar, por si quedó un lock), y los domingos se verifica la integridad.
+- Si pasan más de 30 h sin un backup bueno, avisan Wazuh (`BACKUP_STALE`) y Grafana por Telegram ("EduTrack backup atrasado").
 
-El script genera un `.dump` en formato custom (`pg_dump -Fc`), crea un checksum `.sha256`, copia ambos archivos por SSH/scp y aplica retencion local/remota. No se recomienda guardar backups de produccion dentro del repositorio Git.
+Los scripts los llama el cron directo, así que tienen que estar ejecutables en git: el deploy hace `git reset --hard` y un `100644` los deja sin correr. No se guardan backups de produccion dentro del repositorio Git.
 
-### Automatizacion con cron
-
-Ejemplo de tarea diaria a las 02:00:
-
-```cron
-15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=10.108.0.3 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod BACKUP_REMOTE_RETENTION_DAYS=15 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
-```
-
-El detalle completo de instalacion, validacion y prueba mensual de restore esta en `docs/BACKUP_POSTGRES_OFFSITE.md`.
+El esquema anterior (`scripts/backup_pg_offsite.sh`: `pg_dump` sin cifrar a la VPS de testing por LAN `10.108.0.3`, 15 días) queda documentado en `docs/BACKUP_POSTGRES_OFFSITE.md`.
 
 ## Procedimiento de recuperacion
 
@@ -303,31 +296,40 @@ Para produccion se recomienda:
 - Mantener `.env` fuera de Git.
 - Activar backups automaticos del proveedor cloud.
 - Monitorear uso de CPU, RAM, disco y disponibilidad HTTP.
-- Configurar alertas ante disco bajo, caida de contenedores o error repetido en logs.
-- Revisar resultados de Trivy en cada PR o despliegue.
+- Configurar alertas ante disco bajo, caida de contenedores o error repetido en logs (hechas: Grafana → Telegram, ver `docs/MONITOREO_OBSERVABILIDAD.md`).
+- Revisar los PRs de Dependabot cada semana y las excepciones de `.trivyignore` antes de que venzan.
+- Correr `scripts/check-security-headers.sh` después de cada cambio en nginx.
 
 ## Evidencias utiles del proyecto
 
 - `docker-compose.cloud.yml`: servicios `pg`, `redis`, `keycloak-db`, `keycloak`, `auth`, `web`.
-- `.github/workflows/ci-security.yml`: ejecuta escaneos Trivy de filesystem e imagenes Docker.
+- `.github/workflows/ci-security.yml`: Trivy de dependencias, secretos e imagenes en cada push/PR y semanal; corta con HIGH/CRITICAL con arreglo.
+- `.github/workflows/deploy.yml`: no despliega sin Trivy (`security-scan`) ni `nginx -t` (`nginx-config`) en verde.
+- `.github/workflows/dast.yml` y `.zap/rules.tsv`: OWASP ZAP baseline semanal.
+- `.github/dependabot.yml`: actualizaciones semanales de npm, Docker, compose y Actions.
+- `.trivyignore`: excepciones aceptadas, cada una con motivo y vencimiento.
+- `scripts/check-security-headers.sh`: cabeceras, CSP, `/_next/image` cerrado y CSRF, contra producción.
 - `backend/prisma/schema.prisma`: define usuarios, roles, auditoria, sesiones, asistencias, biometria y licencias.
 - `backend/src/app.ts`: configura CORS, Helmet, rutas protegidas e integraciones.
 - `scripts/export_data_sql.sh`: exportacion de datos.
-- `scripts/backup_pg_offsite.sh`: backup off-site de PostgreSQL hacia VPS externa.
+- `scripts/backup_all_restic.sh` y `scripts/check_backup_status.sh`: backup restic diario y su chequeo horario.
 - `scripts/restore_pg_custom_dump_cloud.sh`: restauracion de dump PostgreSQL.
-- `docs/BACKUP_POSTGRES_OFFSITE.md`: procedimiento de backup off-site.
+- `docs/BACKUP_RESTIC_R2.md`: procedimiento de backup y restauración vigente.
 - `docs/TESTING_DB_RESTORE.md`: procedimiento de restore para pruebas.
 
 ## Roadmap de mejora
 
 | Prioridad | Mejora | Beneficio |
 | --- | --- | --- |
-| Alta | Ejecutar y monitorear `backup_pg_offsite.sh` diariamente | Reduce perdida de datos ante falla total |
+| Hecha | Backup diario cifrado y monitoreado (restic a R2 + testing, Wazuh y Telegram) | Reduce perdida de datos ante falla total |
+| Hecha | Alertas por Telegram (disponibilidad, backups, abuso de rate limit, picos de 403) | Reduce tiempo de deteccion |
+| Hecha | Dependabot + Trivy que corta el deploy | Mejora gestion de vulnerabilidades |
+| Alta | Migrar Next 14 → 15.5 (con React 19) y zod 3 → 4 antes del 31/01/2027 | Cierra las CVE aceptadas en `.trivyignore` |
 | Alta | Probar restore mensualmente | Asegura que el RTO/RPO sean reales |
-| Alta | Configurar monitoreo y alertas | Reduce tiempo de deteccion |
+| Alta | Pasar la CSP de Report-Only a obligatoria | Bloquea scripts inyectados (XSS) |
 | Media | TOTP en Keycloak para administradores | Reduce riesgo de acceso indebido |
 | Media | Implementar rotacion formal de secretos | Mejora respuesta ante filtraciones |
-| Media | Agregar Dependabot/Renovate | Mejora gestion de vulnerabilidades |
+| Media | `npm prune --omit=dev` en la imagen del backend y escaneo de imágenes que corte | Imagen sin herramientas de desarrollo |
 | Media | Documentar rollback de despliegue | Reduce tiempo de recuperacion |
 | Baja | Replicacion PostgreSQL o WAL archiving | Permite bajar RPO a 1 hora o menos |
 

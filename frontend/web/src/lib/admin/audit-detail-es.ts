@@ -8,6 +8,9 @@ const LOGIN_FAILURE_REASONS: Record<string, string> = {
   ACCOUNT_INACTIVE: 'La cuenta está desactivada.',
   ACCOUNT_LOCKED: 'La cuenta estaba bloqueada por intentos fallidos.',
   INVALID_PASSWORD: 'La contraseña no coincide.',
+  // Los que registra hoy el ingreso: la contraseña incorrecta la rechaza la pantalla de ingreso antes.
+  ACCOUNT_LINK_CONFLICT: 'La cuenta con la que ingresó no coincide con ninguna de EduTrack: hay que revisar el vínculo.',
+  OIDC_ERROR: 'El ingreso no se pudo completar.',
 }
 
 const MEDICAL_LEAVE_TYPE_LABELS: Record<string, string> = {

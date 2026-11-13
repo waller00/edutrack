@@ -2,7 +2,7 @@ import { Router, raw as expressRaw } from 'express'
 import type { Request, Response } from 'express'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { Prisma, StudentEnrollmentStatus } from '@prisma/client'
+import { AuditAction, Prisma, StudentEnrollmentStatus } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { assertCourseOfferedInSchoolYear, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { enqueueStudentUserUpsert } from '../integrations/moodle/outbox.js'
@@ -23,8 +23,24 @@ import {
 } from '../services/student-photo.js'
 import { pendingResolvedAt } from '../services/student-indicators/subjects-ape.js'
 import { userPermissionScope } from '../middlewares/auth.js'
+import { recordAuditEvent } from '../services/audit-log.js'
 
 const r = Router()
+
+/**
+ * Auditoría de la matrícula. La metadata dice qué se tocó (ids y nombres de campo), nunca el
+ * contenido: ni nombre, ni cédula, ni contacto del alumno.
+ */
+function auditStudent(req: Request, action: AuditAction, studentId: string, metadata?: Record<string, unknown>) {
+  recordAuditEvent({
+    action,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'Student',
+    entityId: studentId,
+    metadata: metadata ?? null,
+  })
+}
 
 async function scopedSchoolYearWhere(req: Request): Promise<Prisma.StudentWhereInput> {
   const allYears = req.query.allYears === '1'
@@ -1081,6 +1097,11 @@ r.post('/', async (req, res) => {
       })
     })
 
+    auditStudent(req, AuditAction.STUDENT_CREATED, created.id, {
+      schoolYearId: resolvedSchoolYearId,
+      courseOfferingId: resolvedCourseOfferingId,
+    })
+
     const createdAny = created as any
     // Crear el estudiante NO crea su cuenta de Moodle: eso se hace desde la ficha, a mano
     // (`POST /admin/students/:id/moodle-account`). Antes se encolaba acá y la cuenta —y el mail
@@ -1180,6 +1201,11 @@ r.put('/:id/pending-subjects', async (req: any, res) => {
       update: data,
       include: { subject: { select: { id: true, name: true } }, schoolYear: { select: { id: true, code: true } } },
     })
+    auditStudent(req, AuditAction.STUDENT_UPDATED, req.params.id, {
+      change: 'pending-subject',
+      schoolYearId: d.schoolYearId,
+      subjectId: d.subjectId,
+    })
     return res.json({ data: saved })
   } catch (error) {
     if ((error as { code?: string })?.code === 'P2003') {
@@ -1196,6 +1222,10 @@ r.delete('/:id/pending-subjects/:pendingId', async (req, res) => {
       where: { id: req.params.pendingId, studentId: req.params.id },
     })
     if (deleted.count === 0) return res.status(404).json({ message: 'Materia no encontrada' })
+    auditStudent(req, AuditAction.STUDENT_UPDATED, req.params.id, {
+      change: 'pending-subject-removed',
+      pendingSubjectId: req.params.pendingId,
+    })
     return res.status(204).end()
   } catch (error) {
     console.error('[admin/students/:id/pending-subjects DELETE]', error)
@@ -1258,6 +1288,7 @@ r.put('/:id/photo', photoParser, async (req, res) => {
       create: { studentId: req.params.id, ...data },
       update: data,
     })
+    auditStudent(req, AuditAction.STUDENT_UPDATED, req.params.id, { change: 'photo' })
     return res.json({
       ok: true,
       photo: { mimeType: saved.mimeType, byteSize: saved.byteSize, updatedAt: saved.updatedAt.toISOString() },
@@ -1271,7 +1302,8 @@ r.put('/:id/photo', photoParser, async (req, res) => {
 r.delete('/:id/photo', async (req, res) => {
   try {
     // `deleteMany` y no `delete`: borrar una foto que no está no es un error.
-    await (prisma as any).studentPhoto.deleteMany({ where: { studentId: req.params.id } })
+    const removed = await (prisma as any).studentPhoto.deleteMany({ where: { studentId: req.params.id } })
+    if (removed?.count) auditStudent(req, AuditAction.STUDENT_UPDATED, req.params.id, { change: 'photo-removed' })
     return res.status(204).end()
   } catch (error) {
     console.error('[admin/students/:id/photo DELETE]', error)
@@ -1610,6 +1642,9 @@ r.put('/:id', async (req: any, res) => {
       })
     })
 
+    // Qué campos se mandaron, no sus valores.
+    auditStudent(req, AuditAction.STUDENT_UPDATED, updated.id, { fields: Object.keys(body).sort() })
+
     const updatedAny = updated as any
     const accountChanged =
       updatedAny.email !== existing.email ||
@@ -1679,6 +1714,7 @@ r.delete('/:id', async (req, res) => {
       })
     }
     await prisma.student.delete({ where: { id } })
+    auditStudent(req, AuditAction.STUDENT_DELETED, id)
     return res.json({ ok: true })
   } catch (e: unknown) {
     const code = (e as { code?: string }).code

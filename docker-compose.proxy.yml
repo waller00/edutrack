@@ -10,8 +10,13 @@ x-logging: &default-logging
 services:
   reverse-proxy:
     logging: *default-logging
-    image: nginx:1.27-alpine
+    # 1.30 estable, fijada por digest (la 1.27 no recibía parches desde abril de 2025). La config
+    # se valida con esta misma imagen en CI y antes del deploy (scripts/check-nginx-config.sh).
+    image: nginx:1.30-alpine@sha256:583b7f2fce1cdb8da5ad5c39ebd3c33b98b87d493190e548bdee1fa8c619c311
     restart: unless-stopped
+    # El master necesita root para el 80/443 y bajar a `nginx`; nada más gana privilegios.
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "80:80"
       - "443:443"

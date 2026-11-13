@@ -1,4 +1,5 @@
-export type OnboardingUsernameStatus = 'idle' | 'checking' | 'ok' | 'taken' | 'invalid'
+/** `own`: el usuario que ya tiene la cuenta. Para el servidor está ocupado, pero por ella misma. */
+export type OnboardingUsernameStatus = 'idle' | 'checking' | 'ok' | 'own' | 'taken' | 'invalid'
 
 export function getOnboardingUsernameStatusDisplay(status: OnboardingUsernameStatus): {
   text: string
@@ -9,6 +10,8 @@ export function getOnboardingUsernameStatusDisplay(status: OnboardingUsernameSta
       return { text: 'Verificando...', className: 'text-gray-500' }
     case 'ok':
       return { text: 'Disponible', className: 'text-green-600' }
+    case 'own':
+      return { text: 'Es tu usuario', className: 'text-green-600' }
     case 'taken':
       return { text: 'No disponible', className: 'text-red-600' }
     case 'invalid':
@@ -42,4 +45,9 @@ export function getOnboardingVerificationMessageClass(message: string): string {
 export function resolveOnboardingUsernameStatus(valid: boolean, available: boolean): OnboardingUsernameStatus {
   if (!valid) return 'invalid'
   return available ? 'ok' : 'taken'
+}
+
+/** ¿Es el usuario que la cuenta ya tiene? Los usuarios no distinguen mayúsculas. */
+export function isOwnUsername(candidate: string, current: string | null | undefined): boolean {
+  return Boolean(current) && candidate.trim().toLowerCase() === String(current).trim().toLowerCase()
 }

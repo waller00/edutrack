@@ -14,6 +14,9 @@ import authRoutes from "./routes/auth.js";
 import keycloakAuthRoutes from "./routes/auth-keycloak.js";
 import { rateLimit } from "./middlewares/rate-limit.js";
 import { trustImmediatePrivateProxy } from "./lib/client-ip.js";
+import { isAllowedOrigin } from "./lib/allowed-origins.js";
+import { originCheck } from "./middlewares/origin-check.js";
+import securityRoutes from "./routes/security.js";
 import { jsonErrorHandler } from "./lib/error-handler.js";
 import { requestCacheMiddleware } from "./lib/request-cache.js";
 import adminRoutes from "./routes/admin.js";
@@ -43,65 +46,6 @@ dns.setDefaultResultOrder("ipv4first");
 
 const app = express();
 
-function normalizeOrigin(url: string): string {
-  return url
-    .trim()
-    .replace(/\r/g, "")
-    .replace(/\/$/, "");
-}
-
-function addOrigin(set: Set<string>, value: string | undefined) {
-  const origin = normalizeOrigin(value || "");
-  if (origin) set.add(origin);
-}
-
-function addWwwVariant(set: Set<string>, origin: string) {
-  try {
-    const url = new URL(origin);
-    if (url.hostname.startsWith("www.")) {
-      url.hostname = url.hostname.replace(/^www\./, "");
-      addOrigin(set, url.origin);
-    } else {
-      url.hostname = `www.${url.hostname}`;
-      addOrigin(set, url.origin);
-    }
-  } catch {
-    /* origen inválido: se ignora */
-  }
-}
-
-function addApiSiblingFrontend(set: Set<string>, origin: string) {
-  try {
-    const url = new URL(origin);
-    if (!url.hostname.startsWith("api.")) return;
-    url.hostname = url.hostname.replace(/^api\./, "");
-    addOrigin(set, url.origin);
-    addWwwVariant(set, url.origin);
-  } catch {
-    /* origen inválido: se ignora */
-  }
-}
-
-/** Orígenes permitidos: FRONTEND_URL + lista opcional CORS_ORIGINS (separados por coma), p. ej. https://edutrack-uy.com,https://www.edutrack-uy.com */
-function buildAllowedOrigins(): Set<string> {
-  const set = new Set<string>();
-  const primary = process.env.FRONTEND_URL || "http://localhost:3000";
-  addOrigin(set, primary);
-  addWwwVariant(set, primary);
-  addApiSiblingFrontend(set, primary);
-  if (process.env.NODE_ENV === "production") {
-    addOrigin(set, "https://edutrack-uy.com");
-    addOrigin(set, "https://www.edutrack-uy.com");
-  }
-  const extra = process.env.CORS_ORIGINS;
-  if (extra) {
-    for (const part of extra.split(",")) {
-      addOrigin(set, part);
-    }
-  }
-  return set;
-}
-
 const corsOptions: CorsOptions = {
   credentials: true,
   origin(origin, callback) {
@@ -109,9 +53,7 @@ const corsOptions: CorsOptions = {
       callback(null, true);
       return;
     }
-    const normalized = normalizeOrigin(origin);
-    const allowedOrigins = buildAllowedOrigins();
-    if (allowedOrigins.has(normalized)) {
+    if (isAllowedOrigin(origin)) {
       callback(null, true);
       return;
     }
@@ -154,6 +96,8 @@ app.use((req, _res, next) => {
   next();
 });
 app.use("/iclock", iclockTextParser, zktecoIclockRoutes);
+// CSRF: una escritura desde un origen que no es el front se corta antes de leer el cuerpo.
+app.use(originCheck());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
@@ -180,11 +124,14 @@ app.use("/exports", exportsRoutes);
 app.use("/notifications/web-push", webPushRoutes);
 app.use("/notifications/in-app", inAppNotificationRoutes);
 app.use("/messages", messagesRoutes);
-app.use("/biometric", biometricLinkRoutes);
+// ADMS antes que la vinculación: ese router pide sesión a todo `/biometric` (`r.use(authGuard)`) y,
+// montado primero, le contestaba "No autorizado" al lector antes de que se mirara su secreto.
 app.use("/biometric", biometricAdmsRoutes);
+app.use("/biometric", biometricLinkRoutes);
 app.use("/attendance-incidents", attendanceIncidentsRoutes);
 app.use("/substitutions", substitutionsRoutes);
 app.use("/gradebook", gradebookRoutes);
+app.use("/security", securityRoutes);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/ready", async (_req, res) => {
