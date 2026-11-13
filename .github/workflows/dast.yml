@@ -1,0 +1,107 @@
+name: DAST - ZAP baseline
+
+# Escaneo dinámico pasivo (OWASP ZAP baseline) contra el front y la API levantados en CI, con el
+# build de producción del front (no `next dev`). Semanal y a mano: tarda varios minutos.
+# Las reglas que fallan y las que se ignoran (con su motivo) están en .zap/rules.tsv. Las
+# cabeceras que pone nginx no existen en CI: esas se verifican contra producción con
+# scripts/check-security-headers.sh.
+on:
+  schedule:
+    - cron: "41 9 * * 1" # lunes 06:41 en Uruguay
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zap-baseline:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: asistencias
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d asistencias"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/asistencias?schema=public
+      FRONTEND_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:4000
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/web/package-lock.json
+
+      - name: Backend - dependencias y esquema
+        working-directory: backend
+        run: |
+          npm ci
+          npx prisma generate
+          npx prisma db push --skip-generate
+
+      - name: Backend - levantar
+        working-directory: backend
+        env:
+          PORT: "4000"
+        run: |
+          nohup npm run dev:ci > ../backend.log 2>&1 &
+
+      - name: Frontend - build de producción y levantar
+        working-directory: frontend/web
+        run: |
+          npm ci
+          npm run build
+          nohup npx next start -H 127.0.0.1 -p 3000 > ../../frontend.log 2>&1 &
+
+      - name: Esperar a que respondan
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:4000/health >/dev/null && curl -fsS -o /dev/null http://127.0.0.1:3000/login; then
+              echo "listos"; exit 0
+            fi
+            sleep 3
+          done
+          echo "no levantaron"; tail -50 backend.log frontend.log; exit 1
+
+      - name: ZAP baseline - front
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: http://127.0.0.1:3000/login
+          rules_file_name: .zap/rules.tsv
+          # -I: las advertencias no cortan; sólo las reglas en FAIL de rules.tsv.
+          cmd_options: "-I -j"
+          allow_issue_writing: false
+          fail_action: true
+          artifact_name: zap-frontend
+
+      - name: ZAP baseline - API
+        if: always()
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: http://127.0.0.1:4000/health
+          rules_file_name: .zap/rules.tsv
+          cmd_options: "-I"
+          allow_issue_writing: false
+          fail_action: true
+          artifact_name: zap-api
+
+      - name: Logs de los servidores
+        if: failure()
+        run: tail -100 backend.log frontend.log

@@ -170,6 +170,32 @@ docker compose up -d --build auth  # rebuild solo el backend
 > **Los lectores iClock (`/iclock/*`) no se autentican**: sólo los distingue `admsSerial` + la IP.
 > Un lector sin `allowedIps` no recibe marcas, y el `code` no identifica a un reloj.
 
+> **Toda escritura con `Origin` tiene que venir del front** (`middlewares/origin-check.ts`, montado
+> antes de los parsers). `SameSite=Lax` no alcanzaba: la cookie va al dominio padre y
+> `moodle.edutrack-uy.com` es "el mismo sitio". La lista es la de CORS (`lib/allowed-origins.ts`);
+> sin `Origin` pasa (lectores, scripts, SSR) y `Origin: null` se corta. Exentos: `/auth`, `/iclock`,
+> `/biometric/adms-ingest` y `/security/csp-report`. Un endpoint nuevo que reciba POST de algo que
+> no es el front (un webhook) va en `EXEMPT_PREFIXES`, con su motivo.
+
+> **La matrícula y las descargas quedan auditadas, sin datos personales.** Alta, cambios y baja de
+> estudiantes (`STUDENT_*`), sus adecuaciones (`STUDENT_ACCOMMODATION_*`) y toda exportación
+> (`DATA_EXPORTED` con `recordDataExport`: reportes, libretas, boletines). La metadata lleva ids,
+> nombres de campo y formato: nunca nombre, cédula, contacto, el resumen de una adecuación ni su
+> enlace (`admin-students.routes.test.ts` lo exige). Las descargas de la libreta pasan todas por
+> `sendBuffer` (`routes/gradebook.ts`), que audita: no mandar un archivo por otro camino.
+
+> **El backup es restic** (`scripts/backup_all_restic.sh`, cron de root, cifrado, a Cloudflare R2
+> y copia en testing; `docs/BACKUP_RESTIC_R2.md`). `backup_pg_offsite.sh` es el esquema viejo.
+> El cron llama a los scripts directo: **tienen que quedar ejecutables en git** (`100755`); el
+> deploy hace `git reset --hard`, y con `100644` el backup deja de correr sin avisar (pasó el
+> 12/11/2026). `check_backup_status.sh` avisa a Wazuh y publica la métrica de la alerta de Grafana
+> "backup atrasado" (más de 30 h, sale por Telegram).
+
+> **Next 14 tiene CVE abiertas aceptadas hasta el 31/01/2027** (`.trivyignore`, con `exp:`): el
+> arreglo es Next ≥ 15.5.28 (React 19). Mientras tanto `/_next/image` está cerrado en nginx (RCE
+> sin autenticar en el optimizador): **no usar `next/image`** ni abrir esa ruta antes de migrar.
+> Vencida la fecha, Trivy corta el deploy.
+
 > **Borrar físicamente sólo lo que no tiene historial.** Estudiantes con notas, asistencias o cuotas
 > pagas (`STUDENT_HAS_HISTORY`), ciclos con libretas y orientaciones en uso (se desactivan) no se
 > borran: las cascadas se llevaban escolaridad, listas y libretas. `DELETE /events/purge-all` y
@@ -617,12 +643,22 @@ SonarCloud analiza `backend/src` + `frontend/web/src`. Quality Gate: cobertura n
 
 | Workflow | Cuándo corre | Qué hace |
 |----------|-------------|----------|
-| `ci.yml` | push/PR a main y develop | typecheck + tests backend y frontend |
+| `ci.yml` | push/PR a main y develop | typecheck + tests backend y frontend + `nginx -t` |
 | `sonar.yml` | push/PR a main y develop | análisis SonarCloud (requiere secret `SONAR_TOKEN`) |
-| `deploy.yml` | push a main | deploy automático al VPS (SSH + docker compose pull + up) |
+| `ci-security.yml` | push/PR a main y develop + semanal | Trivy: dependencias y secretos (corta con HIGH/CRITICAL), imágenes (informa) |
+| `deploy.yml` | push a main | deploy automático al VPS (SSH + docker compose pull + up), sólo con `validate`, `security-scan` (Trivy) y `nginx-config` en verde |
 | `e2e.yml` | push/PR | tests Playwright |
+| `dast.yml` | semanal + manual | OWASP ZAP baseline contra front (build de producción) y API (`.zap/rules.tsv`) |
 
 El deploy de producción es **completamente automático**: al hacer push a `main`, el workflow levanta la imagen nueva y el entrypoint corre `prisma db push` al arrancar el contenedor.
+
+> **Una CVE nueva frena el deploy.** Arreglarla (Dependabot abre los PRs a `develop`) o, si no
+> aplica o no hay arreglo posible ya, aceptarla en `.trivyignore` con motivo y `exp:`. Nunca una
+> excepción sin vencimiento. Node es la 24 (LTS) en imágenes y CI.
+
+> **El `.env` de testing y producción necesita `REDIS_PASSWORD`** (`openssl rand -hex 32`, sólo
+> hex: va dentro de la URL). `docker-compose.cloud.yml` arma `REDIS_URL` con ella y no arranca sin
+> ella; `validate-production-routes.sh` la exige en producción.
 
 ---
 
