@@ -15,7 +15,7 @@ services:
     ports: !override []
 
   keycloak-admin-proxy:
-    image: nginx:1.27-alpine
+    image: nginx:1.29-alpine
     restart: unless-stopped
     environment:
       KEYCLOAK_ADMIN_PRIVATE_HOST: ${KEYCLOAK_ADMIN_PRIVATE_HOST:?Definir el hostname MagicDNS}

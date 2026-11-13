@@ -115,7 +115,7 @@ services:
     #   MOODLE_IMAGE=docker.io/bitnamilegacy/moodle:5.0.2 docker compose -f docker-compose.moodle.yml up -d
     # y después `up -d` sin la variable. Las variables MOODLE_* de abajo sólo las lee ese instalador.
     # El cron de Moodle lo corre el host (crontab: docker exec ... admin/cli/cron.php): esta imagen no trae cron.
-    image: ${MOODLE_IMAGE:-docker.io/moodlehq/moodle-php-apache:8.3}
+    image: ${MOODLE_IMAGE:-docker.io/moodlehq/moodle-php-apache:8.4}
     restart: unless-stopped
     ports:
       - "8080:8080"
