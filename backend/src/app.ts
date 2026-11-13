@@ -124,8 +124,10 @@ app.use("/exports", exportsRoutes);
 app.use("/notifications/web-push", webPushRoutes);
 app.use("/notifications/in-app", inAppNotificationRoutes);
 app.use("/messages", messagesRoutes);
-app.use("/biometric", biometricLinkRoutes);
+// ADMS antes que la vinculación: ese router pide sesión a todo `/biometric` (`r.use(authGuard)`) y,
+// montado primero, le contestaba "No autorizado" al lector antes de que se mirara su secreto.
 app.use("/biometric", biometricAdmsRoutes);
+app.use("/biometric", biometricLinkRoutes);
 app.use("/attendance-incidents", attendanceIncidentsRoutes);
 app.use("/substitutions", substitutionsRoutes);
 app.use("/gradebook", gradebookRoutes);

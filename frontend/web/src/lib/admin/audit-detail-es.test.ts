@@ -33,6 +33,11 @@ describe('auditMetadataDisplay', () => {
     expect(unknown.lines[0]).toContain('some other')
   })
 
+  it('AUTH_LOGIN_FAILURE explica en palabras los fallos que registra el ingreso', () => {
+    expect(auditMetadataDisplay('AUTH_LOGIN_FAILURE', { reason: 'ACCOUNT_LINK_CONFLICT' }).lines[0]).toContain('revisar el vínculo')
+    expect(auditMetadataDisplay('AUTH_LOGIN_FAILURE', { reason: 'OIDC_ERROR' }).lines[0]).toBe('El ingreso no se pudo completar.')
+  })
+
   it('AUTH_GOOGLE_LOGIN_SUCCESS según needsProfileCompletion', () => {
     expect(auditMetadataDisplay('AUTH_GOOGLE_LOGIN_SUCCESS', { needsProfileCompletion: true }).lines[0]).toContain(
       'completar el perfil',

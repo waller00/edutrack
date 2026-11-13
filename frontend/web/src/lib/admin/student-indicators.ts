@@ -187,6 +187,12 @@ export function filterRisk(rows: readonly RiskRow[], filters: { search: string; 
 
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many)
 
+/** "Matemática", "Matemática y Física", "Matemática, Física y Biología". */
+function joinNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? ''
+  return `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`
+}
+
 export type ReasonText = { reason: RiskReason; family: RiskFamily; text: string }
 
 /** Cada motivo dicho con su número, para que el chip no dependa del color (RNF 7.2). */
@@ -195,10 +201,15 @@ export function riskReasons(row: RiskRow): ReasonText[] {
     switch (reason) {
       case 'GRADES': {
         const count = row.grades?.lowSubjects ?? 0
+        // Cuáles, no sólo cuántas: es lo que se mira para citar al alumno o hablar con el docente.
+        // Con raya y no entre paréntesis: el nombre del boletín ya trae los suyos ("(3.ª Reunión)").
+        const subjects = row.grades?.subjects ?? []
         return {
           reason,
           family: 'NOTAS',
-          text: `Notas: ${count} ${plural(count, 'materia baja', 'materias bajas')} en ${row.grades?.periodName ?? 'el boletín'}`,
+          text: `Notas: ${count} ${plural(count, 'materia baja', 'materias bajas')} en ${row.grades?.periodName ?? 'el boletín'}${
+            subjects.length > 0 ? ` — ${joinNames(subjects)}` : ''
+          }`,
         }
       }
       case 'CARRIED':

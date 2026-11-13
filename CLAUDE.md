@@ -170,12 +170,26 @@ docker compose up -d --build auth  # rebuild solo el backend
 > **Los lectores iClock (`/iclock/*`) no se autentican**: sólo los distingue `admsSerial` + la IP.
 > Un lector sin `allowedIps` no recibe marcas, y el `code` no identifica a un reloj.
 
+> **`/biometric/adms-ingest` se monta antes que la vinculación biométrica** (`app.ts`). El router
+> de vinculación pide sesión a todo `/biometric` (`r.use(authGuard)`): montado primero, le
+> contestaba "No autorizado" a cualquier lector, con secreto o sin él (pasó de mayo a noviembre de
+> 2026). Un router con `r.use(authGuard)` nunca va delante de rutas públicas de su mismo prefijo;
+> `app.integration.test.ts` prueba el montaje real.
+
 > **Toda escritura con `Origin` tiene que venir del front** (`middlewares/origin-check.ts`, montado
 > antes de los parsers). `SameSite=Lax` no alcanzaba: la cookie va al dominio padre y
 > `moodle.edutrack-uy.com` es "el mismo sitio". La lista es la de CORS (`lib/allowed-origins.ts`);
 > sin `Origin` pasa (lectores, scripts, SSR) y `Origin: null` se corta. Exentos: `/auth`, `/iclock`,
 > `/biometric/adms-ingest` y `/security/csp-report`. Un endpoint nuevo que reciba POST de algo que
 > no es el front (un webhook) va en `EXEMPT_PREFIXES`, con su motivo.
+
+> **Ingresos y cierres de sesión quedan en la auditoría** (`auditLogin`, `auditLoginFailure` y
+> `AUTH_LOGOUT` en `routes/auth-keycloak.ts`). La contraseña incorrecta nunca llega a EduTrack: la
+> rechaza Keycloak, y el fallo que se audita es el de la vuelta (`ACCOUNT_LINK_CONFLICT`,
+> `OIDC_ERROR`), nunca uno con `state` ajeno (cualquiera podría llenar la tabla). Con Google sólo
+> se sabe si el ingreso se pidió desde EduTrack (`?provider=google`); elegido en la pantalla de
+> Keycloak es un `AUTH_LOGIN_SUCCESS` («Inicio de sesión»). Vincular Google desde Mi perfil no
+> cuenta como ingreso.
 
 > **La matrícula y las descargas quedan auditadas, sin datos personales.** Alta, cambios y baja de
 > estudiantes (`STUDENT_*`), sus adecuaciones (`STUDENT_ACCOMMODATION_*`) y toda exportación
@@ -224,7 +238,14 @@ docker compose up -d --build auth  # rebuild solo el backend
 > `getPlannedInstances`. Ahí nada de conversiones de zona horaria por día ni por marca: van una vez
 > por evento o por día civil (eran 0,8 s por llamada con ~160 series). `/all` pagina con columnas
 > sueltas y trae persona y evento sólo de la página, y `/all` y `/stats` comparten el cálculo en
-> curso (`shareInFlight`, `lib/in-flight.ts`).
+> curso (`shareInFlight`, `lib/in-flight.ts`). Cada conteo de `/stats` va **dentro** del filtro
+> (`withinFilter`, un `AND`): con `{ ...where, status }` el estado del conteo pisaba el del filtro y
+> con "Estado: Tarde" la tasa de presencia llegó a 803 %.
+
+> **Los indicadores del personal comparan con el período anterior sin acotarlo al ciclo**
+> (`/analytics/dashboard`): un rango de marzo a octubre se compara con julio–febrero, que cae en el
+> ciclo de antes. Acotado al ciclo elegido daba todo 0 y la variación era el valor mismo (+88,93 p.p.).
+> Sin clases en el período anterior no hay variación (`comparison: null`): nunca contra cero.
 
 > **Las notas viven en `GradeBook*`, no en Moodle.** EduTrack es la fuente de verdad de las calificaciones; Moodle se **importa** y nunca se pisa. Los valores se guardan en centésimos como `Int` (un 8 es `800`), igual que `amountCents` — nunca `Float` ni `Decimal`.
 

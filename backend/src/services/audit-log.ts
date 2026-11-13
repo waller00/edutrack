@@ -8,7 +8,8 @@ import { clientIp } from "../lib/client-ip.js";
 const UA_MAX = 512;
 
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
-  AUTH_LOGIN_SUCCESS: "Inicio de sesión (email/contraseña)",
+  // Con contraseña o con Google elegido en la pantalla de ingreso: EduTrack no ve cuál de los dos.
+  AUTH_LOGIN_SUCCESS: "Inicio de sesión",
   AUTH_LOGIN_FAILURE: "Intento de inicio de sesión fallido",
   AUTH_LOGOUT: "Cierre de sesión",
   AUTH_GOOGLE_LOGIN_SUCCESS: "Inicio de sesión con Google",

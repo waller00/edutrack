@@ -152,6 +152,14 @@ describe('quién necesita atención', () => {
     ])
   })
 
+  it('dice en qué materias tiene las notas bajas, no sólo cuántas', () => {
+    const text = (subjects: string[]) =>
+      riskReasons(risk({ reasons: ['GRADES'], grades: { lowSubjects: subjects.length, subjects, periodName: '3.ª Entrega' } }))[0].text
+    expect(text(['Matemática'])).toBe('Notas: 1 materia baja en 3.ª Entrega — Matemática')
+    expect(text(['Matemática', 'Física'])).toBe('Notas: 2 materias bajas en 3.ª Entrega — Matemática y Física')
+    expect(text(['Biología', 'Física', 'Matemática'])).toBe('Notas: 3 materias bajas en 3.ª Entrega — Biología, Física y Matemática')
+  })
+
   it('filtra por curso, motivo y búsqueda', () => {
     const rows = [
       risk({ studentId: 'n', lastName: 'Notas', families: ['NOTAS'] }),

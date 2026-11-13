@@ -119,4 +119,24 @@ describe("App HTTP (integración ligera)", () => {
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe("http://localhost:3000/login");
   });
+
+  it("POST /biometric/adms-ingest llega a la ruta del lector: no le pide sesión", async () => {
+    // El router de vinculación pide sesión a todo `/biometric`: montado antes, contestaba
+    // "No autorizado" a cualquier lector, con o sin secreto (API-ADMS-002/003 no podían correr).
+    const res = await request(app).post("/biometric/adms-ingest").send({
+      deviceCode: "F22-LOCAL-01",
+      deviceUserId: "1001",
+      timestamp: "2026-11-12T12:00:00.000Z",
+      punchType: "CHECK_IN",
+    });
+
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ message: "Falta x-biometric-secret" });
+  });
+
+  it("la vinculación biométrica sigue pidiendo sesión", async () => {
+    const res = await request(app).get("/biometric/me/mapping");
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ message: "No autorizado" });
+  });
 });

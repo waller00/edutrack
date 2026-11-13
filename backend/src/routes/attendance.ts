@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { DateTime } from 'luxon';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma.js';
 import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js';
 import {
@@ -1271,6 +1272,15 @@ function rate(part: unknown, total: unknown) {
   return safeTotal > 0 ? Math.round((safePart / safeTotal) * 10000) / 100 : 0
 }
 
+/**
+ * Las marcas de un estado DENTRO del filtro pedido. Con `{ ...where, status }` el estado del conteo
+ * pisaba el del filtro: con "Estado: Tarde" los presentes eran los de todo el período y la tasa de
+ * presencia pasaba del 100 %.
+ */
+function withinFilter(where: Prisma.AttendanceWhereInput, extra: Prisma.AttendanceWhereInput): Prisma.AttendanceWhereInput {
+  return { AND: [where, extra] }
+}
+
 // Obtener estadísticas de asistencias
 r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res) => {
   try {
@@ -1303,27 +1313,23 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       virtualAbsenceRows,
     ] = await Promise.all([
       prisma.attendance.count({ where }),
-      prisma.attendance.count({ where: { ...where, status: 'PRESENT' } }),
+      prisma.attendance.count({ where: withinFilter(where, { status: 'PRESENT' }) }),
       prisma.attendance.count({
-        where: {
-          ...where,
-          status: { in: ['ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'SUBSTITUTED'] },
-        },
+        where: withinFilter(where, { status: { in: ['ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'SUBSTITUTED'] } }),
       }),
-      prisma.attendance.count({ where: { ...where, status: 'LATE' } }),
-      prisma.attendance.count({ where: { ...where, status: 'ABSENT_JUSTIFIED' } }),
+      prisma.attendance.count({ where: withinFilter(where, { status: 'LATE' }) }),
+      prisma.attendance.count({ where: withinFilter(where, { status: 'ABSENT_JUSTIFIED' }) }),
       prisma.attendance.count({
-        where: {
-          ...where,
+        where: withinFilter(where, {
           OR: [
-            { status: 'SUBSTITUTED' as any },
-            { status: 'ABSENT_NOT_JUSTIFIED' as any, notes: { startsWith: 'Ausencia prevista' } },
-            { status: 'ABSENT_NOT_JUSTIFIED' as any, notes: { startsWith: 'Ausencia esperada' } },
+            { status: 'SUBSTITUTED' },
+            { status: 'ABSENT_NOT_JUSTIFIED', notes: { startsWith: 'Ausencia prevista' } },
+            { status: 'ABSENT_NOT_JUSTIFIED', notes: { startsWith: 'Ausencia esperada' } },
           ],
-        },
+        }),
       }),
-      prisma.attendance.count({ where: { ...where, status: 'EXIT' } }),
-      prisma.attendance.count({ where: { ...where, status: 'EARLY_EXIT' } }),
+      prisma.attendance.count({ where: withinFilter(where, { status: 'EXIT' }) }),
+      prisma.attendance.count({ where: withinFilter(where, { status: 'EARLY_EXIT' }) }),
       incidentWhere ? prisma.attendanceIncident.count({ where: incidentWhere }) : Promise.resolve(0),
       buildVirtualAbsenceRows(q, where),
     ])

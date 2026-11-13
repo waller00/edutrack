@@ -779,14 +779,19 @@ async function computeAdminAnalyticsBody(data: ParsedDashboardQuery) {
   } | null = null
   if (compareToPrevious) {
     const { previousFrom, previousTo } = previousRangeOf(from, to)
-    const prevResolved = await resolveInstancesForRange(previousFrom, previousTo, scope)
-    const prevKpis = await computeDashboardKpis({ from: previousFrom, to: previousTo, resolvedInstances: prevResolved })
-    comparison = {
-      previousFrom,
-      previousTo,
-      current: kpis,
-      previous: prevKpis,
-      deltas: computeKpiDeltas(kpis, prevKpis),
+    // El rango anterior cae casi siempre en otro ciclo (marzo–octubre se compara con julio–febrero):
+    // acotado al ciclo elegido quedaba sin clases y la variación salía contra cero (+88,93 p.p.).
+    const prevResolved = await resolveInstancesForRange(previousFrom, previousTo, { ...scope, schoolYearId: undefined })
+    // Sin clases en el período anterior no hay contra qué comparar: no se muestra variación.
+    if (prevResolved.length > 0) {
+      const prevKpis = await computeDashboardKpis({ from: previousFrom, to: previousTo, resolvedInstances: prevResolved })
+      comparison = {
+        previousFrom,
+        previousTo,
+        current: kpis,
+        previous: prevKpis,
+        deltas: computeKpiDeltas(kpis, prevKpis),
+      }
     }
   }
 

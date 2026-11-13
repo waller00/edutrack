@@ -175,6 +175,43 @@ describe('<EvaluationsBoard />', () => {
     expect(screen.getByTitle('C: conducta en Marzo – Abril')).toBeInTheDocument()
   })
 
+  it('el detalle del alumno también sigue el filtro de período', async () => {
+    // Listaba (y dejaba editar y borrar) las notas del otro semestre aunque se mirara uno solo.
+    const assessment = (id: string, periodId: string, title: string, date: string) => ({
+      id, periodId, period: null, date, title, scope: 'GROUP', activityType: null, gradingScale: EMS_SCALE,
+    })
+    const grade = (assessmentId: string) => ({
+      assessmentId, studentId: 's1', valueHundredths: 800, isAbsent: false, comment: null,
+      gradedAt: '2026-04-10T15:00:00.000Z', gradedByName: 'Jorge',
+    })
+    respond({
+      assessments: [assessment('a1', 'p1', 'Escrito de abril', '2026-04-10'), assessment('a2', 'p2', 'Escrito de julio', '2026-07-10')],
+      grades: [grade('a1'), grade('a2')],
+    })
+    const original = apiMock.getMockImplementation()!
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      const response = await original(path, init)
+      if (path.endsWith('/options')) return {
+        ...response,
+        periods: [...response.periods, { id: 'p2', code: 'JULIO', name: 'Julio', kind: 'TRAMO' }],
+      }
+      return response
+    })
+    const user = userEvent.setup()
+    render(<EvaluationsBoard gradeBookId="gb-1" detail={detail()} />)
+
+    const filter = await screen.findByRole('combobox', { name: 'Filtrar por período' })
+    await user.click(await screen.findByRole('button', { name: /Mostrar detalle/ }))
+    // Una fila del detalle (con su "Editar calificación") por cada nota del alumno.
+    expect(screen.getAllByRole('button', { name: 'Editar calificación' })).toHaveLength(2)
+
+    await user.selectOptions(filter, 'p2')
+    expect(screen.getAllByRole('button', { name: 'Editar calificación' })).toHaveLength(1)
+
+    await user.selectOptions(filter, '')
+    expect(screen.getAllByRole('button', { name: 'Editar calificación' })).toHaveLength(2)
+  })
+
   it('el "+" abre una ventana emergente, con el foco adentro, que Escape cierra', async () => {
     respond()
     const user = userEvent.setup()

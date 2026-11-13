@@ -205,7 +205,13 @@ async function beginLoginFlow(
   const returnTo = options.returnTo && options.returnTo.startsWith("/") ? options.returnTo : "/";
   await redis.set(
     OAUTH_PREFIX + state,
-    JSON.stringify({ codeVerifier, returnTo, ...(options.purpose ? { purpose: options.purpose } : {}) }),
+    JSON.stringify({
+      codeVerifier,
+      returnTo,
+      ...(options.purpose ? { purpose: options.purpose } : {}),
+      // Sólo para la auditoría: el ingreso que se pidió con "Continuar con Google" desde EduTrack.
+      ...(options.identityProvider ? { identityProvider: options.identityProvider } : {}),
+    }),
     "EX",
     OAUTH_TTL_SECONDS,
   );
@@ -216,6 +222,28 @@ async function beginLoginFlow(
 /** Resultado de la vinculación que se le muestra al perfil. Cualquier otro valor es un error. */
 function googleLinkStatus(value: unknown): "success" | "cancelled" | "error" {
   return value === "success" || value === "cancelled" ? value : "error";
+}
+
+/**
+ * Cada ingreso queda en la auditoría con usuario, IP y navegador. Con Google sólo se sabe cuando se
+ * pidió desde EduTrack: elegido en la pantalla de Keycloak llega igual que uno con contraseña.
+ */
+function auditLogin(req: any, session: BffSession, identityProvider?: "google") {
+  recordAuditEvent({
+    action: identityProvider === "google" ? AuditAction.AUTH_GOOGLE_LOGIN_SUCCESS : AuditAction.AUTH_LOGIN_SUCCESS,
+    actorUserId: session.userId,
+    req,
+    entityType: "User",
+    entityId: session.userId,
+  });
+}
+
+/**
+ * Un ingreso que Keycloak aceptó y EduTrack no pudo completar. La contraseña incorrecta nunca llega
+ * acá: la rechaza Keycloak (y su protección contra fuerza bruta) antes de volver a EduTrack.
+ */
+function auditLoginFailure(req: any, reason: "ACCOUNT_LINK_CONFLICT" | "OIDC_ERROR") {
+  recordAuditEvent({ action: AuditAction.AUTH_LOGIN_FAILURE, actorUserId: null, req, metadata: { reason } });
 }
 
 r.get("/login", async (req, res) => {
@@ -240,14 +268,17 @@ r.get("/callback", async (req, res) => {
   const redis = getRedis();
   if (!redis) return res.status(503).json({ message: "No se pudo completar el ingreso. Probá de nuevo en unos minutos." });
 
+  // Una vez abierta la sesión, un error posterior no es un ingreso fallido.
+  let signedIn = false;
   try {
     const stored = await redis.get(OAUTH_PREFIX + state);
     if (!stored) return res.redirect(`${frontendUrl()}/login?error=state`);
     await redis.del(OAUTH_PREFIX + state);
-    const { codeVerifier, returnTo, purpose } = JSON.parse(stored) as {
+    const { codeVerifier, returnTo, purpose, identityProvider } = JSON.parse(stored) as {
       codeVerifier: string;
       returnTo: string;
       purpose?: LoginPurpose;
+      identityProvider?: "google";
     };
 
     const currentUrl = new URL(redirectUri());
@@ -257,8 +288,9 @@ r.get("/callback", async (req, res) => {
     }
 
     const tokens = await exchangeCode(currentUrl, codeVerifier, state);
+    let session: BffSession;
     try {
-      await startSessionFromTokens(req, res, tokens);
+      session = await startSessionFromTokens(req, res, tokens);
     } catch (error) {
       if (error instanceof SsoRegistrationRequiredError) {
         const token = await createSsoRegistration(error.profile);
@@ -267,15 +299,19 @@ r.get("/callback", async (req, res) => {
       }
       if (error instanceof KeycloakAccountConflictError) {
         console.warn("[auth/callback] cuenta de Keycloak sin vínculo válido:", tokens.claims.sub);
+        auditLoginFailure(req, "ACCOUNT_LINK_CONFLICT");
         clearSessionCookie(res);
         return res.redirect(`${frontendUrl()}/login?error=account_link`);
       }
       throw error;
     }
+    signedIn = true;
 
     if (purpose === "link-google") {
+      // Vincular Google desde el perfil reabre la sesión de quien ya estaba adentro: no es un ingreso.
       return res.redirect(`${frontendUrl()}/profile?google=${googleLinkStatus(req.query.kc_action_status)}`);
     }
+    auditLogin(req, session, identityProvider);
 
     if (req.query.kc_action === "CONFIGURE_TOTP" && req.query.kc_action_status === "success") {
       await beginLoginFlow(res, { requiredAction: "CONFIGURE_RECOVERY_AUTHN_CODES", returnTo: "/profile" });
@@ -286,6 +322,7 @@ r.get("/callback", async (req, res) => {
     res.redirect(`${frontendUrl()}${safeReturn}`);
   } catch (error) {
     console.error("[auth/callback] keycloak:", error);
+    if (!signedIn) auditLoginFailure(req, "OIDC_ERROR");
     res.redirect(`${frontendUrl()}/login?error=oidc`);
   }
 });
@@ -917,6 +954,15 @@ async function handleLogout(req: any, res: any) {
     const session = await getSession(sid);
     idToken = session?.idToken;
     await deleteSession(sid);
+    if (session) {
+      recordAuditEvent({
+        action: AuditAction.AUTH_LOGOUT,
+        actorUserId: session.userId,
+        req,
+        entityType: "User",
+        entityId: session.userId,
+      });
+    }
   }
   clearSessionCookie(res);
 

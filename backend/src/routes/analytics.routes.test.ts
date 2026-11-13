@@ -204,6 +204,31 @@ describe('analytics /dashboard', () => {
     expect(res.body.meta.granularity).toBe('week')
   })
 
+  it('el período anterior se busca sin acotarlo al ciclo: casi siempre cae en el ciclo de antes', async () => {
+    const res = await request(app())
+      .get('/analytics/dashboard?from=2026-03-02&to=2026-10-30&schoolYearId=00000000-0000-4000-8000-000000000001')
+      .set(adminHdr())
+
+    expect(res.status).toBe(200)
+    const [current, previous] = getPlannedInstancesMock.mock.calls.map((call) => call[0])
+    expect(current).toMatchObject({ from: '2026-03-02', to: '2026-10-30', schoolYearId: 'sy-1' })
+    expect(previous.from).toBe(res.body.comparison.previousFrom)
+    expect(previous.schoolYearId).toBeUndefined()
+    expect(resolveSubstituteMock.mock.calls[1][0].schoolYearId).toBeUndefined()
+  })
+
+  it('sin clases en el período anterior no inventa una variación contra cero', async () => {
+    resolveMock.mockResolvedValueOnce(fixtureInstances()).mockResolvedValueOnce([])
+
+    const res = await request(app())
+      .get('/analytics/dashboard?from=2026-05-01&to=2026-05-31')
+      .set(adminHdr())
+
+    expect(res.status).toBe(200)
+    expect(res.body.kpis).toBeDefined()
+    expect(res.body.comparison).toBeNull()
+  })
+
   it('omite la comparación cuando compareToPrevious=0', async () => {
     const res = await request(app())
       .get('/analytics/dashboard?from=2026-05-01&to=2026-05-31&compareToPrevious=0')

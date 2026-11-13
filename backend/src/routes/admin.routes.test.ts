@@ -298,6 +298,13 @@ describe("admin routes (prisma mock)", () => {
     expect(res.status).toBe(400);
   });
 
+  it("POST /admin/users con un correo inválido lo dice en castellano", async () => {
+    // "ana@liceo" pasa la validación del navegador: el mensaje del servidor es lo que se ve.
+    const res = await request(app()).post("/admin/users").set(adminHdr()).send({ email: "ana@liceo", role: "TEACHER" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe("El correo no es válido: tiene que tener la forma nombre@ejemplo.com.");
+  });
+
   describe("GET/PUT/POST /admin/profiles (matriz en Prisma)", () => {
     beforeEach(() => {
       prismaMock.rolePermission.count.mockResolvedValue(50);
