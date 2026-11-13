@@ -64,7 +64,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Prepare production SSH transport
         id: production_connection
@@ -77,7 +77,7 @@ jobs:
           audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
       - name: Conectar runner efimero a Tailscale
         if: inputs.publish_metrics_to_grafana && vars.PRODUCTION_SSH_TAILSCALE != 'true'
-        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           audience: ${{ secrets.TS_AUDIENCE }}
@@ -98,7 +98,7 @@ jobs:
           fi
 
       - name: Fotografia inicial del droplet
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ steps.production_connection.outputs.host }}
           fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
@@ -183,7 +183,7 @@ jobs:
 
       - name: Fotografia final del droplet
         if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' && steps.production_connection.outcome == 'success' }}
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ steps.production_connection.outputs.host }}
           fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
@@ -202,7 +202,7 @@ jobs:
 
       - name: Guardar resultados
         if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: production-baseline-${{ github.run_number }}
           path: performance/results/

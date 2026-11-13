@@ -14,7 +14,7 @@ jobs:
     environment: production
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - name: Prepare private connection (always private in this test)
         id: production_connection
         uses: ./.github/actions/production-ssh
@@ -24,7 +24,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
           audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
       - name: Verify key authentication and server identity without deploying
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ steps.production_connection.outputs.host }}
           username: ${{ secrets.SSH_USER }}
