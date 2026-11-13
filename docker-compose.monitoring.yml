@@ -56,7 +56,7 @@ services:
       - no-new-privileges:true
 
   loki:
-    image: ${LOKI_IMAGE:-grafana/loki:3.3.2}
+    image: ${LOKI_IMAGE:-grafana/loki:3.7.9}
     restart: unless-stopped
     command: ["-config.file=/etc/loki/loki-config.yml"]
     volumes:
@@ -68,7 +68,7 @@ services:
       - no-new-privileges:true
 
   alloy:
-    image: ${ALLOY_IMAGE:-grafana/alloy:v1.6.1}
+    image: ${ALLOY_IMAGE:-grafana/alloy:v1.21.3}
     restart: unless-stopped
     command:
       - "run"
@@ -87,7 +87,7 @@ services:
       - no-new-privileges:true
 
   blackbox-exporter:
-    image: ${BLACKBOX_EXPORTER_IMAGE:-prom/blackbox-exporter:v0.25.0}
+    image: ${BLACKBOX_EXPORTER_IMAGE:-prom/blackbox-exporter:v0.29.1}
     restart: unless-stopped
     command: ["--config.file=/etc/blackbox/blackbox.yml"]
     volumes:
@@ -99,7 +99,7 @@ services:
       - no-new-privileges:true
 
   nginx-exporter:
-    image: ${NGINX_PROMETHEUS_EXPORTER_IMAGE:-nginx/nginx-prometheus-exporter:1.4.2}
+    image: ${NGINX_PROMETHEUS_EXPORTER_IMAGE:-nginx/nginx-prometheus-exporter:1.5.0}
     restart: unless-stopped
     command:
       - "--nginx.scrape-uri=${NGINX_STATUS_URL:-http://reverse-proxy:8081/nginx_status}"
@@ -110,7 +110,7 @@ services:
       - no-new-privileges:true
 
   node-exporter:
-    image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.8.2}
+    image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.12.1}
     restart: unless-stopped
     pid: host
     command:
@@ -131,7 +131,7 @@ services:
       - no-new-privileges:true
 
   cadvisor:
-    image: ${CADVISOR_IMAGE:-gcr.io/cadvisor/cadvisor:v0.49.1}
+    image: ${CADVISOR_IMAGE:-gcr.io/cadvisor/cadvisor:v0.55.1}
     restart: unless-stopped
     privileged: true
     devices:
@@ -146,7 +146,7 @@ services:
       - monitoring
 
   postgres-exporter:
-    image: ${POSTGRES_EXPORTER_IMAGE:-prometheuscommunity/postgres-exporter:v0.15.0}
+    image: ${POSTGRES_EXPORTER_IMAGE:-prometheuscommunity/postgres-exporter:v0.20.1}
     restart: unless-stopped
     environment:
       DATA_SOURCE_NAME: ${POSTGRES_EXPORTER_DATA_SOURCE_NAME:?Set POSTGRES_EXPORTER_DATA_SOURCE_NAME in your environment}

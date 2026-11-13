@@ -47,7 +47,7 @@ services:
       - appnet
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.3.3
+    image: quay.io/keycloak/keycloak:26.8.2-2
     restart: unless-stopped
     # start-dev: arranque tolerante para testing/local. En produccion endurecida
     # cambiar a `start` con KC_HOSTNAME y SSL via proxy (Cloudflare).
