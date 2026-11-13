@@ -32,7 +32,7 @@ jobs:
       run:
         working-directory: frontend/web # <--- LE DECIMOS DÓNDE ESTÁ EL CÓDIGO
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: npm install
       - name: Check for errors (TypeScript & Conflicts)
@@ -48,7 +48,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Prepare testing SSH transport
         id: testing_connection
         uses: ./.github/actions/production-ssh
@@ -59,7 +59,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
           audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
       - name: Deploy to Testing
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ steps.testing_connection.outputs.host }}
           fingerprint: SHA256:IvkEvZ3+GQwB3iZBCcvkenlSz4TD1ubMZda0TPm/nqo
@@ -142,7 +142,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Prepare production SSH transport
         id: production_connection
         uses: ./.github/actions/production-ssh
@@ -153,7 +153,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
           audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
       - name: Deploy to Production
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ steps.production_connection.outputs.host }}
           fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
@@ -250,7 +250,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Prepare testing SSH transport
         id: testing_connection
         uses: ./.github/actions/production-ssh
@@ -261,7 +261,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
           audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
       - name: Manual deploy to Testing (rollback/forward)
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ steps.testing_connection.outputs.host }}
           fingerprint: SHA256:IvkEvZ3+GQwB3iZBCcvkenlSz4TD1ubMZda0TPm/nqo
@@ -343,7 +343,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Prepare production SSH transport
         id: production_connection
         uses: ./.github/actions/production-ssh
@@ -354,7 +354,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
           audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
       - name: Manual deploy to Production (rollback/forward)
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ steps.production_connection.outputs.host }}
           fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
