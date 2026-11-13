@@ -16,7 +16,7 @@ import { loadInstitutionBranding } from '../services/institution-branding.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { loadRosterForScope } from '../services/student-attendance/roster.js'
 import { AuditAction, type Prisma } from '@prisma/client'
-import { recordAuditEventNow } from '../services/audit-log.js'
+import { recordAuditEventNow, recordDataExport } from '../services/audit-log.js'
 import {
   endorsedNotification,
   notifyGradeBook,
@@ -781,6 +781,7 @@ r.get('/report-card/:studentId', requirePermission('gradebook.export'), async (r
       loadInstitutionBranding(),
     ])
     const pdf = await generateReportCardPdf(cards[0], institution)
+    recordDataExport(req, { kind: 'report-card', format: 'pdf', entityId: student.id, details: { periodId } })
     return sendPdf(res, pdf, `boletin-${student.lastName}-${student.firstName}.pdf`)
   } catch (error) {
     console.error('[admin-gradebook] report-card:', error)
@@ -823,6 +824,12 @@ r.get('/report-cards', requirePermission('gradebook.export'), async (req: any, r
     const students = roster.map((s) => ({ id: s.studentId, firstName: s.firstName, lastName: s.lastName }))
     const [cards, institution] = await Promise.all([loadReportCards({ group, period, students }), loadInstitutionBranding()])
     const pdf = await generateReportCardsPdf(cards, institution)
+    recordDataExport(req, {
+      kind: 'report-cards-group',
+      format: 'pdf',
+      entityId: courseOfferingId,
+      details: { periodId, courseOrientationId: courseOrientationId ?? null, students: students.length },
+    })
     return sendPdf(res, pdf, `boletines-${offering.course?.name ?? 'grupo'}-${period.name}.pdf`)
   } catch (error) {
     console.error('[admin-gradebook] report-cards:', error)

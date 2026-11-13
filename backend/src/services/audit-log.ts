@@ -64,6 +64,13 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   GRADEBOOK_PLANNING_UPDATED: "Planificación de libreta corregida",
   GRADEBOOK_DEVELOPMENT_UPDATED: "Registro de clase corregido",
   GRADEBOOK_DEVELOPMENT_DELETED: "Registro de clase borrado",
+  STUDENT_CREATED: "Estudiante matriculado",
+  STUDENT_UPDATED: "Datos de estudiante modificados",
+  STUDENT_DELETED: "Estudiante eliminado",
+  STUDENT_ACCOMMODATION_CREATED: "Adecuación de estudiante registrada",
+  STUDENT_ACCOMMODATION_UPDATED: "Adecuación de estudiante modificada",
+  STUDENT_ACCOMMODATION_DELETED: "Adecuación de estudiante eliminada",
+  DATA_EXPORTED: "Datos exportados (descarga)",
 };
 
 export function parseAuditActionFilter(raw: string | undefined): AuditAction | undefined {
@@ -133,6 +140,29 @@ export function recordAuditEvent(input: RecordAuditEventInput): void {
       console.error("[audit-log] recordAuditEvent:", e);
     }
   })();
+}
+
+export type DataExportInput = {
+  /** Qué se exportó: `report:<reportKey>`, `gradebook`, `gradebook-student`, `report-card`. */
+  kind: string;
+  format: string;
+  /** Libreta, alumno o exportación a la que se refiere. */
+  entityId?: string | null;
+  /** Sólo ids, fechas y opciones: nunca nombres, cédulas ni el contenido exportado. */
+  details?: Record<string, unknown>;
+};
+
+/** Una descarga de datos fuera del sistema (planilla, PDF, boletín). */
+export function recordDataExport(req: Request, input: DataExportInput): void {
+  const user = (req as Request & { user?: { id?: string; sub?: string } }).user;
+  recordAuditEvent({
+    action: AuditAction.DATA_EXPORTED,
+    actorUserId: user?.id ?? user?.sub ?? null,
+    req,
+    entityType: "Export",
+    entityId: input.entityId ?? null,
+    metadata: { kind: input.kind, format: input.format, ...input.details },
+  });
 }
 
 /**

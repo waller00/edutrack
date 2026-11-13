@@ -19,6 +19,7 @@ const {
   novedadesBuildMock,
   novedadesXlsxMock,
   novedadesCsvMock,
+  dataExportMock,
 } = vi.hoisted(() => ({
   prismaMock: { user: { findMany: vi.fn().mockResolvedValue([]) }, medicalLeave: { count: vi.fn().mockResolvedValue(0) } },
   getPlannedInstancesMock: vi.fn().mockResolvedValue([]),
@@ -34,6 +35,7 @@ const {
   novedadesBuildMock: vi.fn().mockResolvedValue({ from: '', to: '', periodo: '', rows: [], warnings: [] }),
   novedadesXlsxMock: vi.fn().mockResolvedValue(Buffer.from('nxlsx')),
   novedadesCsvMock: vi.fn().mockReturnValue('CI;Nombre'),
+  dataExportMock: vi.fn(),
 }))
 
 vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
@@ -56,6 +58,7 @@ vi.mock('../services/analytics/exports/payrollNovedadesExport.js', () => ({
   generatePayrollNovedadesCsv: novedadesCsvMock,
 }))
 vi.mock('../services/school-year-service.js', () => ({ resolveSchoolYearIdForList: resolveSchoolYearMock }))
+vi.mock('../services/audit-log.js', () => ({ recordDataExport: dataExportMock }))
 
 import exportsRoutes from './exports.js'
 
@@ -105,6 +108,28 @@ describe('exports routes', () => {
     expect(res.body.status).toBe('DONE')
     expect(res.body.downloadUrl).toBeTruthy()
     expect(dimensionXlsxMock).toHaveBeenCalledWith(expect.objectContaining({ dimension: 'person' }))
+  })
+
+  it('deja auditada cada exportación generada, con el tipo y el rango', async () => {
+    dataExportMock.mockClear()
+    const res = await request(app())
+      .post('/exports')
+      .set(adminHdr())
+      .send({ ...baseBody, reportKey: 'person_report', format: 'XLSX' })
+    expect(res.status).toBe(201)
+    expect(dataExportMock).toHaveBeenCalledTimes(1)
+    expect(dataExportMock.mock.calls[0][1]).toEqual({
+      kind: 'report:person_report',
+      format: 'XLSX',
+      entityId: res.body.exportId,
+      details: { from: '2026-05-01', to: '2026-05-31', allYears: false },
+    })
+  })
+
+  it('no audita una exportación que falló', async () => {
+    dataExportMock.mockClear()
+    await request(app()).post('/exports').set(adminHdr()).send({ reportKey: 'nope' })
+    expect(dataExportMock).not.toHaveBeenCalled()
   })
 
   it('genera reporte por curso (PDF)', async () => {

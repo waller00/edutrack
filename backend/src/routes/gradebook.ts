@@ -40,7 +40,7 @@ import {
 } from '../services/gradebook/student-sheet.js'
 import { resolveMoodleAcademicScope } from '../integrations/moodle/scope.js'
 import { AuditAction } from '@prisma/client'
-import { clientIpFromRequest, recordAuditEvent, recordAuditEventNow } from '../services/audit-log.js'
+import { clientIpFromRequest, recordAuditEvent, recordAuditEventNow, recordDataExport } from '../services/audit-log.js'
 import { getGradeBookSettings, getStudentRollCallSettings } from '../config/system-settings.js'
 import {
   isWithinEditWindow,
@@ -3415,13 +3415,21 @@ function metaOf(row: any): GradeBookMeta {
   }
 }
 
-function sendBuffer(res: any, buffer: Buffer, filename: string, contentType: string) {
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+/** Toda descarga de la libreta pasa por acá: así ninguna queda sin su registro de auditoría. */
+function sendBuffer(req: any, res: any, buffer: Buffer, filename: string, contentType: string) {
+  const studentId = req.params.studentId ? String(req.params.studentId) : null
+  recordDataExport(req, {
+    kind: studentId ? 'gradebook-student' : 'gradebook',
+    format: contentType === XLSX_TYPE ? 'xlsx' : 'pdf',
+    entityId: String(req.params.id),
+    details: studentId ? { studentId } : {},
+  })
   res.setHeader('Content-Type', contentType)
   res.setHeader('Content-Disposition', attachmentDisposition(filename))
   return res.send(buffer)
 }
-
-const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 /** Excel de calificaciones y de cierre de la libreta (RF-120). */
 r.get('/:id/exports/xlsx', requirePermission('gradebook.export'), async (req: any, res) => {
@@ -3527,6 +3535,7 @@ r.get('/:id/exports/xlsx', requirePermission('gradebook.export'), async (req: an
 
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer())
     return sendBuffer(
+      req,
       res,
       buffer,
       exportFilename([meta.subjectName, meta.courseName, meta.orientationName ?? '', meta.schoolYearLabel], 'xlsx'),
@@ -3590,6 +3599,7 @@ r.get('/:id/exports/pdf', requirePermission('gradebook.export'), async (req: any
 
     const buffer = await generateGradeBookPdf({ meta, students, decimals: scale?.decimals ?? 0 })
     return sendBuffer(
+      req,
       res,
       buffer,
       exportFilename([meta.subjectName, meta.courseName, meta.schoolYearLabel], 'pdf'),
@@ -3616,6 +3626,7 @@ r.get('/:id/exports/students/:studentId/pdf', requirePermission('gradebook.expor
     const meta = metaOf(ctx.row)
     const buffer = await generateStudentReportPdf({ meta, student: students[0], decimals: scale?.decimals ?? 0 })
     return sendBuffer(
+      req,
       res,
       buffer,
       exportFilename([students[0].lastName, students[0].firstName, meta.subjectName], 'pdf'),
@@ -3691,6 +3702,7 @@ r.get('/:id/exports/students/:studentId/xlsx', requirePermission('gradebook.expo
 
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer())
     return sendBuffer(
+      req,
       res,
       buffer,
       exportFilename([student.lastName, student.firstName, meta.subjectName, 'evaluaciones'], 'xlsx'),

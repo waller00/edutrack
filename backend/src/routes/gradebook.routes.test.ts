@@ -1614,6 +1614,20 @@ describe('exportaciones de la libreta', () => {
     expect(res.headers['content-disposition']).toContain('matematica-3-ems')
   })
 
+  it('la descarga queda auditada con la libreta y el formato, sin datos del contenido', async () => {
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/exports/xlsx`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    await vi.waitFor(() =>
+      expect(prismaMock.auditLog.create.mock.calls.some(([arg]) => arg.data.action === 'DATA_EXPORTED')).toBe(true),
+    )
+    const audit = prismaMock.auditLog.create.mock.calls.find(([arg]) => arg.data.action === 'DATA_EXPORTED')![0].data
+    expect(audit).toMatchObject({ entityType: 'Export', entityId: GB_ID, metadata: { kind: 'gradebook', format: 'xlsx' } })
+    expect(JSON.stringify(audit.metadata)).not.toContain('Benítez')
+  })
+
   it('el PDF de la libreta se descarga como PDF', async () => {
     const res = await request(app())
       .get(`/gradebook/${GB_ID}/exports/pdf`)

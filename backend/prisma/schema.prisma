@@ -96,6 +96,15 @@ enum AuditAction {
   GRADEBOOK_PLANNING_UPDATED
   GRADEBOOK_DEVELOPMENT_UPDATED
   GRADEBOOK_DEVELOPMENT_DELETED
+  /// Matrícula: alta, cambios y baja de un estudiante (la metadata lleva ids, nunca datos personales).
+  STUDENT_CREATED
+  STUDENT_UPDATED
+  STUDENT_DELETED
+  STUDENT_ACCOMMODATION_CREATED
+  STUDENT_ACCOMMODATION_UPDATED
+  STUDENT_ACCOMMODATION_DELETED
+  /// Descarga de datos fuera del sistema: exportaciones, libretas y boletines.
+  DATA_EXPORTED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).
