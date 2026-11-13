@@ -118,6 +118,10 @@ restic backup \
   "$moodle_data"
 
 echo "==> Retencion 30 dias"
+# Un backup interrumpido (o un proceso muerto) deja un lock en el repo y el
+# `forget --prune` falla con "repository is already locked". `unlock` solo
+# borra locks viejos; si hay un backup activo, el flock de arriba ya lo evita.
+restic unlock || true
 restic forget --keep-daily 30 --prune
 
 repo_stats="$(restic stats --mode raw-data --json)"
@@ -148,6 +152,7 @@ if [[ -r "$testing_env" ]]; then
     "$staging" \
     "${config_paths[@]}" \
     "$moodle_data"; then
+    restic unlock || true
     restic forget --keep-daily 30 --prune
     testing_ok=1
     testing_snapshot="$(restic snapshots --latest 1 --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[-1]["short_id"] if d else "")')"
