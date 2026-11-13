@@ -1,12 +1,27 @@
 name: CI Security - Trivy
 
+# Antes sólo corría a mano y no frenaba nada. Ahora corre en cada push/PR a las ramas largas y
+# una vez por semana (aparecen CVEs nuevos aunque el código no cambie). El escaneo del
+# filesystem (dependencias de producción y secretos) falla con HIGH/CRITICAL que tengan arreglo;
+# el de imágenes informa. Las excepciones aceptadas viven en .trivyignore, cada una con su motivo
+# y su vencimiento. El deploy (deploy.yml) repite el corte del filesystem antes de desplegar.
 on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "17 9 * * 1" # lunes 06:17 en Uruguay
   workflow_dispatch:
 
 permissions:
   actions: read
   contents: read
   security-events: write
+
+concurrency:
+  group: ci-security-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   trivy-fs:
@@ -17,18 +32,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Trivy filesystem scan
+      # SARIF primero (sin cortar) para que GitHub muestre todo lo encontrado; después el corte.
+      - name: Run Trivy filesystem scan (SARIF)
         uses: aquasecurity/trivy-action@0.35.0
         with:
           scan-type: fs
           scan-ref: .
+          scanners: vuln,secret
           format: sarif
           output: trivy-fs.sarif
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
 
       - name: Upload filesystem SARIF
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@v4
         with:
@@ -41,70 +59,74 @@ jobs:
           name: trivy-fs-sarif
           path: trivy-fs.sarif
 
-  trivy-backend-image:
-    name: Trivy Backend Image Scan
+      - name: Fail on HIGH/CRITICAL (filesystem)
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: "1"
+          skip-setup-trivy: true
+
+  trivy-image:
+    name: Trivy Image Scan (${{ matrix.image }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: ./backend
+          - image: frontend
+            context: ./frontend/web
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build backend image
-        run: docker build -t edutrack-auth:${{ github.sha }} ./backend
+      - name: Build image
+        run: docker build -t edutrack-${{ matrix.image }}:${{ github.sha }} ${{ matrix.context }}
 
-      - name: Scan backend image
+      - name: Scan image (SARIF)
         uses: aquasecurity/trivy-action@0.35.0
         with:
-          image-ref: edutrack-auth:${{ github.sha }}
+          image-ref: edutrack-${{ matrix.image }}:${{ github.sha }}
           format: sarif
-          output: trivy-backend.sarif
+          output: trivy-${{ matrix.image }}.sarif
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
 
-      - name: Upload backend SARIF
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      - name: Upload image SARIF
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: trivy-backend.sarif
+          sarif_file: trivy-${{ matrix.image }}.sarif
+          category: trivy-${{ matrix.image }}
 
-      - name: Upload backend SARIF artifact
+      - name: Upload image SARIF artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-backend-sarif
-          path: trivy-backend.sarif
+          name: trivy-${{ matrix.image }}-sarif
+          path: trivy-${{ matrix.image }}.sarif
 
-  trivy-frontend-image:
-    name: Trivy Frontend Image Scan
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build frontend image
-        run: docker build -t edutrack-web:${{ github.sha }} ./frontend/web
-
-      - name: Scan frontend image
+      # Informativo, no corta: la imagen del backend conserva a propósito las dependencias de
+      # desarrollo (seeds con tsx, prisma CLI), y vitest/vite marcan críticas que no corren en
+      # producción. El corte está en el escaneo del filesystem, que ve sólo las de producción.
+      # Pasarlo a `exit-code: "1"` cuando el runner del backend haga `npm prune --omit=dev`.
+      - name: Report HIGH/CRITICAL (image)
         uses: aquasecurity/trivy-action@0.35.0
         with:
-          image-ref: edutrack-web:${{ github.sha }}
-          format: sarif
-          output: trivy-frontend.sarif
+          image-ref: edutrack-${{ matrix.image }}:${{ github.sha }}
+          format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-
-      - name: Upload frontend SARIF
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-frontend.sarif
-
-      - name: Upload frontend SARIF artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-frontend-sarif
-          path: trivy-frontend.sarif
+          trivyignores: .trivyignore
+          exit-code: "0"
+          skip-setup-trivy: true

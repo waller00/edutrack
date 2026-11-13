@@ -1,0 +1,98 @@
+# Actualizaciones de dependencias. Los PRs van a develop: pasan por CI y por el deploy a testing
+# antes de llegar a main. Minor y patch van agrupados (un PR por ecosistema y semana); las
+# versiones mayores de lo que pide migración se hacen a mano, en su propio PR.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /backend
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Montevideo
+    open-pull-requests-limit: 5
+    groups:
+      backend-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: express
+        update-types: [version-update:semver-major]
+      - dependency-name: prisma
+        update-types: [version-update:semver-major]
+      - dependency-name: "@prisma/client"
+        update-types: [version-update:semver-major]
+      - dependency-name: zod
+        update-types: [version-update:semver-major]
+      # @types/node sigue a la versión de Node de las imágenes, no a la última.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: npm
+    directory: /frontend/web
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Montevideo
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: next
+        update-types: [version-update:semver-major]
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/react"
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/react-dom"
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
+
+  # Imágenes base de los Dockerfiles (node:24-bookworm-slim). La mayor de Node se cambia a mano.
+  - package-ecosystem: docker
+    directories: [/backend, /frontend/web]
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Montevideo
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+
+  # Imágenes de los compose (postgres, redis, keycloak, nginx, monitoreo, crowdsec): mantiene al
+  # día los digests fijados. Postgres y Keycloak cambian de mayor sólo con un plan de migración.
+  - package-ecosystem: docker-compose
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Montevideo
+    groups:
+      compose-images:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
+      - dependency-name: quay.io/keycloak/keycloak
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+      timezone: America/Montevideo
+    groups:
+      actions:
+        patterns: ["*"]

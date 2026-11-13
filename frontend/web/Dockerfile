@@ -1,5 +1,5 @@
 # STAGE 1: Instalar dependencias
-FROM node:20-bookworm-slim AS deps
+FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 # Instalamos libc6-compat para compatibilidad con librerías nativas si fuera necesario
 RUN apt-get update && apt-get install -y --no-install-recommends libc6 && rm -rf /var/lib/apt/lists/*
@@ -8,7 +8,7 @@ RUN npm ci
 
 # STAGE 2: Construir la aplicación
 # NEXT_PUBLIC_* se inyecta en el cliente en tiempo de build (no alcanza con env en runtime).
-FROM node:20-bookworm-slim AS builder
+FROM node:24-bookworm-slim AS builder
 WORKDIR /app
 ARG NEXT_PUBLIC_API_URL=http://localhost:4000
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
@@ -34,7 +34,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # STAGE 3: Imagen de producción final (Liviana)
-FROM node:20-bookworm-slim AS runner
+FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -43,6 +43,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Creamos un usuario de sistema para no correr como root (seguridad)
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
+# El servidor arranca con `node server.js`: npm, npx y corepack no hacen falta en runtime, y sus
+# dependencias empaquetadas son lo primero que marcan los escáneres de la imagen.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+  /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 
 # Copiamos solo lo estrictamente necesario para ejecutar
 COPY --from=builder /app/public ./public
