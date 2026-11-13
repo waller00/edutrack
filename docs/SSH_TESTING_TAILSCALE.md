@@ -158,9 +158,9 @@ Verificar desde la notebook:
 ```bash
 nc -zv 138.197.35.2 22          # debe fallar/timeout
 ssh edutrack-testing-ts 'hostname'   # debe funcionar
-curl -fsS http://138.197.35.2:4000/ready
-curl -fsS -o /dev/null http://138.197.35.2:3000/
-curl -fsS -o /dev/null http://138.197.35.2:8089/
+curl -fsS http://100.98.120.16:4000/ready
+curl -fsS -o /dev/null http://100.98.120.16:3000/
+curl -fsS -o /dev/null http://100.98.120.16:8089/
 ```
 
 Y desde producción:
@@ -179,13 +179,40 @@ systemctl reset-failed ufw-rollback.service 2>/dev/null || true
 Si algo falla, el timer apaga UFW solo; también se puede correr
 `ufw --force disable` a mano.
 
+## 5. App por Tailscale (D)
+
+La app de testing quedó accesible **solo por Tailscale**, no por WAN:
+
+- `.env`: `FRONTEND_URL`/`CORS_ORIGINS` = `http://100.98.120.16:3000`;
+  `NEXT_PUBLIC_API_URL` = `http://100.98.120.16:4000`; `KEYCLOAK_ISSUER_URL` =
+  `http://100.98.120.16:8089/realms/edutrack`; `KEYCLOAK_REDIRECT_URI` =
+  `http://100.98.120.16:4000/auth/callback`; `KEYCLOAK_HOSTNAME` =
+  `http://100.98.120.16:8089`; `BIND_IP=100.98.120.16`.
+- `docker-compose.override.yml`: `web`/`auth`/`keycloak` publican en
+  `${BIND_IP:-0.0.0.0}`; en testing `BIND_IP=100.98.120.16`, en local queda
+  `0.0.0.0`.
+- UFW: sin `3000/4000/8089` públicos; solo `tailscale0` y `10.108.0.2:22`
+  (backup).
+- ACL: grant `tcp:3000`, `tcp:4000`, `tcp:8089` hacia `100.98.120.16` para los
+  tres admins/dispositivos. Sin eso, los compañeros ven el HTML pero no la
+  app/Keycloak.
+- URL: `http://100.98.120.16:3000`; API `:4000`; Keycloak `:8089`; admin
+  `http://100.98.120.16:8089/admin`.
+- `keycloak-apply-realm-settings.sh` deja `edutrack-web` con redirect
+  `http://100.98.120.16:4000/auth/callback`, post-logout y web-origin
+  `http://100.98.120.16:3000`.
+- HTTPS opcional: `tailscale serve` en 443 y `.env`/rebuild al MagicDNS; hoy no
+  está activado.
+- Google: el `.env` de testing no tiene `GOOGLE_CLIENT_ID`/`SECRET`; el login
+  por Google no está configurado. El login por Keycloak (usuario/contraseña) sí.
+- Prod no cambia: sigue con nginx 80/443 + Cloudflare; el backup sigue por LAN.
+
 ## Notas
 
-- Los puertos `3000`, `4000` y `8089` salen por `docker-proxy`; UFW los permite
-  con reglas `allow`. La app responde por Tailscale (`100.98.120.16`) y por
-  localhost. La pública tampoco respondía con UFW apagado desde prod/notebook:
-  el bloqueo es del firewall de DigitalOcean. Si se necesita pública, abrir
-  esos puertos en el cloud firewall.
+- Los puertos `3000`, `4000` y `8089` ahora se publican **solo en
+  `100.98.120.16`** (`BIND_IP`); no en `0.0.0.0`. La app responde por Tailscale
+  y por localhost; la WAN no los ve. No hace falta abrir nada en el cloud
+  firewall.
 - `11434` (Ollama) y `22` (sshd) son procesos del host: UFW sí los filtra. Se
   quitaron las reglas de Ollama y el servicio quedó deshabilitado
   (`systemctl disable --now ollama`); ya no escucha en 11434.

@@ -2,3 +2,11 @@ services:
   auth:
     env_file:
       - .env
+    ports: !override
+      - "${BIND_IP:-0.0.0.0}:4000:4000"
+  web:
+    ports: !override
+      - "${BIND_IP:-0.0.0.0}:3000:3000"
+  keycloak:
+    ports: !override
+      - "${BIND_IP:-0.0.0.0}:8089:8080"
