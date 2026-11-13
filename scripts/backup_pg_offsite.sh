@@ -5,24 +5,24 @@
 #   BACKUP_REMOTE_USER=backup ./scripts/backup_pg_offsite.sh
 #
 # Variables principales:
-#   BACKUP_REMOTE_HOST       IP/DNS del destino off-site (default: 138.197.35.2)
+#   BACKUP_REMOTE_HOST       IP/DNS del destino off-site (default: 10.108.0.3)
 #   BACKUP_REMOTE_USER       usuario SSH del destino (default: root)
 #   BACKUP_REMOTE_DIR        carpeta remota de backups
 #   BACKUP_SSH_KEY           llave privada opcional para SSH/scp
-#   BACKUP_REMOTE_RETENTION_DAYS  retencion remota en dias (default: 30)
+#   BACKUP_REMOTE_RETENTION_DAYS  retencion remota en dias (default: 15)
 #   BACKUP_LOCAL_RETENTION_DAYS   retencion local en dias (default: 3)
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DC_CLOUD="$ROOT_DIR/scripts/dc-cloud.sh"
 
-BACKUP_REMOTE_HOST="${BACKUP_REMOTE_HOST:-138.197.35.2}"
+BACKUP_REMOTE_HOST="${BACKUP_REMOTE_HOST:-10.108.0.3}"
 BACKUP_REMOTE_USER="${BACKUP_REMOTE_USER:-root}"
 BACKUP_REMOTE_PORT="${BACKUP_REMOTE_PORT:-22}"
 BACKUP_REMOTE_DIR="${BACKUP_REMOTE_DIR:-/var/backups/backups/backup-prod}"
 BACKUP_SSH_KEY="${BACKUP_SSH_KEY:-}"
 BACKUP_LOCAL_DIR="${BACKUP_LOCAL_DIR:-/root/backups/edutrack/postgres}"
-BACKUP_REMOTE_RETENTION_DAYS="${BACKUP_REMOTE_RETENTION_DAYS:-30}"
+BACKUP_REMOTE_RETENTION_DAYS="${BACKUP_REMOTE_RETENTION_DAYS:-15}"
 BACKUP_LOCAL_RETENTION_DAYS="${BACKUP_LOCAL_RETENTION_DAYS:-3}"
 
 POSTGRES_USER="${POSTGRES_USER:-postgres}"

@@ -63,11 +63,11 @@ Desde la raiz del repo en el Droplet de produccion:
 cd /root/edutrack
 chmod +x scripts/dc-cloud.sh scripts/backup_pg_offsite.sh
 
-BACKUP_REMOTE_HOST=138.197.35.2 \
+BACKUP_REMOTE_HOST=10.108.0.3 \
 BACKUP_REMOTE_USER=backup \
 BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps \
 BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod \
-BACKUP_REMOTE_RETENTION_DAYS=30 \
+BACKUP_REMOTE_RETENTION_DAYS=15 \
 BACKUP_LOCAL_RETENTION_DAYS=3 \
 ./scripts/backup_pg_offsite.sh
 ```
@@ -90,13 +90,13 @@ sudo crontab -e
 Agregar:
 
 ```cron
-15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=138.197.35.2 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod BACKUP_REMOTE_RETENTION_DAYS=30 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
+15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=10.108.0.3 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod BACKUP_REMOTE_RETENTION_DAYS=15 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
 ```
 
 Con esta configuracion:
 
 - El backup corre todos los dias a las 02:15 UTC del servidor.
-- Se conservan 30 dias en la VPS destino.
+- Se conservan 15 dias en la VPS destino.
 - Se conservan 3 dias localmente en el Droplet de produccion.
 - El resultado queda registrado en `/var/log/edutrack-backup.log`.
 

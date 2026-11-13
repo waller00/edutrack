@@ -117,12 +117,12 @@ restic backup \
   "${config_paths[@]}" \
   "$moodle_data"
 
-echo "==> Retencion 30 dias"
+echo "==> Retencion 15 dias"
 # Un backup interrumpido (o un proceso muerto) deja un lock en el repo y el
 # `forget --prune` falla con "repository is already locked". `unlock` solo
 # borra locks viejos; si hay un backup activo, el flock de arriba ya lo evita.
 restic unlock || true
-restic forget --keep-daily 30 --prune
+restic forget --keep-daily 15 --prune
 
 repo_stats="$(restic stats --mode raw-data --json)"
 repo_bytes="$(printf '%s' "$repo_stats" | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("total_size", 0)))')"
@@ -153,7 +153,7 @@ if [[ -r "$testing_env" ]]; then
     "${config_paths[@]}" \
     "$moodle_data"; then
     restic unlock || true
-    restic forget --keep-daily 30 --prune
+    restic forget --keep-daily 15 --prune
     testing_ok=1
     testing_snapshot="$(restic snapshots --latest 1 --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[-1]["short_id"] if d else "")')"
     testing_bytes="$(restic stats --mode raw-data --json | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("total_size", 0)))')"
@@ -184,7 +184,7 @@ data = {
     "testing_snapshot": testing_snapshot,
     "testing_repository_bytes": int(testing_bytes),
     "testing_repository": "sftp:backup@edutrack-testing-backup:/var/backups/backups/restic-edutrack",
-    "retention_days": 30,
+    "retention_days": 15,
 }
 os.makedirs(os.path.dirname(path), exist_ok=True)
 tmp = path + ".tmp"
