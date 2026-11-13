@@ -1,0 +1,241 @@
+apiVersion: 1
+
+# Alertas de backups y de seguridad. Van con severity=critical para salir por la misma política
+# de Telegram que las de disponibilidad (el contact point `telegram-critical` se configura a mano
+# en Grafana; acá no hay token ni chat id).
+#
+# Backup: el de restic (scripts/backup_all_restic.sh, docs/BACKUP_RESTIC_R2.md). La métrica la
+# publica cada hora scripts/check_backup_status.sh, con el mismo umbral (30 h) que avisa a Wazuh.
+#
+# Umbrales de seguridad: arrancan conservadores. Después de una semana, mirar en Explore
+#   sum(increase(edutrack_backend_http_requests_total{status_code="403"}[10m]))
+# y dejarlos en ~5x el máximo normal, para que no hagan ruido.
+
+groups:
+  - orgId: 1
+    name: edutrack-security-and-backups
+    folder: EduTrack Alerts
+    interval: 1m
+    rules:
+      - uid: edutrack-backup-stale
+        title: "EduTrack backup atrasado"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              # Horas desde el último backup restic completo en R2.
+              expr: "(time() - max(edutrack_backup_last_success_timestamp_seconds{job=\"node\", repository=\"r2\"})) / 3600"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "horas desde el último backup"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 30
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        # Sin la métrica también avisa: el chequeo horario no corre o node-exporter no la lee.
+        # 90 min: el chequeo corre a los :17 de cada hora; da tiempo después de reiniciar Grafana.
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 90m
+        annotations:
+          summary: "EduTrack - Backup restic atrasado"
+          description: "Pasaron mas de 30 h sin un backup restic completo en R2, o no hay metrica."
+          impact: "Si se pierde el servidor, se pierde todo lo cargado desde el ultimo backup bueno."
+          action: "Ver /var/log/edutrack-backup.log y correr el backup a mano. Sin metrica: revisar el cron de check_backup_status.sh y que node-exporter lea /var/lib/edutrack-watchdog/textfile."
+          runbook: "tail -50 /var/log/edutrack-backup.log; cat /var/lib/edutrack/backup-status.json; cd /root/edutrack && ./scripts/backup_all_restic.sh"
+        labels:
+          service: backup
+          category: continuity
+          severity: critical
+        isPaused: false
+
+      - uid: edutrack-rate-limit-abuse
+        title: "EduTrack rate limit superado en masa"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              # 429 del backend: login (10/min por IP), pedido de verificación, registro, etc.
+              expr: "sum(increase(edutrack_backend_http_requests_total{status_code=\"429\"}[10m]))"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "429 en 10 min"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 50
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "EduTrack - Muchas respuestas 429 (posible fuerza bruta)"
+          description: "Mas de 50 pedidos cortados por rate limit en 10 minutos, sostenido 5 minutos."
+          impact: "Alguien esta probando contraseñas o abusando de un endpoint publico (registro, verificacion)."
+          action: "Ver en Loki que rutas e IPs reciben 429 y si CrowdSec ya las bloqueo. Si es una sola IP, bloquearla en Cloudflare."
+          runbook: "cd /root/edutrack && docker compose -f docker-compose.cloud.yml logs --since 30m auth | grep ' 429 ' | tail -50 && docker exec crowdsec cscli decisions list"
+        labels:
+          service: backend
+          category: security
+          severity: critical
+        isPaused: false
+
+      - uid: edutrack-forbidden-spike
+        title: "EduTrack pico de accesos denegados (403)"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: "sum(increase(edutrack_backend_http_requests_total{status_code=\"403\"}[10m]))"
+              instant: true
+              intervalMs: 1000
+              legendFormat: "403 en 10 min"
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 200
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "EduTrack - Pico de accesos denegados (403)"
+          description: "Mas de 200 respuestas 403 en 10 minutos, sostenido 5 minutos."
+          impact: "Una cuenta (o un script con una sesion robada) esta recorriendo datos a los que no tiene acceso, o un pedido cruzado fue rechazado por el chequeo de Origin."
+          action: "Ver en Loki que usuario/IP y que rutas. Si es una cuenta, cerrarle las sesiones desde Usuarios y revisar Auditoria."
+          runbook: "cd /root/edutrack && docker compose -f docker-compose.cloud.yml logs --since 30m auth | grep ' 403 ' | tail -50"
+        labels:
+          service: backend
+          category: security
+          severity: critical
+        isPaused: false
