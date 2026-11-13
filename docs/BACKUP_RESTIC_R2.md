@@ -22,7 +22,7 @@ No se respaldan imágenes Docker, build cache, Prometheus, Grafana ni Loki.
 - Repositorio restic cifrado.
 - Bucket: `backup-edutrack`.
 - Endpoint: `https://c1f5e0939e83a94618128b561cf8e102.us.r2.cloudflarestorage.com`.
-- Retención: 30 snapshots diarios.
+- Retención: 15 snapshots diarios.
 - Cifrado: restic.
 - El repositorio no se publica y las credenciales S3 viven fuera del repositorio.
 
@@ -32,7 +32,7 @@ No se respaldan imágenes Docker, build cache, Prometheus, Grafana ni Loki.
 - Ruta: `/var/backups/backups/restic-edutrack`.
 - Acceso: usuario `backup` por SFTP; no se instala restic en testing.
 - Contraseña restic propia: `/root/.restic-testing-password`.
-- Retención: 30 snapshots diarios.
+- Retención: 15 snapshots diarios.
 - Solo almacena blobs cifrados; no hay dumps planos.
 - Si testing se cae, el backup principal en R2 sigue disponible.
 
