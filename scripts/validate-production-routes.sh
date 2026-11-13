@@ -188,6 +188,11 @@ if [ "$PRODUCTION" -eq 1 ]; then
   check_secret KEYCLOAK_CLIENT_SECRET 24
   check_secret JWT_SECRET 32
   check_secret KEYCLOAK_ADMIN_PASSWORD 12
+  # Redis guarda las sesiones (con los tokens de Keycloak). Va dentro de REDIS_URL: sólo
+  # caracteres que no haya que escapar en una URL.
+  check_secret REDIS_PASSWORD 24
+  printf '%s' "$(env_get REDIS_PASSWORD)" | grep -qE '^[A-Za-z0-9_-]+$' \
+    || fail "REDIS_PASSWORD sólo puede tener letras, números, - y _ (generala con: openssl rand -hex 32)"
   [ "$(env_get KEYCLOAK_ADMIN_PASSWORD)" != "admin" ] || fail "KEYCLOAK_ADMIN_PASSWORD no puede ser admin"
 
   # Las bases no se publican (close-ports), pero una contraseña de fábrica no debería quedar.

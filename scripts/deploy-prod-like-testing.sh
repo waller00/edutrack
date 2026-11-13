@@ -29,6 +29,8 @@ ensure_var() {
 }
 
 ensure_var REDIS_URL "redis://redis:6379"
+# docker-compose.cloud.yml exige REDIS_PASSWORD y arma REDIS_URL con ella.
+ensure_var REDIS_PASSWORD "$(openssl rand -hex 32)"
 ensure_var PRISMA_DB_PUSH_FLAGS "--accept-data-loss"
 sed -i 's/^PRISMA_DB_PUSH_FLAGS=--force-reset/PRISMA_DB_PUSH_FLAGS=--accept-data-loss/' .env 2>/dev/null || true
 

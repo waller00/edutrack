@@ -33,13 +33,42 @@ jobs:
         working-directory: frontend/web # <--- LE DECIMOS DÓNDE ESTÁ EL CÓDIGO
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - name: Install dependencies
         run: npm install
       - name: Check for errors (TypeScript & Conflicts)
         run: npm run typecheck
 
+  # Dependencias de producción y secretos: no se despliega con una HIGH/CRITICAL que tenga
+  # arreglo, salvo las aceptadas en .trivyignore (con motivo y vencimiento).
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy (dependencias y secretos)
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: "1"
+
+  # Un nginx.conf roto no lo ve ningún test y en el servidor el reverse-proxy no levanta.
+  nginx-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: nginx -t
+        run: bash scripts/check-nginx-config.sh
+
   deploy-testing:
-    needs: validate # <--- ESTO ES LO QUE TE SALVA: Solo corre si validate dio OK
+    needs: [validate, security-scan, nginx-config] # Solo corre si validate, el escaneo y nginx dieron OK
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -101,22 +130,27 @@ jobs:
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
             git_sync_from_url "$REPO_HTTPS" origin/develop
             . scripts/deploy-compose-functions.sh
+            # Redis con contraseña: si el .env todavía no tiene una, se genera acá (no se imprime).
+            bash scripts/ensure-redis-password.sh .env
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             # Red compartida con auth (MOODLE) y docker-compose.moodle.yml; debe existir antes de up
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF build auth
             compose $CF build web
-            compose $CF up -d --no-build pg redis keycloak-db
+            compose $CF up -d --no-build pg keycloak-db
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/postgres-apply-role-password.sh
             compose_recreate_services $CF keycloak
             bash scripts/keycloak-apply-realm-settings.sh
+            # Redis se recrea recién acá, pegado a auth: si cambia su contraseña, el auth viejo (sin ella)
+            # no queda minutos sin poder leer las sesiones mientras se construyen las imágenes.
+            compose $CF up -d --no-build redis
             compose_recreate_services $CF auth web
             bash scripts/keycloak-apply-realm-settings.sh
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/verify-auth-keycloak-network.sh
             echo "EduTrack actualizado en TESTING"
 
   deploy-production:
-    needs: validate # <--- TAMBIÉN PROTEGEMOS PRODUCCIÓN
+    needs: [validate, security-scan, nginx-config] # También protegemos producción
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     concurrency:
       group: deploy-production-server
@@ -196,13 +230,15 @@ jobs:
             PREV_REV="$(git rev-parse HEAD 2>/dev/null || true)"
             git_sync_from_url "$REPO_HTTPS" origin/main
             . scripts/deploy-compose-functions.sh
+            # Redis con contraseña: si el .env todavía no tiene una, se genera acá (no se imprime).
+            bash scripts/ensure-redis-password.sh .env
             # El reverse proxy y el cierre de puertos son parte del despliegue, no un ajuste manual:
             # sin `close-ports.prod.yml`, `docker-compose.cloud.yml` vuelve a publicar 3000/4000/8089
             # en 0.0.0.0 y deja la API, el front y Keycloak accesibles sin pasar por Cloudflare.
             CF="-f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml -f docker-compose.keycloak-admin.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
-            compose $CF up -d --no-build pg redis keycloak-db keycloak
+            compose $CF up -d --no-build pg keycloak-db keycloak
             # Keycloak (modo `start`) cachea el tema en memoria y guarda el CSS/JS comprimido en disco:
             # sin vaciar esa caché y reiniciar, sigue sirviendo el viejo.
             if [ -z "$PREV_REV" ] || ! git diff --quiet "$PREV_REV" HEAD -- keycloak/themes; then
@@ -214,6 +250,9 @@ jobs:
             compose $CF build web auth
             bash scripts/keycloak-apply-realm-settings.sh
             compose $CF up -d --no-deps keycloak-admin-proxy
+            # Redis se recrea recién acá, pegado a auth: si cambia su contraseña, el auth viejo (sin ella)
+            # no queda minutos sin poder leer las sesiones mientras se construyen las imágenes.
+            compose $CF up -d --no-build redis
             compose_recreate_services $CF web auth reverse-proxy
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/deploy-wait-healthy.sh
             bash scripts/keycloak-apply-realm-settings.sh
@@ -290,14 +329,19 @@ jobs:
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
             git_sync_from_url "$REPO_HTTPS" "$TARGET_REF"
             . scripts/deploy-compose-functions.sh
+            # Redis con contraseña: si el .env todavía no tiene una, se genera acá (no se imprime).
+            bash scripts/ensure-redis-password.sh .env
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF build auth
             compose $CF build web
-            compose $CF up -d --no-build pg redis keycloak-db
+            compose $CF up -d --no-build pg keycloak-db
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/postgres-apply-role-password.sh
             compose_recreate_services $CF keycloak
             bash scripts/keycloak-apply-realm-settings.sh
+            # Redis se recrea recién acá, pegado a auth: si cambia su contraseña, el auth viejo (sin ella)
+            # no queda minutos sin poder leer las sesiones mientras se construyen las imágenes.
+            compose $CF up -d --no-build redis
             compose_recreate_services $CF auth web
             bash scripts/keycloak-apply-realm-settings.sh
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/verify-auth-keycloak-network.sh
@@ -384,13 +428,15 @@ jobs:
             PREV_REV="$(git rev-parse HEAD 2>/dev/null || true)"
             git_sync_from_url "$REPO_HTTPS" "$TARGET_REF"
             . scripts/deploy-compose-functions.sh
+            # Redis con contraseña: si el .env todavía no tiene una, se genera acá (no se imprime).
+            bash scripts/ensure-redis-password.sh .env
             # El reverse proxy y el cierre de puertos son parte del despliegue, no un ajuste manual:
             # sin `close-ports.prod.yml`, `docker-compose.cloud.yml` vuelve a publicar 3000/4000/8089
             # en 0.0.0.0 y deja la API, el front y Keycloak accesibles sin pasar por Cloudflare.
             CF="-f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml -f docker-compose.keycloak-admin.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
-            compose $CF up -d --no-build pg redis keycloak-db keycloak
+            compose $CF up -d --no-build pg keycloak-db keycloak
             # Igual que el deploy automático: un tema distinto necesita vaciar la caché y reiniciar.
             if [ -z "$PREV_REV" ] || ! git diff --quiet "$PREV_REV" HEAD -- keycloak/themes; then
               echo "Cambió el tema de Keycloak -> vacío su caché y reinicio keycloak"
@@ -400,6 +446,9 @@ jobs:
             compose $CF build web auth
             bash scripts/keycloak-apply-realm-settings.sh
             compose $CF up -d --no-deps keycloak-admin-proxy
+            # Redis se recrea recién acá, pegado a auth: si cambia su contraseña, el auth viejo (sin ella)
+            # no queda minutos sin poder leer las sesiones mientras se construyen las imágenes.
+            compose $CF up -d --no-build redis
             compose_recreate_services $CF web auth reverse-proxy
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/deploy-wait-healthy.sh
             bash scripts/keycloak-apply-realm-settings.sh
