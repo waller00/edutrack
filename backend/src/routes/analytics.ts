@@ -4,18 +4,10 @@ import { DateTime } from 'luxon'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { getPlannedInstances } from '../services/analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js'
-import { resolveSubstituteInstances } from '../services/analytics/resolveSubstituteInstances.js'
-import {
-  buildDashboardBreakdowns,
-  computeDashboardKpis,
-  computeKpiDeltas,
-  computeSeriesByGranularity,
-  computeSeriesByWeek,
-  computeStatusDistribution,
-  computeTopRiskEvents,
-  computeTopRiskPeople,
-} from '../services/analytics/metrics.js'
-import type { ResolvedAttendanceByInstance } from '../services/analytics/models.js'
+import { computeTopRiskPeople } from '../services/analytics/metrics.js'
+import { loadStaffIndicators, staffDashboardQuerySchema } from '../services/analytics/staff-dashboard.js'
+import { buildStaffReport } from '../services/analytics/staff-report.js'
+import { REPORT_FORMATS, sendReport } from '../services/reports/send.js'
 import { prisma } from '../db/prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { getAppTimezone, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../config/app-timezone.js'
@@ -75,20 +67,6 @@ const timelineTypeFilterOptions = [
   { value: 'JUSTIFICATION', label: 'Justificación' },
 ] as const
 
-const dashboardQuerySchema = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  role: z.enum(['ADMIN', 'STAFF', 'TEACHER']).optional(),
-  userId: z.string().uuid().optional(),
-  eventType: z
-    .enum(['JORNADA_LABORAL', 'REUNION', 'CLASE', 'EVENTO', 'CAPACITACION', 'CITA_MEDICA'])
-    .optional(),
-  granularity: z.enum(['day', 'week', 'month']).optional(),
-  compareToPrevious: z.union([z.literal('1'), z.literal('true'), z.literal('0'), z.literal('false')]).optional(),
-  schoolYearId: z.string().uuid().optional(),
-  allYears: z.union([z.literal('1'), z.literal('true')]).optional(),
-})
-
 const attendanceTimelineQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   teacherId: z.string().uuid().optional(),
@@ -98,18 +76,6 @@ const attendanceTimelineQuerySchema = z.object({
   schoolYearId: z.string().uuid().optional(),
   allYears: z.union([z.literal('1'), z.literal('true')]).optional(),
 })
-
-async function scopeUserIds(params: { role?: 'ADMIN' | 'STAFF' | 'TEACHER'; userId?: string }) {
-  if (params.userId) return [params.userId]
-  if (!params.role) return null
-  const rows = await prisma.user.findMany({
-    where: { orgRole: { code: params.role } },
-    select: { id: true },
-  })
-  return rows.map((x) => x.id)
-}
-
-type ParsedDashboardQuery = z.infer<typeof dashboardQuerySchema>
 
 type TimelineStatus = (typeof timelineStatusValues)[number]
 type TimelineType = (typeof timelineTypeValues)[number]
@@ -686,147 +652,76 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
   }
 }
 
-type ResolveScope = {
-  userId?: string
-  userIds?: string[]
-  eventType?: ParsedDashboardQuery['eventType']
-  schoolYearId?: string
-}
-
-async function resolveInstancesForRange(
-  from: string,
-  to: string,
-  scope: ResolveScope,
-): Promise<ResolvedAttendanceByInstance[]> {
-  const plannedInstances = await getPlannedInstances({
-    from,
-    to,
-    userId: scope.userId,
-    userIds: scope.userIds,
-    eventType: scope.eventType,
-    schoolYearId: scope.schoolYearId,
-  })
-  const [titularInstances, substituteInstances] = await Promise.all([
-    resolveAttendanceAndJustification({ plannedInstances }),
-    resolveSubstituteInstances({
-      from,
-      to,
-      userId: scope.userId,
-      userIds: scope.userIds,
-      eventType: scope.eventType,
-      schoolYearId: scope.schoolYearId,
-    }),
-  ])
-  return [...titularInstances, ...substituteInstances]
-}
-
-/** Rango previo de igual longitud, inmediatamente anterior a [from, to]. */
-function previousRangeOf(from: string, to: string) {
-  const fromD = new Date(`${from}T00:00:00.000Z`)
-  const toD = new Date(`${to}T00:00:00.000Z`)
-  const days = Math.round((toD.getTime() - fromD.getTime()) / 86_400_000) + 1
-  const prevTo = new Date(fromD)
-  prevTo.setUTCDate(prevTo.getUTCDate() - 1)
-  const prevFrom = new Date(prevTo)
-  prevFrom.setUTCDate(prevFrom.getUTCDate() - (days - 1))
-  const fmt = (d: Date) => d.toISOString().slice(0, 10)
-  return { previousFrom: fmt(prevFrom), previousTo: fmt(prevTo) }
-}
-
-async function computeAdminAnalyticsBody(data: ParsedDashboardQuery) {
-  const { from, to, role, userId, eventType } = data
-  const granularity = data.granularity || 'week'
-  const compareToPrevious = data.compareToPrevious !== '0' && data.compareToPrevious !== 'false'
-
-  const userIds = await scopeUserIds({ role, userId })
-  const schoolYearId = data.allYears
-    ? undefined
-    : await resolveSchoolYearIdForList(prisma, {
-        role: 'ADMIN',
-        requestedSchoolYearId: data.schoolYearId,
-      })
-
-  const scope: ResolveScope = {
-    userId,
-    userIds: userIds || undefined,
-    eventType,
-    schoolYearId: schoolYearId || undefined,
-  }
-
-  const resolvedInstances = await resolveInstancesForRange(from, to, scope)
-  const kpis = await computeDashboardKpis({ from, to, resolvedInstances })
-
-  // Serie legacy (semanal) para no romper consumidores existentes.
-  const seriesRaw = computeSeriesByWeek(resolvedInstances, from, to)
-  const series = {
-    lateRateByPeriod: seriesRaw.map((s) => ({ period: s.period, value: s.lateRate })),
-    aopByPeriod: seriesRaw.map((s) => ({ period: s.period, value: s.aop })),
-  }
-  const seriesMulti = computeSeriesByGranularity(resolvedInstances, from, to, granularity)
-
-  const breakdowns = buildDashboardBreakdowns(resolvedInstances)
-  const statusDistribution = computeStatusDistribution(resolvedInstances)
-
-  const topRiskPeople = computeTopRiskPeople(resolvedInstances, { limit: 10 })
-  const topRiskEvents = computeTopRiskEvents(resolvedInstances, { limit: 10 })
-
-  let comparison: {
-    previousFrom: string
-    previousTo: string
-    current: typeof kpis
-    previous: typeof kpis
-    deltas: typeof kpis
-  } | null = null
-  if (compareToPrevious) {
-    const { previousFrom, previousTo } = previousRangeOf(from, to)
-    // El rango anterior cae casi siempre en otro ciclo (marzo–octubre se compara con julio–febrero):
-    // acotado al ciclo elegido quedaba sin clases y la variación salía contra cero (+88,93 p.p.).
-    const prevResolved = await resolveInstancesForRange(previousFrom, previousTo, { ...scope, schoolYearId: undefined })
-    // Sin clases en el período anterior no hay contra qué comparar: no se muestra variación.
-    if (prevResolved.length > 0) {
-      const prevKpis = await computeDashboardKpis({ from: previousFrom, to: previousTo, resolvedInstances: prevResolved })
-      comparison = {
-        previousFrom,
-        previousTo,
-        current: kpis,
-        previous: prevKpis,
-        deltas: computeKpiDeltas(kpis, prevKpis),
-      }
-    }
-  }
-
-  return {
-    meta: {
-      resolvedInstanceCount: resolvedInstances.length,
-      rangeFrom: data.from,
-      rangeTo: data.to,
-      roleFilter: role ?? null,
-      eventTypeFilter: eventType ?? null,
-      schoolYearId: schoolYearId ?? null,
-      allYears: Boolean(data.allYears),
-      granularity,
-      generatedAt: new Date().toISOString(),
-    },
-    kpis,
-    series,
-    seriesMulti,
-    breakdowns,
-    statusDistribution,
-    comparison,
-    topLists: { topRiskPeople, topRiskEvents },
-  }
+/** El detalle va al log, no al cliente: puede traer SQL, rutas o datos de otras personas. */
+function serverError(res: any, label: string, error: unknown) {
+  console.error(`[analytics] ${label}:`, error)
+  return res.status(500).json({ message: 'Error interno del servidor' })
 }
 
 r.get('/dashboard', authGuard, requirePermission('analytics.read', 'all'), async (req, res) => {
   try {
-    const parsed = dashboardQuerySchema.safeParse(req.query)
+    const parsed = staffDashboardQuerySchema.safeParse(req.query)
     if (!parsed.success) return res.status(400).json({ message: 'Parametros inválidos', errors: parsed.error.errors })
 
-    const body = await computeAdminAnalyticsBody(parsed.data)
-
+    const { body } = await loadStaffIndicators(parsed.data)
     return res.json(body)
-  } catch (error: any) {
-    return res.status(500).json({ message: 'Error interno del servidor', error: error?.message || String(error) })
+  } catch (error) {
+    return serverError(res, 'dashboard', error)
+  }
+})
+
+const reportQuerySchema = staffDashboardQuerySchema.extend({ format: z.enum(REPORT_FORMATS) })
+
+async function personName(userId: string | undefined): Promise<string | null> {
+  if (!userId) return null
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, firstName: true, lastName: true, email: true } })
+  return user ? displayName(user) : null
+}
+
+async function schoolYearLabel(schoolYearId: string | null): Promise<string | null> {
+  if (!schoolYearId) return null
+  const year = await prisma.schoolYear.findUnique({ where: { id: schoolYearId }, select: { label: true } })
+  return year?.label ?? null
+}
+
+/**
+ * Informe de Indicadores del personal (PDF o Excel): lo mismo que el tablero, con los filtros de
+ * la pantalla, más todas las personas del período. Exportar datos del personal pide además
+ * `exports.create`, como el resto de sus descargas.
+ */
+r.get('/report', authGuard, requirePermission('analytics.read', 'all'), requirePermission('exports.create', 'all'), async (req, res) => {
+  const parsed = reportQuerySchema.safeParse(req.query)
+  if (!parsed.success) return res.status(400).json({ message: 'Parámetros inválidos', errors: parsed.error.errors })
+  try {
+    const { format, ...query } = parsed.data
+    const { body, resolvedInstances } = await loadStaffIndicators(query)
+    const [person, yearLabel] = await Promise.all([personName(query.userId), schoolYearLabel(body.meta.schoolYearId)])
+    const report = buildStaffReport({
+      body,
+      people: computeTopRiskPeople(resolvedInstances, { limit: Number.POSITIVE_INFINITY }),
+      personName: person,
+      schoolYearLabel: yearLabel,
+      generatedAt: new Date(),
+    })
+    return await sendReport(req, res, {
+      report,
+      format,
+      audit: {
+        kind: 'staff-indicators-report',
+        entityId: query.userId ?? null,
+        details: {
+          from: query.from,
+          to: query.to,
+          role: query.role ?? null,
+          eventType: query.eventType ?? null,
+          schoolYearId: body.meta.schoolYearId,
+          allYears: body.meta.allYears,
+          granularity: body.meta.granularity,
+        },
+      },
+    })
+  } catch (error) {
+    return serverError(res, 'report', error)
   }
 })
 
@@ -837,8 +732,8 @@ r.get('/attendance-timeline', authGuard, requirePermission('analytics.read', 'al
 
     const body = await computeAttendanceTimeline(parsed.data)
     return res.json(body)
-  } catch (error: any) {
-    return res.status(500).json({ message: 'Error interno del servidor', error: error?.message || String(error) })
+  } catch (error) {
+    return serverError(res, 'attendance-timeline', error)
   }
 })
 
@@ -848,13 +743,13 @@ r.get('/metrics', authGuard, requirePermission('analytics.read', 'all'), (req, r
 })
 r.get('/rankings', authGuard, requirePermission('analytics.read', 'all'), async (req, res) => {
   try {
-    const parsed = dashboardQuerySchema.safeParse(req.query)
+    const parsed = staffDashboardQuerySchema.safeParse(req.query)
     if (!parsed.success) return res.status(400).json({ message: 'Parametros inválidos', errors: parsed.error.errors })
 
-    const { topLists } = await computeAdminAnalyticsBody(parsed.data)
-    return res.json({ people: topLists.topRiskPeople, events: topLists.topRiskEvents })
-  } catch (error: any) {
-    return res.status(500).json({ message: 'Error interno del servidor', error: error?.message || String(error) })
+    const { body } = await loadStaffIndicators(parsed.data)
+    return res.json({ people: body.topLists.topRiskPeople, events: body.topLists.topRiskEvents })
+  } catch (error) {
+    return serverError(res, 'rankings', error)
   }
 })
 r.get('/alerts/critical', authGuard, requirePermission('analytics.read', 'all'), (_req, res) => {

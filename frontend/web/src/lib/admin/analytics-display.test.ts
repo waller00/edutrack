@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getRiskScoreBadgeClass, resolveSchoolYearDateRange } from './analytics-display'
+import { getRiskScoreBadgeClass, resolveSchoolYearDateRange, staffIndicatorParams, staffReportPath } from './analytics-display'
 
 describe('getRiskScoreBadgeClass', () => {
   it('rojo para puntaje alto, ámbar medio, verde bajo', () => {
@@ -52,5 +52,28 @@ describe('resolveSchoolYearDateRange', () => {
     expect(resolveSchoolYearDateRange({ startsOn: null, endsOn: '2025-12-15' }, TODAY)).toBeNull()
     expect(resolveSchoolYearDateRange(null, TODAY)).toBeNull()
     expect(resolveSchoolYearDateRange(undefined, TODAY)).toBeNull()
+  })
+})
+
+describe('filtros de Indicadores del personal: el tablero y el informe piden lo mismo', () => {
+  const base = { from: '2026-03-01', to: '2026-11-13', granularity: 'week', schoolYearId: 'sy-2026' }
+
+  it('período, agrupación y ciclo', () => {
+    expect(staffIndicatorParams(base).toString()).toBe('from=2026-03-01&to=2026-11-13&granularity=week&schoolYearId=sy-2026')
+  })
+
+  it('una persona manda sobre el rol, y "todos los ciclos" sobre el ciclo', () => {
+    const params = staffIndicatorParams({ ...base, userId: 'u1', role: 'TEACHER', eventType: 'CLASE', allYears: true })
+    expect(params.get('userId')).toBe('u1')
+    expect(params.has('role')).toBe(false)
+    expect(params.get('eventType')).toBe('CLASE')
+    expect(params.get('allYears')).toBe('1')
+    expect(params.has('schoolYearId')).toBe(false)
+  })
+
+  it('el informe lleva los mismos filtros y el formato', () => {
+    expect(staffReportPath({ ...base, role: 'TEACHER' }, 'pdf')).toBe(
+      '/analytics/report?from=2026-03-01&to=2026-11-13&granularity=week&role=TEACHER&schoolYearId=sy-2026&format=pdf',
+    )
   })
 })

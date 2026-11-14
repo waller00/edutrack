@@ -9,6 +9,7 @@ import { withSchoolYear } from '@/lib/admin/school-year-query'
 import {
   indicatorAccess,
   indicatorPaths,
+  indicatorReportPath,
   nextQuery,
   resolveSection,
   visibleSections,
@@ -19,6 +20,7 @@ import { STUDENT_INDICATORS_PATH } from '@/lib/admin/legacy-reports'
 import { lastClosedMeeting, REPORT_CARD_PERIODS_PATH, type ReportCardPeriod } from '@/lib/gradebook/report-card-periods'
 import { todayYmdUruguay } from '@/lib/libreta/absence-day'
 import { ReportCardPeriodSelect } from '@/components/admin/student-reports/shared'
+import ReportDownloadMenu from '@/components/common/ReportDownloadMenu'
 import { IndicatorDataProvider, useIndicatorData, useIndicatorRefresh } from './indicator-data'
 import type { IndicatorContext } from './parts'
 import SummarySection from './SummarySection'
@@ -72,11 +74,15 @@ function FilterBar({
   section,
   reference,
   yearLabel,
+  query,
+  periodsReady,
   onPeriod,
 }: Readonly<{
   section: IndicatorSection
   reference: ReturnType<typeof useReferencePeriod>
   yearLabel: string
+  query: string
+  periodsReady: boolean
   onPeriod: (id: string) => void
 }>) {
   const { refresh } = useIndicatorRefresh()
@@ -88,14 +94,23 @@ function FilterBar({
         {yearLabel}
         {showPeriod && reference.period ? ` · notas (R) de ${reference.period.name}` : ''}
       </p>
-      <button
-        type="button"
-        onClick={refresh}
-        className="ml-auto inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50"
-      >
-        <RefreshCw className="h-3.5 w-3.5" aria-hidden />
-        Actualizar
-      </button>
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={refresh}
+          className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+          Actualizar
+        </button>
+        <ReportDownloadMenu
+          tour="student-indicators.report"
+          disabled={!periodsReady}
+          note="Todas las secciones que ves, con el ciclo y el boletín elegidos."
+          pathFor={(format) => indicatorReportPath({ query, period: reference.period }, format)}
+          fallbackName={(format) => `Indicadores de estudiantes.${format}`}
+        />
+      </div>
     </div>
   )
 }
@@ -133,7 +148,14 @@ function Indicators() {
   return (
     <div className="space-y-5">
       <SectionTabs sections={sections} active={section} onChange={(id) => setParams({ seccion: id, lista: null, motivo: null })} />
-      <FilterBar section={section} reference={reference} yearLabel={yearText(schoolYear)} onPeriod={(id) => setParams({ boletin: id })} />
+      <FilterBar
+        section={section}
+        reference={reference}
+        yearLabel={yearText(schoolYear)}
+        query={query}
+        periodsReady={periodsReady}
+        onPeriod={(id) => setParams({ boletin: id })}
+      />
       <div role="tabpanel" id="student-indicators-panel" aria-label={section.label}>
         <Content ctx={ctx} />
       </div>

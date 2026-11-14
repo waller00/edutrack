@@ -11,9 +11,11 @@ const {
   resolveSubstituteMock,
   resolveSchoolYearMock,
   getAttendanceSettingsMock,
+  auditMock,
 } = vi.hoisted(() => ({
   prismaMock: {
-    user: { findMany: vi.fn().mockResolvedValue([]) },
+    user: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) },
+    schoolYear: { findUnique: vi.fn().mockResolvedValue({ label: 'Ciclo 2026' }) },
     event: { findMany: vi.fn().mockResolvedValue([]) },
     attendance: { findMany: vi.fn().mockResolvedValue([]) },
     biometricPunch: { findMany: vi.fn().mockResolvedValue([]) },
@@ -34,6 +36,7 @@ const {
     monitorIntervalMs: 120000,
     biometricDuplicateWindowMinutes: 5,
   }),
+  auditMock: { recordDataExport: vi.fn() },
 }))
 
 vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
@@ -42,6 +45,8 @@ vi.mock('../services/analytics/resolveInstances.js', () => ({ resolveAttendanceA
 vi.mock('../services/analytics/resolveSubstituteInstances.js', () => ({ resolveSubstituteInstances: resolveSubstituteMock }))
 vi.mock('../services/school-year-service.js', () => ({ resolveSchoolYearIdForList: resolveSchoolYearMock }))
 vi.mock('../config/system-settings.js', () => ({ getAttendanceOperationalSettings: getAttendanceSettingsMock }))
+vi.mock('../services/audit-log.js', () => auditMock)
+vi.mock('../services/institution-branding.js', () => ({ loadInstitutionBranding: vi.fn().mockResolvedValue({ name: 'Liceo', logo: null }) }))
 
 import analyticsRoutes from './analytics.js'
 
@@ -341,5 +346,102 @@ describe('analytics /attendance-timeline', () => {
         }),
       ]),
     )
+  })
+})
+
+describe('analytics /report', () => {
+  const tokenFor = (role: string, permissions?: Record<string, 'own' | 'all'>) => ({
+    Authorization: `Bearer ${signAccessToken({ sub: `${role}-1`, id: `${role}-1`, email: 'x@x.com', role: role as 'ADMIN', permissions })}`,
+  })
+  const PATH = '/analytics/report?from=2026-05-01&to=2026-05-31&granularity=week'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getPlannedInstancesMock.mockResolvedValue([])
+    resolveMock.mockResolvedValue(fixtureInstances())
+    resolveSubstituteMock.mockResolvedValue([])
+    resolveSchoolYearMock.mockResolvedValue('sy-1')
+    prismaMock.medicalLeave.count.mockResolvedValue(0)
+    prismaMock.schoolYear.findUnique.mockResolvedValue({ label: 'Ciclo 2026' })
+  })
+
+  it('el PDF sale del mismo cálculo que el tablero, con su nombre de archivo', async () => {
+    const res = await request(app()).get(`${PATH}&format=pdf`).set(adminHdr()).buffer(true)
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toBe('application/pdf')
+    expect(res.headers['content-disposition']).toContain('Indicadores del personal 01-05-2026 a 31-05-2026.pdf')
+    expect(Buffer.from(res.body).subarray(0, 5).toString()).toBe('%PDF-')
+    // Titular y suplentes, igual que la pantalla.
+    expect(resolveSubstituteMock).toHaveBeenCalled()
+  })
+
+  it('el Excel también', async () => {
+    const res = await request(app()).get(`${PATH}&format=xlsx`).set(adminHdr()).buffer(true)
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  })
+
+  it('cada descarga queda en la auditoría, sólo con ids y filtros', async () => {
+    const userId = '11111111-1111-4111-8111-111111111111'
+    prismaMock.user.findUnique.mockResolvedValue({ name: 'Ana Pérez', firstName: null, lastName: null, email: 'ana@x.com' })
+    await request(app()).get(`${PATH}&format=pdf&userId=${userId}&eventType=CLASE`).set(adminHdr())
+    expect(auditMock.recordDataExport).toHaveBeenCalledTimes(1)
+    const [, entry] = auditMock.recordDataExport.mock.calls[0]
+    expect(entry).toMatchObject({ kind: 'staff-indicators-report', format: 'pdf', entityId: userId })
+    expect(entry.details).toMatchObject({ from: '2026-05-01', to: '2026-05-31', eventType: 'CLASE', schoolYearId: 'sy-1' })
+    expect(JSON.stringify(entry)).not.toMatch(/Ana|ana@x\.com/)
+  })
+
+  it('exportar datos del personal pide además exports.create', async () => {
+    const res = await request(app()).get(`${PATH}&format=pdf`).set(tokenFor('TEACHER', { 'analytics.read': 'all' }))
+    expect(res.status).toBe(403)
+    expect(auditMock.recordDataExport).not.toHaveBeenCalled()
+  })
+
+  it('Secretaría lo descarga', async () => {
+    const res = await request(app()).get(`${PATH}&format=xlsx`).set(tokenFor('SECRETARIA'))
+    expect(res.status).toBe(200)
+  })
+
+  it('400 con un formato que no existe', async () => {
+    const res = await request(app()).get(`${PATH}&format=docx`).set(adminHdr())
+    expect(res.status).toBe(400)
+  })
+
+  it('un error no le muestra al cliente el detalle interno', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    resolveMock.mockRejectedValue(new Error('SELECT * FROM "User" falló'))
+    const res = await request(app()).get(`${PATH}&format=pdf`).set(adminHdr())
+    expect(res.status).toBe(500)
+    expect(JSON.stringify(res.body)).not.toContain('SELECT')
+    spy.mockRestore()
+  })
+})
+
+describe('analytics /dashboard: lo que agrega para el informe', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getPlannedInstancesMock.mockResolvedValue([])
+    resolveMock.mockResolvedValue(fixtureInstances())
+    resolveSubstituteMock.mockResolvedValue([])
+    resolveSchoolYearMock.mockResolvedValue('sy-1')
+  })
+
+  it('trae los conteos de cada porcentaje y la lectura del período', async () => {
+    const res = await request(app()).get('/analytics/dashboard?from=2026-05-01&to=2026-05-31').set(adminHdr())
+    expect(res.status).toBe(200)
+    expect(res.body.counts).toMatchObject({ planned: 2, present: 2, onTime: 1, late: 1, absent: 0 })
+    expect(res.body.breakdowns.byRole[0].counts.planned).toBe(1)
+    expect(Array.isArray(res.body.signals)).toBe(true)
+    expect(res.body.signals.length).toBeGreaterThan(0)
+  })
+
+  it('un error no le muestra al cliente el detalle interno', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    resolveMock.mockRejectedValue(new Error('connect ECONNREFUSED 10.0.0.5:5432'))
+    const res = await request(app()).get('/analytics/dashboard?from=2026-05-01&to=2026-05-31').set(adminHdr())
+    expect(res.status).toBe(500)
+    expect(res.body).toEqual({ message: 'Error interno del servidor' })
+    spy.mockRestore()
   })
 })

@@ -9,6 +9,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminAnalyticsPage from './page'
 import { api } from '@/lib/api/client'
+import { downloadFile } from '@/lib/api/download'
 import { getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
 
 vi.mock('@/components/auth/RoleGuard', () => ({
@@ -17,6 +18,13 @@ vi.mock('@/components/auth/RoleGuard', () => ({
   ),
 }))
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
+vi.mock('@/lib/api/download', () => ({ downloadFile: vi.fn() }))
+const auth = vi.hoisted(() => ({
+  permissions: [] as { id: string; scope: 'own' | 'all' }[],
+}))
+vi.mock('@/contexts/AuthContext', () => ({
+  useOptionalAuth: () => ({ me: { id: 'u-admin', permissions: auth.permissions } }),
+}))
 const scope = vi.hoisted(() => ({
   loading: false,
   selectedId: 'sy-2025',
@@ -159,6 +167,8 @@ function applyDates(start: string, end: string) {
 describe('Indicadores', () => {
   beforeEach(() => {
     mockedApi.mockReset()
+    vi.mocked(downloadFile).mockReset()
+    auth.permissions = []
     scope.loading = false
     scope.selectedId = 'sy-2025'
     scope.activeId = 'sy-2026'
@@ -422,5 +432,60 @@ describe('Indicadores', () => {
     })
     expect(screen.getByText('75.00%')).toBeInTheDocument()
     expect(screen.queryByText('90.00%')).not.toBeInTheDocument()
+  })
+})
+
+describe('Informe de indicadores del personal', () => {
+  beforeEach(() => {
+    mockedApi.mockReset()
+    vi.mocked(downloadFile).mockReset()
+    vi.mocked(downloadFile).mockResolvedValue(undefined)
+    auth.permissions = [
+      { id: 'analytics.read', scope: 'all' },
+      { id: 'exports.create', scope: 'all' },
+    ]
+    scope.loading = false
+    scope.selectedId = 'sy-2025'
+    scope.activeId = 'sy-2026'
+    scope.allYears = false
+    respond({ ...data, signals: ['Muestra amplia: 120 registros planificados.'] })
+  })
+
+  it('baja el informe con los mismos filtros que el tablero', async () => {
+    render(<AdminAnalyticsPage />)
+    await loaded()
+    fireEvent.click(screen.getByRole('button', { name: 'Más filtros' }))
+    fireEvent.change(screen.getByLabelText('Rol'), {
+      target: { value: 'TEACHER' },
+    })
+    await waitFor(() => expect(params().get('role')).toBe('TEACHER'))
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar informe' }))
+    fireEvent.click(screen.getByRole('button', { name: /PDF para imprimir/ }))
+    await waitFor(() => expect(downloadFile).toHaveBeenCalledTimes(1))
+    const [path] = vi.mocked(downloadFile).mock.calls[0]
+    const report = new URL(path, 'http://localhost')
+    expect(report.pathname).toBe('/analytics/report')
+    expect(report.searchParams.get('format')).toBe('pdf')
+    for (const key of ['from', 'to', 'granularity', 'role', 'schoolYearId']) {
+      expect(report.searchParams.get(key), key).toBe(params().get(key))
+    }
+  })
+
+  it('sin permiso para exportar datos del personal no aparece', async () => {
+    auth.permissions = [{ id: 'analytics.read', scope: 'all' }]
+    render(<AdminAnalyticsPage />)
+    await loaded()
+    expect(
+      screen.queryByRole('button', { name: 'Descargar informe' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('la lectura del período es la que manda el servidor (la misma del informe)', async () => {
+    render(<AdminAnalyticsPage />)
+    await loaded()
+    fireEvent.click(screen.getByText('Lectura del período'))
+    expect(
+      screen.getByText('Muestra amplia: 120 registros planificados.'),
+    ).toBeVisible()
   })
 })

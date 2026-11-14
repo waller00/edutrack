@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { indicatorAccess, indicatorPaths, nextQuery, resolveSection, visibleSections } from './student-indicators-sections'
+import { indicatorAccess, indicatorPaths, indicatorReportPath, nextQuery, resolveSection, visibleSections } from './student-indicators-sections'
 
 const me = (...ids: string[]) => ({ permissions: ids.map((id) => ({ id, scope: 'all' as const })) })
 
@@ -66,5 +66,17 @@ describe('la URL de la pantalla', () => {
   it('cambia lo pedido, saca lo que va en null y deja el resto', () => {
     expect(nextQuery('seccion=asistencia&lista=faltas&boletin=e2', { seccion: 'riesgo', lista: null })).toBe('seccion=riesgo&boletin=e2')
     expect(nextQuery('', { motivo: 'notas', lista: null })).toBe('motivo=notas')
+  })
+})
+
+describe('el informe descargable', () => {
+  it('del ciclo del menú y el boletín elegido', () => {
+    expect(indicatorReportPath({ query: 'schoolYearId=y26', period: { id: 'e2' } }, 'pdf')).toBe(
+      '/admin/student-indicators/report?format=pdf&periodId=e2&schoolYearId=y26',
+    )
+  })
+
+  it('sin boletines todavía, sólo el ciclo', () => {
+    expect(indicatorReportPath({ query: '', period: null }, 'xlsx')).toBe('/admin/student-indicators/report?format=xlsx')
   })
 })

@@ -109,6 +109,16 @@ export function indicatorPaths(input: PathInput) {
   }
 }
 
+/**
+ * El informe (PDF o Excel) de lo que se está mirando: el ciclo del menú y el boletín elegido. Trae
+ * las secciones que quien lo baja puede ver; las decide el servidor con los mismos permisos.
+ */
+export function indicatorReportPath(input: { query: string; period: { id: string } | null }, format: 'pdf' | 'xlsx'): string {
+  const params = new URLSearchParams({ format })
+  if (input.period) params.set('periodId', input.period.id)
+  return withYear(`/admin/student-indicators/report?${params.toString()}`, input.query)
+}
+
 /** La URL con esos cambios: `null` saca el parámetro, el resto queda como estaba. */
 export function nextQuery(current: string, changes: Record<string, string | null>): string {
   const next = new URLSearchParams(current)

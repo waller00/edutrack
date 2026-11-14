@@ -6,6 +6,7 @@ import type {
   DashboardKpis,
   DashboardTopRiskEvent,
   DashboardTopRiskPerson,
+  RangeCounts,
   ResolvedAttendanceByInstance,
   SeriesGranularity,
   SeriesPointMulti,
@@ -46,6 +47,23 @@ export function effectiveAbsenceStatus(r: ResolvedAttendanceByInstance): Attenda
   return r.checkInStatusResolved
 }
 
+/** Lo que se cuenta en los registros: presencias, a tiempo, tarde, ausencias y minutos. */
+export function computeRangeCounts(resolvedInstances: ResolvedAttendanceByInstance[]): RangeCounts {
+  const counts: RangeCounts = { planned: resolvedInstances.length, present: 0, onTime: 0, late: 0, absent: 0, plannedMinutes: 0, actualMinutes: 0 }
+  for (const i of resolvedInstances) {
+    const status = i.checkInStatusResolved
+    if (status === 'PRESENT') counts.onTime += 1
+    if (status === 'LATE') counts.late += 1
+    if (isCoveredStatus(status)) counts.present += 1
+    if (isAbsentStatus(status)) counts.absent += 1
+    counts.actualMinutes += i.durationMinutes
+    if (i.planned.plannedStartTime && i.planned.plannedEndTime) {
+      counts.plannedMinutes += (i.planned.plannedEndTime.getTime() - i.planned.plannedStartTime.getTime()) / (1000 * 60)
+    }
+  }
+  return counts
+}
+
 export function computeRangeKpis(resolvedInstances: ResolvedAttendanceByInstance[], opts: { plannedInstancesCount?: number }) {
   const totalPlan = opts.plannedInstancesCount ?? resolvedInstances.length
   if (totalPlan === 0) {
@@ -58,32 +76,16 @@ export function computeRangeKpis(resolvedInstances: ResolvedAttendanceByInstance
     }
   }
 
-  const checkInPresent = resolvedInstances.filter((i) => i.checkInStatusResolved === 'PRESENT' || i.checkInStatusResolved === 'LATE')
-  const totalIn = checkInPresent.length
-  const onTime = resolvedInstances.filter((i) => i.checkInStatusResolved === 'PRESENT').length
-  const late = resolvedInstances.filter((i) => i.checkInStatusResolved === 'LATE').length
-
-  const M1_PUNCTUALITY_pct = totalIn ? roundTo(pct(onTime, totalIn), 2) : 0
-  const M2_LATE_RATE_pct = totalIn ? roundTo(pct(late, totalIn), 2) : 0
-
-  const absent = resolvedInstances.filter((i) => isAbsentStatus(i.checkInStatusResolved)).length
-  const M4_AOP_pct = roundTo(pct(absent, totalPlan), 2)
-
-  const covered = resolvedInstances.filter((i) => isCoveredStatus(i.checkInStatusResolved)).length
-  const M6_COVERAGE_CP_pct = roundTo(pct(covered, totalPlan), 2)
-
+  const counts = computeRangeCounts(resolvedInstances)
+  // Puntualidad y tardanza, sobre las entradas registradas (a tiempo o tarde).
+  const M1_PUNCTUALITY_pct = counts.present ? roundTo(pct(counts.onTime, counts.present), 2) : 0
+  const M2_LATE_RATE_pct = counts.present ? roundTo(pct(counts.late, counts.present), 2) : 0
+  // Ausentismo y cobertura, sobre lo planificado.
+  const M4_AOP_pct = roundTo(pct(counts.absent, totalPlan), 2)
+  const M6_COVERAGE_CP_pct = roundTo(pct(counts.present, totalPlan), 2)
   // Horas reales vs plan: Delta% con denom planned_total.
-  let plannedTotalMinutes = 0
-  let actualTotalMinutes = 0
-  for (const i of resolvedInstances) {
-    actualTotalMinutes += i.durationMinutes
-    if (i.planned.plannedStartTime && i.planned.plannedEndTime) {
-      const plannedMs = i.planned.plannedEndTime.getTime() - i.planned.plannedStartTime.getTime()
-      plannedTotalMinutes += plannedMs / (1000 * 60)
-    }
-  }
-  const deltaMinutes = actualTotalMinutes - plannedTotalMinutes
-  const M8_HOURS_DELTA_pct = plannedTotalMinutes > 0 ? roundTo((deltaMinutes / plannedTotalMinutes) * 100, 2) : 0
+  const deltaMinutes = counts.actualMinutes - counts.plannedMinutes
+  const M8_HOURS_DELTA_pct = counts.plannedMinutes > 0 ? roundTo((deltaMinutes / counts.plannedMinutes) * 100, 2) : 0
 
   return { M1_PUNCTUALITY_pct, M2_LATE_RATE_pct, M4_AOP_pct, M6_COVERAGE_CP_pct, M8_HOURS_DELTA_pct }
 }
@@ -158,7 +160,13 @@ export function computeSeriesByGranularity(
   while (cursor <= last) {
     const chunk = byBucket.get(cursor) ?? []
     const k = computeRangeKpis(chunk, { plannedInstancesCount: chunk.length })
-    series.push({ period: cursor, lateRate: k.M2_LATE_RATE_pct, aop: k.M4_AOP_pct, coverage: k.M6_COVERAGE_CP_pct })
+    series.push({
+      period: cursor,
+      lateRate: k.M2_LATE_RATE_pct,
+      aop: k.M4_AOP_pct,
+      coverage: k.M6_COVERAGE_CP_pct,
+      counts: computeRangeCounts(chunk),
+    })
     cursor = advanceBucket(cursor, granularity)
   }
   return series
@@ -192,6 +200,7 @@ export function computeBreakdown(
       lateRatePct: k.M2_LATE_RATE_pct,
       aopPct: k.M4_AOP_pct,
       coveragePct: k.M6_COVERAGE_CP_pct,
+      counts: computeRangeCounts(g.items),
     }
   })
 
@@ -199,13 +208,15 @@ export function computeBreakdown(
   return rows
 }
 
-const ROLE_BREAKDOWN_LABELS: Record<string, string> = {
+/** Cómo se llama cada grupo de roles en los desgloses. */
+export const ROLE_BREAKDOWN_LABELS: Record<string, string> = {
   TEACHER: 'Docentes',
   STAFF: 'Personal',
   ADMIN: 'Administradores',
 }
 
-const EVENT_TYPE_BREAKDOWN_LABELS: Record<string, string> = {
+/** Cómo se llama cada tipo de actividad. */
+export const EVENT_TYPE_BREAKDOWN_LABELS: Record<string, string> = {
   JORNADA_LABORAL: 'Jornada laboral',
   REUNION: 'Reunión',
   CLASE: 'Clase',
@@ -308,6 +319,7 @@ type PersonAggRow = Pick<
   | 'displayName'
   | 'role'
   | 'plannedCount'
+  | 'presentCount'
   | 'lateCount'
   | 'absentNotJustifiedCount'
   | 'absentJustifiedCount'
@@ -331,6 +343,7 @@ export function computeTopRiskPeople(
         displayName: r.userDisplayName,
         role: r.userRole || '—',
         plannedCount: 0,
+        presentCount: 0,
         lateCount: 0,
         absentNotJustifiedCount: 0,
         absentJustifiedCount: 0,
@@ -341,6 +354,7 @@ export function computeTopRiskPeople(
     // "Suplido" del titular se contabiliza como ausencia (justificada/no según licencia).
     const eff = effectiveAbsenceStatus(r)
     row.plannedCount += 1
+    if (isCoveredStatus(eff)) row.presentCount += 1
     if (eff === 'LATE') row.lateCount += 1
     if (eff === 'ABSENT_NOT_JUSTIFIED') row.absentNotJustifiedCount += 1
     if (eff === 'ABSENT_JUSTIFIED') row.absentJustifiedCount += 1
@@ -385,6 +399,7 @@ export function computeTopRiskEvents(resolved: ResolvedAttendanceByInstance[], o
       lateRatePct: k.M2_LATE_RATE_pct,
       absentOverPlanPct: k.M4_AOP_pct,
       focusScore: roundTo(k.M2_LATE_RATE_pct + k.M4_AOP_pct, 2),
+      counts: computeRangeCounts(arr),
     })
   }
 

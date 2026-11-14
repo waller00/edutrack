@@ -7,20 +7,21 @@ import { ymdToDmy } from '@/lib/forms/date-mask'
 import { getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
-import { apiBaseUrl } from '@/lib/api/base-url'
 import { getAdminEventTypeLabel } from '@/lib/admin/events-display'
 import {
   getRiskScoreBadgeClass,
   resolveSchoolYearDateRange,
+  staffIndicatorParams,
+  staffReportPath,
+  type StaffIndicatorFilters,
 } from '@/lib/admin/analytics-display'
-import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import {
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
   ChevronDown,
-  FileSpreadsheet,
-  FileText,
   SlidersHorizontal,
   Loader2,
   RefreshCw,
@@ -41,6 +42,7 @@ import TrendLineChart from '@/components/charts/TrendLineChart'
 import BreakdownBarChart from '@/components/charts/BreakdownBarChart'
 import StatusDonutChart from '@/components/charts/StatusDonutChart'
 import ModuleHeader from '@/components/common/ModuleHeader'
+import ReportDownloadMenu from '@/components/common/ReportDownloadMenu'
 
 type OrgRoleFilter = 'ADMIN' | 'STAFF' | 'TEACHER'
 
@@ -145,6 +147,8 @@ type DashboardResponse = {
     topRiskPeople: TopRiskPerson[]
     topRiskEvents: TopRiskEvent[]
   }
+  /** "Lectura del período": la arma el servidor, la misma que imprime el informe. */
+  signals?: string[]
 }
 
 type SeriesGranularity = 'day' | 'week' | 'month'
@@ -162,26 +166,6 @@ function formatPct(v: number) {
 function userDisplayLabel(user: AnalyticsUserOption) {
   const fullName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
   return user.name || fullName || user.username || user.email || 'Sin nombre'
-}
-
-function trimEdgeChars(value: string, char: string): string {
-  let start = 0
-  let end = value.length
-  while (start < end && value[start] === char) start += 1
-  while (end > start && value[end - 1] === char) end -= 1
-  return value.slice(start, end)
-}
-
-function sanitizeFilenamePart(value: string) {
-  return (
-    trimEdgeChars(
-      value
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-zA-Z0-9_-]+/g, '_'),
-      '_',
-    ).slice(0, 48) || 'persona'
-  )
 }
 
 type KpiTone = 'emerald' | 'amber' | 'red' | 'slate'
@@ -285,67 +269,6 @@ function AnalyticsSkeletonGrid() {
       ))}
     </div>
   )
-}
-
-function buildDecisionSignals(d: DashboardResponse): string[] {
-  const hints: string[] = []
-  const { kpis } = d
-  const hotPeople = (d.topLists?.topRiskPeople ?? []).filter(
-    (p) => p.riskScore > 0,
-  )
-  const hotEvents = (d.topLists?.topRiskEvents ?? []).filter(
-    (e) => e.focusScore > 0,
-  )
-
-  const n = d.meta?.resolvedInstanceCount ?? 0
-  if (n >= 120) {
-    hints.push(
-      `Muestra institucional relevante (${n.toLocaleString('es-UY')} obligaciones registradas): las tendencias agregadas son más estables.`,
-    )
-  } else if (n > 0) {
-    hints.push(
-      `Se analizaron ${n.toLocaleString('es-UY')} obligaciones registradas para el período: interpretá deltas con mayor cautela.`,
-    )
-  }
-
-  if (kpis.M4_AOP_pct >= 12) {
-    hints.push(
-      `Ausentismo elevado (${formatPct(kpis.M4_AOP_pct)}) sobre lo planificado: conviene revisar causas recurrentes por persona y por tipo de actividad.`,
-    )
-  }
-  if (kpis.M2_LATE_RATE_pct >= 10) {
-    hints.push(
-      `Muchas llegadas después del horario (${formatPct(kpis.M2_LATE_RATE_pct)}): cruzalo con agendas publicadas y con la operación biométrica de entrada.`,
-    )
-  }
-  if (kpis.M1_PUNCTUALITY_pct < 85 && kpis.M1_PUNCTUALITY_pct > 0) {
-    hints.push(
-      'Puntualidad global inferior al 85%: comunicación institucional y revisión horaria pueden ir antes que medidas formales escalonadas.',
-    )
-  }
-  if (kpis.PC_count > 0) {
-    hints.push(
-      `Licencias marcadas como inactivas (${kpis.PC_count}) que solapan este período: contrastá contra ausencias justificadas y evitá falsos positivos.`,
-    )
-  }
-  if (hotPeople.length > 0) {
-    hints.push(
-      'El ranking de personas consolida “tardanza + ausencias no justificadas por licencia” como trabajo de campo (RRHH/responsables), no decisión automatizada.',
-    )
-  }
-  if (hotEvents.length > 0) {
-    hints.push(
-      'Los eventos con mayor fricción suelen mejorar redistribución de cargas horarias, tamaño del grupo asignado y confirmaciones previas.',
-    )
-  }
-
-  if (hints.length <= 3) {
-    hints.push(
-      'Si los indicadores se mantienen en rangos razonables, seguí vigilando cambios entre semanas y compará períodos iguales (p. ej. mes previo).',
-    )
-  }
-
-  return hints.slice(0, 8)
 }
 
 function roleChipLabel(role: string | undefined | null) {
@@ -490,12 +413,12 @@ export default function AdminAnalyticsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
-  const [exportingKind, setExportingKind] = useState<
-    'xlsx' | 'csv' | 'pdf' | 'person' | 'course' | null
-  >(null)
-  const [exportNotice, setExportNotice] = useState<string>('')
+  const canDownloadReport = hasPermission(
+    useOptionalAuth()?.me,
+    'exports.create',
+    'all',
+  )
 
-  const apiUrl = apiBaseUrl()
   const analyticsSchoolYearId = syCtx?.selectedId ?? syCtx?.activeId ?? null
 
   // Fila del ciclo lectivo efectivamente filtrado (para derivar su rango de fechas).
@@ -549,6 +472,28 @@ export default function AdminAnalyticsPage() {
       : requestedFrom > requestedTo
         ? 'La fecha de fin debe ser igual o posterior al inicio.'
         : null
+  const indicatorFilters = useMemo<StaffIndicatorFilters>(
+    () => ({
+      from: requestedFrom,
+      to: requestedTo,
+      granularity,
+      userId: selectedUserId || undefined,
+      role: roleFilter || undefined,
+      eventType: eventType || undefined,
+      allYears,
+      schoolYearId: analyticsSchoolYearId,
+    }),
+    [
+      requestedFrom,
+      requestedTo,
+      granularity,
+      selectedUserId,
+      roleFilter,
+      eventType,
+      allYears,
+      analyticsSchoolYearId,
+    ],
+  )
   const loadDashboard = useCallback(async () => {
     const currentRequest = ++requestId.current
     if (rangeError || schoolYearsLoading) {
@@ -558,18 +503,7 @@ export default function AdminAnalyticsPage() {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({
-        from: requestedFrom,
-        to: requestedTo,
-        granularity,
-      })
-      if (selectedUserId) params.set('userId', selectedUserId)
-      else if (roleFilter) params.set('role', roleFilter)
-      if (eventType) params.set('eventType', eventType)
-      if (allYears) params.set('allYears', '1')
-      else if (analyticsSchoolYearId)
-        params.set('schoolYearId', analyticsSchoolYearId)
-
+      const params = staffIndicatorParams(indicatorFilters)
       const data = await api<DashboardResponse>(
         `/analytics/dashboard?${params.toString()}`,
       )
@@ -582,18 +516,7 @@ export default function AdminAnalyticsPage() {
     } finally {
       if (currentRequest === requestId.current) setLoading(false)
     }
-  }, [
-    requestedFrom,
-    requestedTo,
-    granularity,
-    roleFilter,
-    selectedUserId,
-    eventType,
-    allYears,
-    schoolYearsLoading,
-    rangeError,
-    analyticsSchoolYearId,
-  ])
+  }, [indicatorFilters, schoolYearsLoading, rangeError])
 
   const cancelPendingLoad = useCallback(() => {
     requestId.current++
@@ -621,11 +544,6 @@ export default function AdminAnalyticsPage() {
     }
   }, [])
 
-  const decisionSignals = useMemo(() => {
-    if (!dashboard) return []
-    return buildDecisionSignals(dashboard)
-  }, [dashboard])
-
   const resolvedCount = dashboard?.meta?.resolvedInstanceCount ?? 0
   const generatedLabel = dashboard?.meta?.generatedAt
     ? new Intl.DateTimeFormat('es-UY', {
@@ -639,135 +557,6 @@ export default function AdminAnalyticsPage() {
         hourCycle: 'h23',
       }).format(new Date(dashboard.meta.generatedAt)) + ' UTC'
     : null
-
-  const exportFilters = () => ({
-    ...(selectedUserId
-      ? { userId: selectedUserId }
-      : roleFilter
-        ? { role: roleFilter }
-        : {}),
-    ...(eventType ? { eventType } : {}),
-    ...(syCtx?.allYears ? { allYears: '1' } : {}),
-    ...(!syCtx?.allYears && analyticsSchoolYearId
-      ? { schoolYearId: analyticsSchoolYearId }
-      : {}),
-  })
-
-  /** Crea la exportación, espera a que termine y dispara la descarga del archivo. */
-  const runExport = async (
-    kind: 'xlsx' | 'csv' | 'pdf' | 'person' | 'course',
-    reportKey: string,
-    format: 'XLSX' | 'CSV' | 'PDF',
-    filename: string,
-    successMsg: string,
-    overrides?: { from: string; to: string; filters?: Record<string, unknown> },
-  ) => {
-    setExportNotice('')
-    setExportingKind(kind)
-    setError(null)
-    try {
-      const body = {
-        reportKey,
-        format,
-        from: overrides?.from ?? from,
-        to: overrides?.to ?? to,
-        filters: overrides?.filters ?? exportFilters(),
-      }
-      const res = await api<{ exportId: string }>(`/exports`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      })
-      const exportId = res.exportId
-
-      let exportDone = false
-      for (let i = 0; i < 30; i++) {
-        const statusRes = await api<{
-          status: string
-          downloadUrl: string | null
-          errorMessage?: string
-        }>(`/exports/${exportId}`)
-        if (statusRes.status === 'DONE') {
-          exportDone = true
-          break
-        }
-        if (statusRes.status === 'FAILED')
-          throw new Error(
-            statusRes.errorMessage || 'Error generando exportación',
-          )
-        await new Promise((r) => setTimeout(r, 250))
-      }
-      if (!exportDone)
-        throw new Error('La exportación tardó demasiado en generarse')
-
-      const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, {
-        credentials: 'include',
-      })
-      if (!dl.ok) throw new Error('No se pudo descargar la exportación. Probá de nuevo en un momento.')
-      const blob = await dl.blob()
-      const url = globalThis.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      globalThis.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-      setExportNotice(successMsg)
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Error al exportar.'
-      setError(msg)
-    } finally {
-      setExportingKind(null)
-    }
-  }
-
-  // Export de asistencias en analítica oculto temporalmente: se reimplementa más adelante.
-  // (El export de la página de Asistencias no se ve afectado.)
-  const showAnalyticsAttendanceExports = false
-
-  const runExportAttendance = (format: 'XLSX' | 'CSV') =>
-    runExport(
-      format === 'XLSX' ? 'xlsx' : 'csv',
-      'attendance_detail',
-      format,
-      selectedUserName
-        ? `EduTrack_Asistencia_detallada_${sanitizeFilenamePart(selectedUserName)}_${from}_${to}.${format === 'XLSX' ? 'xlsx' : 'csv'}`
-        : `EduTrack_Asistencia_detallada_${from}_${to}.${format === 'XLSX' ? 'xlsx' : 'csv'}`,
-      selectedUserName
-        ? `✅ Detalle ${format} de ${selectedUserName} listo.`
-        : `✅ Exportación ${format} lista.`,
-    )
-
-  const runExportMonthly = () =>
-    runExport(
-      'pdf',
-      'monthly_summary',
-      'PDF',
-      `EduTrack_Resumen_mensual_${from.slice(0, 7)}.pdf`,
-      '✅ PDF mensual listo.',
-    )
-
-  const runExportPerson = () =>
-    runExport(
-      'person',
-      'person_report',
-      'XLSX',
-      selectedUserName
-        ? `EduTrack_Reporte_persona_${sanitizeFilenamePart(selectedUserName)}_${from}_${to}.xlsx`
-        : `EduTrack_Reporte_por_persona_${from}_${to}.xlsx`,
-      selectedUserName
-        ? `✅ Reporte de ${selectedUserName} listo.`
-        : '✅ Reporte por persona listo.',
-    )
-
-  const runExportCourse = () =>
-    runExport(
-      'course',
-      'course_report',
-      'XLSX',
-      `EduTrack_Reporte_por_curso_${from}_${to}.xlsx`,
-      '✅ Reporte por curso listo.',
-    )
 
   function clearFiltersAndReload() {
     // "Limpiar" vuelve al rango del ciclo lectivo en foco (no a los últimos 30 días,
@@ -788,7 +577,6 @@ export default function AdminAnalyticsPage() {
     setUserSearch('')
     setSelectedUserName('')
     setIsUserDropdownOpen(false)
-    setExportNotice('')
   }
 
   const trendPoints =
@@ -838,7 +626,6 @@ export default function AdminAnalyticsPage() {
     setUserSearch(label)
     setRoleFilter('')
     setIsUserDropdownOpen(false)
-    setExportNotice('')
   }
 
   useEffect(() => {
@@ -863,7 +650,6 @@ export default function AdminAnalyticsPage() {
     setSelectedUserName('')
     setUserSearch('')
     setIsUserDropdownOpen(false)
-    setExportNotice('')
   }
   const advancedCount = Number(Boolean(roleFilter)) + Number(Boolean(eventType))
   const thirtyDaysAgo = new Date(`${getTodayYmdInUruguay()}T12:00:00Z`)
@@ -914,37 +700,18 @@ export default function AdminAnalyticsPage() {
               />
               Actualizar
             </button>
-            {showAnalyticsAttendanceExports && (
-              <details className="relative">
-                <summary className="btn-secondary cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-                  Exportar
-                  <ChevronDown className="h-4 w-4" aria-hidden />
-                </summary>
-                <div className="absolute right-0 z-30 mt-2 w-64 max-w-[calc(100vw-2rem)] space-y-2 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
-                  <button
-                    type="button"
-                    disabled={
-                      Boolean(exportingKind) || loading || Boolean(rangeError)
-                    }
-                    onClick={() => void runExportAttendance('XLSX')}
-                    className="flex w-full items-center gap-2 p-2 text-sm"
-                  >
-                    <FileSpreadsheet className="h-4 w-4" aria-hidden />
-                    Asistencias en Excel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={
-                      Boolean(exportingKind) || loading || Boolean(rangeError)
-                    }
-                    onClick={() => void runExportAttendance('CSV')}
-                    className="flex w-full items-center gap-2 p-2 text-sm"
-                  >
-                    <FileText className="h-4 w-4" aria-hidden />
-                    Asistencias en CSV
-                  </button>
-                </div>
-              </details>
+            {canDownloadReport && (
+              <ReportDownloadMenu
+                tour="staff-indicators.report"
+                disabled={
+                  loading || Boolean(rangeError) || Boolean(syCtx?.loading)
+                }
+                note="Resumen, tendencias, seguimiento y todas las personas, con el período y los filtros elegidos."
+                pathFor={(format) => staffReportPath(indicatorFilters, format)}
+                fallbackName={(format) =>
+                  `Indicadores del personal ${requestedFrom} a ${requestedTo}.${format}`
+                }
+              />
             )}
           </div>
         </div>
@@ -964,11 +731,11 @@ export default function AdminAnalyticsPage() {
                   setFrom(startDate)
                   setTo(endDate)
                 }
-                setExportNotice('')
               }}
             />
             <div
               ref={userPicker}
+              role="presentation"
               className="relative min-w-0"
               onBlur={(event) => {
                 if (
@@ -1022,7 +789,6 @@ export default function AdminAnalyticsPage() {
                     setSelectedUserName('')
                     setActiveUserIndex(0)
                     setIsUserDropdownOpen(true)
-                    setExportNotice('')
                   }}
                   onKeyDown={(event) => {
                     if (event.key === 'Escape') setIsUserDropdownOpen(false)
@@ -1175,7 +941,6 @@ export default function AdminAnalyticsPage() {
                   value={eventType}
                   onChange={(e) => {
                     setEventType(e.target.value)
-                    setExportNotice('')
                   }}
                   className="select-field text-sm"
                 >
@@ -1218,21 +983,6 @@ export default function AdminAnalyticsPage() {
             </button>
           ))}
         </div>
-        {exportNotice && (
-          <p
-            role="status"
-            className={`rounded-xl border p-3 text-sm ${getAdminFlashMessageClass(exportNotice)}`}
-          >
-            {exportNotice}
-            <button
-              type="button"
-              onClick={() => setExportNotice('')}
-              className="ml-3 text-xs underline"
-            >
-              Ocultar
-            </button>
-          </p>
-        )}
         {(rangeError || error) && (
           <div
             role="alert"
@@ -1365,7 +1115,7 @@ export default function AdminAnalyticsPage() {
                           description="Sugerencias para interpretar los resultados."
                         >
                           <ul className="list-disc space-y-2 pl-4 text-sm text-slate-600">
-                            {decisionSignals.map((signal, index) => (
+                            {(dashboard.signals ?? []).map((signal, index) => (
                               <li key={index}>{signal}</li>
                             ))}
                           </ul>

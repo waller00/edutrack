@@ -1010,6 +1010,18 @@ seguimiento".
   leer del mismo esquema transaccional.
 - **Toda gráfica tiene su tabla** ("Ver datos de la gráfica") y una descripción para lectores de
   pantalla: el dato nunca depende sólo del color.
+
+**Informe descargable** ("Descargar informe", junto a "Actualizar"; `GET
+/admin/student-indicators/report?format=pdf|xlsx&schoolYearId=&periodId=`): todas las secciones
+que quien lo baja ve en pantalla, con el ciclo del menú y el boletín elegido, en **PDF** (A4, logo y
+nombre de la institución, para imprimir o llevar a la reunión) o en **Excel** (una hoja por tabla,
+los porcentajes como número). Sale de los mismos servicios que la pantalla
+(`services/student-indicators/report.ts`); las listas van completas (quién necesita atención,
+faltas seguidas, 18 y 25 faltas, quiénes bajaron) y "Para mirar primero" sólo en el PDF. Lo
+descarga quien ve los indicadores (`academic-analytics.read` o `student-reports.read`, alcance
+`all`) y cada sección sale con su permiso, como en pantalla. Cada descarga queda en Auditoría
+(`DATA_EXPORTED`, `student-indicators-report`) con el ciclo, el boletín y las secciones: sin
+nombres. El pie de cada hoja avisa que tiene datos personales.
 - La pantalla muestra la aclaración del pliego: las alertas son informativas y no generan
   automáticamente decisiones administrativas, promociones ni sanciones.
 
@@ -1079,12 +1091,20 @@ seguimiento".
 
 ## 13. Analítica institucional
 
-**Pantalla:** `/admin/analytics`
+**Pantalla:** "Indicadores del personal" (`/admin/analytics`)
 
-- KPIs de asistencia y operación institucional.
-- Tendencias (p. ej. semanales), rankings, vistas agregadas.
-- Orientada a **soporte a la decisión** administrativa.
-- Requiere permiso `analytics.read`.
+- Puntualidad, llegadas tarde, ausentismo y cobertura de docentes y funcionarios, con la variación
+  respecto del período anterior; tendencias por día, semana o mes; comparación por rol, actividad
+  y curso; personas y actividades para revisar.
+- Orientada a **soporte a la decisión** administrativa. Requiere permiso `analytics.read`.
+- El cálculo es uno (`services/analytics/staff-dashboard.ts`): titulares y suplentes, igual en la
+  pantalla y en el informe. La "Lectura del período" también la arma el servidor
+  (`staff-signals.ts`).
+- **Informe descargable** ("Descargar informe"; `GET /analytics/report?format=pdf|xlsx` con los
+  filtros de la pantalla): Resumen (cada indicador con su base, «412 de 452 entradas»), Tendencias,
+  Seguimiento y **todas las personas** del período, en PDF o Excel. Exportar datos del personal
+  pide además `exports.create` (Administración y Secretaría). Cada descarga queda en Auditoría
+  (`staff-indicators-report`) con los filtros, sin nombres.
 
 ---
 

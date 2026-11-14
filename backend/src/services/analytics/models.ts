@@ -66,6 +66,23 @@ export type ResolvedAttendanceByInstance = {
   userEmail: string
 }
 
+/**
+ * Lo que se cuenta en un conjunto de registros planificados. De acá salen los porcentajes del
+ * tablero y las bases que escribe el informe («412 de 452»).
+ */
+export type RangeCounts = {
+  /** Registros planificados. */
+  planned: number
+  /** Entradas registradas (a tiempo o tarde): las presencias. */
+  present: number
+  onTime: number
+  late: number
+  /** Ausencias, también las justificadas; la clase suplida es ausencia del titular. */
+  absent: number
+  plannedMinutes: number
+  actualMinutes: number
+}
+
 export type DashboardKpis = {
   M1_PUNCTUALITY_pct: number
   M2_LATE_RATE_pct: number
@@ -81,6 +98,8 @@ export type DashboardTopRiskPerson = {
   displayName: string
   role: string
   plannedCount: number
+  /** Presencias (a tiempo o tarde). */
+  presentCount: number
   lateCount: number
   absentNotJustifiedCount: number
   absentJustifiedCount: number
@@ -98,6 +117,7 @@ export type DashboardTopRiskEvent = {
   absentOverPlanPct: number
   /** Suma tardanza + absentismo para ordenar rankings. */
   focusScore: number
+  counts: RangeCounts
 }
 
 /** Fila de desglose de KPIs por una dimensión (rol, tipo de evento, curso…). */
@@ -109,6 +129,7 @@ export type DashboardBreakdownRow = {
   lateRatePct: number
   aopPct: number
   coveragePct: number
+  counts: RangeCounts
 }
 
 /** Conteo + porcentaje de cada estado de entrada sobre el total planificado. */
@@ -131,6 +152,7 @@ export type SeriesPointMulti = {
   lateRate: number
   aop: number
   coverage: number
+  counts: RangeCounts
 }
 
 /** Comparación período actual vs período anterior de igual longitud. */

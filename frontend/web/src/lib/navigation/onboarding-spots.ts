@@ -140,6 +140,12 @@ export const SCREEN_SPOTS: Partial<Record<ModuleId, Spot[]>> = {
     { target: 'staff-indicators.filters', title: 'Elegí período y personas', text: 'Los indicadores se calculan sobre lo que elijas acá.' },
     { target: 'staff-indicators.views', title: 'Vistas', text: 'Resumen, tendencias y seguimiento de cada persona.' },
     { target: 'staff-indicators.charts', title: 'Puntualidad y ausentismo', text: 'Los indicadores principales del período elegido.' },
+    {
+      target: 'staff-indicators.report',
+      title: 'Descargá el informe',
+      text: 'Lo mismo que ves, en PDF para imprimir o en Excel para trabajar los números, con el período y los filtros elegidos.',
+      permission: { id: 'exports.create', scope: 'all' },
+    },
   ],
   students: [
     {
@@ -176,6 +182,11 @@ export const SCREEN_SPOTS: Partial<Record<ModuleId, Spot[]>> = {
       title: 'A quién mirar',
       text: 'Quiénes necesitan atención y por qué, por notas y por faltas. La lista completa, con filtros, está en su sección.',
       permission: { id: 'student-reports.read', scope: 'all' },
+    },
+    {
+      target: 'student-indicators.report',
+      title: 'Descargá el informe',
+      text: 'Todas las secciones que ves, en PDF para imprimir o en Excel para trabajar los números, con el ciclo y el boletín elegidos.',
     },
   ],
   tuition: [

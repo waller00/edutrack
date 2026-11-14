@@ -26,3 +26,34 @@ export function resolveSchoolYearDateRange(
   const from = startsOn > to ? to : startsOn
   return { from, to }
 }
+
+/** Lo que se está mirando en Indicadores del personal: el tablero y su informe piden lo mismo. */
+export type StaffIndicatorFilters = {
+  from: string
+  to: string
+  granularity: string
+  /** Una persona manda sobre el rol. */
+  userId?: string
+  role?: string
+  eventType?: string
+  /** "Todos los ciclos" manda sobre el ciclo elegido. */
+  allYears?: boolean
+  schoolYearId?: string | null
+}
+
+export function staffIndicatorParams(filters: StaffIndicatorFilters): URLSearchParams {
+  const params = new URLSearchParams({ from: filters.from, to: filters.to, granularity: filters.granularity })
+  if (filters.userId) params.set('userId', filters.userId)
+  else if (filters.role) params.set('role', filters.role)
+  if (filters.eventType) params.set('eventType', filters.eventType)
+  if (filters.allYears) params.set('allYears', '1')
+  else if (filters.schoolYearId) params.set('schoolYearId', filters.schoolYearId)
+  return params
+}
+
+/** El informe (PDF o Excel) de lo que se está mirando. */
+export function staffReportPath(filters: StaffIndicatorFilters, format: 'pdf' | 'xlsx'): string {
+  const params = staffIndicatorParams(filters)
+  params.set('format', format)
+  return `/analytics/report?${params.toString()}`
+}

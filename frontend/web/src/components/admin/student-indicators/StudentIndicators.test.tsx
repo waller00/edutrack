@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import StudentIndicators from './StudentIndicators'
 import { api } from '@/lib/api/client'
+import { downloadFile } from '@/lib/api/download'
 
 const { routerMock, state } = vi.hoisted(() => ({
   routerMock: { replace: vi.fn(), push: vi.fn() },
@@ -32,6 +33,7 @@ vi.mock('@/contexts/AdminSchoolYearContext', () => ({
   }),
 }))
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
+vi.mock('@/lib/api/download', () => ({ downloadFile: vi.fn() }))
 vi.mock('recharts', async () => (await import('@/test/recharts-mock')).rechartsMock)
 
 const mockedApi = vi.mocked(api)
@@ -331,5 +333,25 @@ describe('datos de otro ciclo', () => {
     expect(await screen.findByText(/2 de 90/)).toBeInTheDocument()
     await act(async () => resolveOld(RESPONSES['/admin/student-reports/risk']))
     expect(screen.queryByText(/2 de 120/)).not.toBeInTheDocument()
+  })
+})
+
+describe('informe descargable', () => {
+  it('baja el informe del ciclo y el boletín que se están mirando', async () => {
+    vi.mocked(downloadFile).mockResolvedValue(undefined)
+    render(<StudentIndicators />)
+    await screen.findByText(/2 de 120/)
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar informe' }))
+    expect(screen.getByText('Todas las secciones que ves, con el ciclo y el boletín elegidos.')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: /Excel con los datos/ }))
+    await waitFor(() =>
+      expect(downloadFile).toHaveBeenCalledWith('/admin/student-indicators/report?format=xlsx&periodId=e2&schoolYearId=y26', 'Indicadores de estudiantes.xlsx'),
+    )
+  })
+
+  it('espera a saber los boletines del ciclo', () => {
+    mockedApi.mockImplementation(() => new Promise(() => undefined) as never)
+    render(<StudentIndicators />)
+    expect(screen.getByRole('button', { name: 'Descargar informe' })).toBeDisabled()
   })
 })

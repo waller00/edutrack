@@ -57,6 +57,7 @@ import adminGradeBookRoutes from './admin-gradebook.js'
 import adminGradeBookCorrectionsRoutes, { correctionsGuard } from './admin-gradebook-corrections.js'
 import adminAcademicAnalyticsRoutes from './admin-academic-analytics.js'
 import adminStudentReportsRoutes from './admin-student-reports.js'
+import adminStudentIndicatorsRoutes from './admin-student-indicators.js'
 
 const r = Router()
 r.use(authGuard)
@@ -1373,5 +1374,14 @@ r.use('/gradebook/corrections', correctionsGuard, adminGradeBookCorrectionsRoute
 r.use('/gradebook', requirePermission('gradebook.read', 'all'), adminGradeBookRoutes)
 r.use('/academic-analytics', requirePermission('academic-analytics.read', 'all'), adminAcademicAnalyticsRoutes)
 r.use('/student-reports', requirePermission('student-reports.read', 'all'), adminStudentReportsRoutes)
+// El informe de Indicadores de estudiantes: lo descarga quien ve la pantalla, con sus secciones.
+r.use(
+  '/student-indicators',
+  requireAnyPermission([
+    ['academic-analytics.read', 'all'],
+    ['student-reports.read', 'all'],
+  ]),
+  adminStudentIndicatorsRoutes,
+)
 
 export default r

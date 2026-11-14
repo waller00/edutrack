@@ -611,6 +611,18 @@ y `lib/messages/`.
 > Nada de `role === 'ADMIN'` para decidir qué se ve: Secretaría gestiona cursos, ciclos y personal
 > como Administración (en `routes/courses.ts` lo decide `catalogViewer` por permisos).
 
+> **Los informes de los indicadores (PDF y Excel) salen del mismo cálculo que la pantalla.**
+> "Descargar informe" en Indicadores del personal (`GET /analytics/report`, `loadStaffIndicators`
+> de `services/analytics/staff-dashboard.ts`, el mismo del tablero, con suplentes) y en Indicadores
+> de estudiantes (`GET /admin/student-indicators/report`, los mismos servicios de cada sección). Cada
+> informe es un `ReportDoc` (`services/reports/model.ts`) que dibujan `render-pdf.ts` y
+> `render-xlsx.ts`, y sale sólo por `sendReport`, que audita (`DATA_EXPORTED`, sin nombres). El de
+> estudiantes lo baja quien ve la pantalla y trae sus secciones; el del personal pide además
+> `exports.create`. Los números van con su base («412 de 452») y Helvetica sólo dibuja WinAnsi:
+> nada de ▲, → ni ✓ en un PDF (`winAnsi` los cambia). Las cuentas chicas del front que el informe
+> necesita (`presentDays`, `trajectoryHeadline`) están copiadas en `report-sections.ts`: si cambia
+> una, cambia la otra.
+
 > **Nombres, descripciones, íconos y permisos de cada sección salen de
 > `lib/navigation/modules.ts`.** Lo usan el menú (agrupado por destinatario: Mi trabajo, Personal,
 > Estudiantes, Académico, Libretas, Configuración), los accesos de Inicio, la Guía (`/guia`) y
