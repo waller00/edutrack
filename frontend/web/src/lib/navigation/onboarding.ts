@@ -3,6 +3,7 @@ import { hasPermission, permissionScope, type PermissionScope } from '@/lib/auth
 import { APP_MODULES, canSeeModule, moduleById, visibleModules, visibleNavGroups, visibleRelated, type AppModule, type ModuleId, type VisibleNavGroup } from './modules'
 import { navSpot, RELATED_SPOT, SCREEN_SPOTS, type Spot } from './onboarding-spots'
 import { homeVariant } from '@/lib/home/home-variant'
+import { compareCodeUnits } from '@/lib/format/strings'
 
 type Capability = { permission: string; text: string; scope?: PermissionScope }
 type StepContent = {
@@ -178,7 +179,7 @@ export function onboardingSteps(me: AuthMe | null): OnboardingStep[] {
 export function onboardingStorageKey(me: AuthMe | null): string | null {
   const identity = me?.id || me?.email || me?.username
   if (!me || !identity) return null
-  const ids = [...new Set([...(me.permissionIds ?? []), ...(me.permissions ?? []).map((p) => p.id)])].sort()
+  const ids = [...new Set([...(me.permissionIds ?? []), ...(me.permissions ?? []).map((p) => p.id)])].sort(compareCodeUnits)
   const grants = ids.map((id) => [id, permissionScope(me, id)])
   return `edutrack.onboarding.v1:${JSON.stringify([identity, me.role, grants])}`
 }

@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express'
 import { requirePermission, userPermissionScope } from './auth.js'
+import { trimEndChars } from '../lib/strings.js'
 
 // El selector compartido necesita el catálogo, sin habilitar la gestión ni las métricas del ciclo.
 const CATALOG_PERMISSIONS: Array<[string, 'own' | 'all']> = [
@@ -19,7 +20,7 @@ const CATALOG_PERMISSIONS: Array<[string, 'own' | 'all']> = [
 const requireManagement = requirePermission('school-years.manage', 'all')
 
 export async function requireSchoolYearAccess(req: Request, res: Response, next: NextFunction) {
-  const path = req.path.toLowerCase().replace(/\/+$/, '')
+  const path = trimEndChars(req.path.toLowerCase(), '/')
   const catalog = (req.method === 'GET' || req.method === 'HEAD') && (path === '' || path === '/active')
   if (!catalog) return requireManagement(req, res, next)
 

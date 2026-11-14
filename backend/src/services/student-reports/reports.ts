@@ -11,6 +11,7 @@ import {
   previousReportCardPeriod,
 } from '../gradebook/period-closure.js'
 import { periodScaleFor } from '../gradebook/period-scale.js'
+import { compareCodeUnits } from '../../lib/strings.js'
 import {
   findAbsenceStreaks,
   isGradeDrop,
@@ -383,7 +384,7 @@ export async function loadAbsenceStreaks(schoolYearId: string): Promise<AbsenceS
     // Días del grupo del alumno: los de tronco común y los de su orientación.
     const classDays = [
       ...new Set(sessionDays.filter((s) => sessionOfGroup(s, e)).map((s) => s.occurrenceYmd)),
-    ].sort()
+    ].sort(compareCodeUnits)
     const fullDays = new Set(
       absentDays.filter((ymd) => {
         const statuses = statusesByStudentDay.get(`${e.studentId}|${ymd}`) ?? []

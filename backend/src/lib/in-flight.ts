@@ -10,7 +10,7 @@ const inFlight = new Map<string, Promise<unknown>>();
 
 export function shareInFlight<T>(key: string, load: () => Promise<T>): Promise<T> {
   const pending = inFlight.get(key) as Promise<T> | undefined;
-  if (pending) return pending;
+  if (pending !== undefined) return pending;
   const created = load().finally(() => inFlight.delete(key));
   inFlight.set(key, created);
   return created;

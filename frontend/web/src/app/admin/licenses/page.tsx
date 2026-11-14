@@ -162,15 +162,15 @@ function LicensesPageContent() {
   }, [currentYear, selectedSchoolYear?.code, selectedSchoolYear?.endsOn, selectedSchoolYear?.startsOn, syCtx?.allYears])
 
   useEffect(() => {
-    loadUsers()
+    void loadUsers()
   }, [])
 
   // Recarga al cambiar el ciclo lectivo (selector global). Licencias se filtran por solapamiento
   // de fechas con el ciclo; días no laborables por su schoolYearId.
   useEffect(() => {
     setNonWorkingFilters(schoolYearDateRange)
-    loadLicenses()
-    loadNonWorkingDays(schoolYearDateRange)
+    void loadLicenses()
+    void loadNonWorkingDays(schoolYearDateRange)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolYearQuery, schoolYearDateRange.from, schoolYearDateRange.to])
 
@@ -918,8 +918,9 @@ function LicensesPageContent() {
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
+                  <label htmlFor="new-license-usuario" className="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
                   <select
+                    id="new-license-usuario"
                     aria-label="Usuario de licencia"
                     value={newLicense.userId}
                     onChange={(e) => setNewLicense({ ...newLicense, userId: e.target.value })}
@@ -933,8 +934,9 @@ function LicensesPageContent() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Licencia</label>
+                  <label htmlFor="new-license-tipo-de-licencia" className="block text-sm font-medium text-gray-700 mb-1">Tipo de Licencia</label>
                   <select
+                    id="new-license-tipo-de-licencia"
                     aria-label="Tipo de licencia"
                     value={newLicense.type}
                     onChange={(e) => setNewLicense({ ...newLicense, type: e.target.value as License['type'] })}
@@ -948,8 +950,9 @@ function LicensesPageContent() {
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
+                    <label htmlFor="new-license-fecha-inicio" className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
                     <DateField
+                      id="new-license-fecha-inicio"
                       aria-label="Fecha inicio"
                       value={newLicense.startDate}
                       onChange={(v) => setNewLicense({ ...newLicense, startDate: v })}
@@ -958,8 +961,9 @@ function LicensesPageContent() {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
+                    <label htmlFor="new-license-fecha-fin" className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
                     <DateField
+                      id="new-license-fecha-fin"
                       aria-label="Fecha fin"
                       value={newLicense.endDate}
                       onChange={(v) => setNewLicense({ ...newLicense, endDate: v })}
@@ -976,8 +980,9 @@ function LicensesPageContent() {
                   </div>
                 ) : (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Motivo (obligatorio)</label>
+                    <label htmlFor="new-license-motivo-obligatorio" className="block text-sm font-medium text-gray-700 mb-1">Motivo (obligatorio)</label>
                     <textarea
+                      id="new-license-motivo-obligatorio"
                       aria-label="Motivo (obligatorio)"
                       value={newLicense.reason}
                       onChange={(e) => setNewLicense({ ...newLicense, reason: e.target.value })}
@@ -989,8 +994,9 @@ function LicensesPageContent() {
                  
                 {newLicense.type !== 'MEDICAL_LEAVE' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Notas adicionales</label>
+                    <label htmlFor="new-license-notas-adicionales" className="block text-sm font-medium text-gray-700 mb-1">Notas adicionales</label>
                     <textarea
+                      id="new-license-notas-adicionales"
                       aria-label="Notas adicionales"
                       value={newLicense.notes}
                       onChange={(e) => setNewLicense({ ...newLicense, notes: e.target.value })}
@@ -1046,13 +1052,14 @@ function LicensesPageContent() {
               <div className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
+                    <span className="block text-sm font-medium text-gray-700 mb-1">Usuario</span>
                     <p className="text-sm text-gray-900">{editing.user.name}</p>
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
+                    <label htmlFor="edit-license-tipo" className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
                     <select
+                      id="edit-license-tipo"
                       value={editing.type}
                       onChange={(e) => setEditing({ ...editing, type: e.target.value as any })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -1066,8 +1073,9 @@ function LicensesPageContent() {
                 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
+                    <label htmlFor="edit-license-fecha-inicio" className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
                     <DateField
+                      id="edit-license-fecha-inicio"
                       value={editing.startDate.split('T')[0]}
                       onChange={(v) => setEditing({ ...editing, startDate: v })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -1075,8 +1083,9 @@ function LicensesPageContent() {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
+                    <label htmlFor="edit-license-fecha-fin" className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
                     <DateField
+                      id="edit-license-fecha-fin"
                       value={editing.endDate.split('T')[0]}
                       onChange={(v) => setEditing({ ...editing, endDate: v })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -1085,7 +1094,7 @@ function LicensesPageContent() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+                  <span className="block text-sm font-medium text-gray-700 mb-1">Estado</span>
                   <p className="text-sm text-gray-900">{getLicenseStatusLabel(editing.status)}</p>
                 </div>
                 
@@ -1096,8 +1105,9 @@ function LicensesPageContent() {
                   </div>
                 ) : (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
+                    <label htmlFor="edit-license-motivo" className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
                     <textarea
+                      id="edit-license-motivo"
                       value={editing.reason}
                       onChange={(e) => setEditing({ ...editing, reason: e.target.value })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -1108,8 +1118,9 @@ function LicensesPageContent() {
                 
                 {editing.type !== 'MEDICAL_LEAVE' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+                    <label htmlFor="edit-license-notas" className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
                     <textarea
+                      id="edit-license-notas"
                       value={editing.notes || ''}
                       onChange={(e) => setEditing({ ...editing, notes: e.target.value })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -1120,14 +1131,14 @@ function LicensesPageContent() {
                 
                 {editing.approvedBy && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Aprobado por</label>
+                    <span className="block text-sm font-medium text-gray-700 mb-1">Aprobado por</span>
                     <p className="text-sm text-gray-900">{editing.approvedBy}</p>
                   </div>
                 )}
                 
                 {editing.approvedAt && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de aprobación</label>
+                    <span className="block text-sm font-medium text-gray-700 mb-1">Fecha de aprobación</span>
                     <p className="text-sm text-gray-900">{formatDateInUruguay(editing.approvedAt)}</p>
                   </div>
                 )}

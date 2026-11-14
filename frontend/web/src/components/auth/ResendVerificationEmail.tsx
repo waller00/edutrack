@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Check, Mail } from 'lucide-react'
 import { api } from '@/lib/api/client'
+import { isValidRegisterEmail } from '@/lib/auth/register-form-validation'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 
 /** Igual que la espera del servidor entre dos envíos (`VERIFY_RESEND_COOLDOWN_SECONDS`). */
@@ -38,7 +39,7 @@ export function ResendVerificationEmail({ email, useSession = false, justSent = 
 
   async function resend() {
     const target = (email ?? typedEmail).trim()
-    if (askEmail && !/^\S+@\S+\.\S+$/.test(target)) {
+    if (askEmail && !isValidRegisterEmail(target)) {
       setError('Escribí el correo con el que te registraste.')
       return
     }

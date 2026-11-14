@@ -231,7 +231,9 @@ export async function buildLogoutUrl(idToken?: string, postLogoutRedirectUri?: s
 // ---------------------------------------------------------------------------
 
 function adminBaseUrl(): string {
-  return (process.env.KEYCLOAK_ADMIN_BASE_URL || "http://keycloak:8080").replace(/\/$/, "");
+  // El default es la red interna de Docker: el TLS lo terminan Cloudflare y nginx, y los compose
+  // siempre fijan KEYCLOAK_ADMIN_BASE_URL. Falso positivo de "protocolo en claro" (S5332).
+  return (process.env.KEYCLOAK_ADMIN_BASE_URL || "http://keycloak:8080").replace(/\/$/, ""); // NOSONAR
 }
 
 function adminRealm(): string {

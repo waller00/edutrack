@@ -1,5 +1,6 @@
 import { sendMail } from "./email.js";
 import { moodlePublicUrl } from "../integrations/moodle/client.js";
+import { trimEndChars } from "../lib/strings.js";
 
 /**
  * Mail de bienvenida al aula virtual para estudiantes con cuenta Moodle real.
@@ -22,7 +23,7 @@ export function buildStudentWelcomeEmail(args: {
   tempPassword: string;
   moodleUrl: string;
 }): { subject: string; html: string; text: string } {
-  const moodleUrl = args.moodleUrl.replace(/\/+$/, "");
+  const moodleUrl = trimEndChars(args.moodleUrl, "/");
   const loginUrl = `${moodleUrl}/login/index.php`;
   const firstName = args.firstName.trim() || "estudiante";
   const subject = "Tu cuenta del aula virtual (Moodle)";

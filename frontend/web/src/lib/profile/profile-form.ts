@@ -16,7 +16,7 @@ export function formatCI(input: string): string {
 export function computeCI(base7: string): number {
   const w = [2, 9, 8, 7, 6, 3, 4]
   const p = base7.padStart(7, '0')
-  const s = p.split('').map((d, i) => parseInt(d, 10) * w[i]).reduce((a, b) => a + b, 0)
+  const s = p.split('').map((d, i) => Number.parseInt(d, 10) * w[i]).reduce((a, b) => a + b, 0)
   return (10 - (s % 10)) % 10
 }
 
@@ -24,7 +24,7 @@ export function validCI(input: string): boolean {
   const d = onlyDigits(input)
   if (d.length < 7 || d.length > 8) return false
   const b = d.slice(0, -1)
-  return computeCI(b) === parseInt(d.slice(-1), 10)
+  return computeCI(b) === Number.parseInt(d.slice(-1), 10)
 }
 
 /** @deprecated usar normalizeLocalPhoneUY de uruguay-forms */

@@ -211,8 +211,9 @@ export default function BiometricLinkSection({
           <>
             {devices.length > 1 && !linkRequest && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Lector</label>
+                <label htmlFor="biometric-lector" className="block text-sm font-medium text-gray-700 mb-2">Lector</label>
                 <select
+                  id="biometric-lector"
                   className="input-field"
                   value={selectedDeviceId}
                   onChange={(e) => setSelectedDeviceId(e.target.value)}

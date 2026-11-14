@@ -1,10 +1,12 @@
+import { compareCodeUnits } from '../../lib/strings.js'
+
 /**
  * Partes puras de la mensajería: sin base de datos, para poder testearlas solas.
  */
 
 /** Clave única de la conversación de un par: los dos ids ordenados. "a:b" y "b:a" son la misma. */
 export function pairKeyOf(userA: string, userB: string): string {
-  return [userA, userB].sort().join(':')
+  return [userA, userB].sort(compareCodeUnits).join(':')
 }
 
 /** Vista previa de la lista: una línea, recortada. */

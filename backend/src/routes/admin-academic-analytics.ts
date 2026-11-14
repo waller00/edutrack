@@ -8,6 +8,7 @@ import { alertRulesForYear } from '../services/gradebook/alert-rules.js'
 import { periodScaleFor } from '../services/gradebook/period-scale.js'
 import { gradeBooksForGroup } from '../services/gradebook/institutional.js'
 import { loadTrajectory } from '../services/student-indicators/loaders.js'
+import { compareCodeUnits } from '../lib/strings.js'
 import {
   buildComparison,
   lowSubjectsHistogram,
@@ -67,7 +68,7 @@ type LevelPick = { level: Level | null; ambiguous?: string[] }
  */
 export function pickLevel(requested: Level | undefined, available: Iterable<string | null | undefined>): LevelPick {
   if (requested) return { level: requested }
-  const levels = [...new Set([...available].filter((l): l is string => Boolean(l)))].sort()
+  const levels = [...new Set([...available].filter((l): l is string => Boolean(l)))].sort(compareCodeUnits)
   if (levels.length > 1) return { level: null, ambiguous: levels }
   return { level: (levels[0] as Level | undefined) ?? null }
 }

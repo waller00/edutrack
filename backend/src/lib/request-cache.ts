@@ -19,7 +19,7 @@ export function memoizeInRequest<T>(key: string, load: () => Promise<T>): Promis
   const store = storage.getStore();
   if (!store) return load();
   const cached = store.get(key) as Promise<T> | undefined;
-  if (cached) return cached;
+  if (cached !== undefined) return cached;
   const pending = load().catch((error) => {
     // Un fallo no queda guardado: el próximo intento del mismo pedido vuelve a consultar.
     store.delete(key);

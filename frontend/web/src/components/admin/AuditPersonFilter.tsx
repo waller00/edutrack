@@ -103,6 +103,8 @@ export default function AuditPersonFilter({
   return (
     <div
       ref={root}
+      // Sólo agrupa: el foco y las teclas los reciben el campo y las opciones; acá se escuchan juntas.
+      role="presentation"
       className="relative min-w-0"
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)

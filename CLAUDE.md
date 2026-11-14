@@ -658,6 +658,16 @@ y `lib/messages/`.
 
 SonarCloud analiza `backend/src` + `frontend/web/src`. Quality Gate: cobertura nueva ≥ 80%, 0 issues Blocker/Critical en código nuevo. La complejidad cognitiva máxima por función es 15 (regla `typescript:S3776`).
 
+> **Security y Reliability de Sonar están en A (0 issues): no volver a meter lo que los bajó.**
+> Recortar el final de un texto con `trimEndChars` (`lib/strings.ts`, `lib/format/strings.ts`),
+> nunca `replace(/\/+$/, …)` (tarda en proporción al cuadrado); `sort()` de claves o ids con
+> `compareCodeUnits`; `Number.parseInt`/`Number.isNaN`; una promesa que no se espera, con `void`.
+> Todo `<label>` con su `htmlFor` y el `id` en el campo (si se repite en pantalla, `useId`); un
+> rótulo de un dato que no se edita es un `<span>`, y un grupo de casillas, `fieldset` + `legend`.
+> Enfocar el campo que aparece por un clic es `ref={focusOnMount}`, no `autoFocus`. Un falso
+> positivo no se "acepta" en SonarCloud: va con `// NOSONAR` y el motivo en esa línea, o en
+> `sonar.issue.ignore.multicriteria` de `sonar-project.properties` si es todo un archivo.
+
 ---
 
 ## CI / CD

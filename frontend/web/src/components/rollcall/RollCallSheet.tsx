@@ -318,7 +318,7 @@ export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: 
                 <summary aria-label="Opciones de lista" className="flex min-h-12 min-w-12 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
                   <MoreHorizontal className="h-5 w-5" aria-hidden /><span className="sr-only sm:not-sr-only">Opciones de lista</span>
                 </summary>
-                <div className="absolute right-0 top-full z-30 mt-2 w-60 space-y-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg" onClick={(event) => {
+                <div role="presentation" className="absolute right-0 top-full z-30 mt-2 w-60 space-y-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg" onClick={(event) => {
                   const details = event.currentTarget.closest('details')
                   if (details) { details.open = false; details.querySelector('summary')?.focus() }
                 }}>

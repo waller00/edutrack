@@ -209,7 +209,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
   const { detail, retry, refresh } = useMeetingStudent(meetingScope, openStudent?.studentId ?? null)
 
   useEffect(() => {
-    ;(async () => {
+    void (async () => {
       try {
         const [g, p] = await Promise.all([
           api<{ data: Group[] }>(withSchoolYear('/admin/gradebook/groups', query)),

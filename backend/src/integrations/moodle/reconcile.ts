@@ -706,7 +706,7 @@ async function runReconcileMoodle(
 export async function reconcileMoodle(
   opts: { syncStudents?: boolean; now?: Date } = {},
 ): Promise<ReconcileSummary> {
-  if (reconcileInFlight) return reconcileInFlight;
+  if (reconcileInFlight !== null) return reconcileInFlight;
   const run = runReconcileMoodle(opts);
   reconcileInFlight = run;
   try {

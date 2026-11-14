@@ -344,7 +344,7 @@ const KEY_LIST: Record<string, ListId> = { Home: 'seguidas', End: 'faltas' }
 
 /** Pestañas con flechas, Inicio y Fin; el panel lleva el id que las nombra. */
 function ListTabs({ tabsId, list, onChoose }: Readonly<{ tabsId: string; list: ListId; onChoose: (id: ListId) => void }>) {
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
     const next = KEY_LIST[event.key] ?? (list === 'seguidas' ? 'faltas' : 'seguidas')
@@ -352,7 +352,7 @@ function ListTabs({ tabsId, list, onChoose }: Readonly<{ tabsId: string; list: L
     document.getElementById(`${tabsId}-${next}`)?.focus()
   }
   return (
-    <div role="tablist" aria-label="Listas de asistencia" onKeyDown={onKeyDown} className="flex flex-wrap gap-1 border-b border-slate-200">
+    <div role="tablist" aria-label="Listas de asistencia" className="flex flex-wrap gap-1 border-b border-slate-200">
       {LISTS.map((tab) => {
         const selected = list === tab.id
         return (
@@ -365,6 +365,7 @@ function ListTabs({ tabsId, list, onChoose }: Readonly<{ tabsId: string; list: L
             aria-controls={`${tabsId}-panel`}
             tabIndex={selected ? 0 : -1}
             onClick={() => onChoose(tab.id)}
+            onKeyDown={onKeyDown}
             className={`-mb-px min-h-11 border-b-2 px-3 text-sm font-medium ${selected ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
           >
             {tab.label}

@@ -252,8 +252,9 @@ export default function OnboardingPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Fecha de nacimiento</label>
+                <label htmlFor="onboarding-fecha-de-nacimiento" className="block text-sm font-medium text-gray-700 mb-2">Fecha de nacimiento</label>
                 <DateField
+                  id="onboarding-fecha-de-nacimiento"
                   value={birthdate}
                   onChange={setBirthdate}
                   max={new Date().toISOString().split('T')[0]}
@@ -306,7 +307,7 @@ export default function OnboardingPage() {
             )}
 
             <div className="flex gap-4 pt-6 border-t border-gray-200">
-              <button disabled={loading} className="btn-primary flex-1 disabled:opacity-60">
+              <button type="submit" disabled={loading} className="btn-primary flex-1 disabled:opacity-60">
                 <PendingButtonContent pending={loading} pendingText="Guardando…" idle="Guardar y enviar a validación" />
               </button>
               <a href="/" className="btn-secondary flex-1 text-center">

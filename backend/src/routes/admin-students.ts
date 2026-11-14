@@ -24,6 +24,7 @@ import {
 import { pendingResolvedAt } from '../services/student-indicators/subjects-ape.js'
 import { userPermissionScope } from '../middlewares/auth.js'
 import { recordAuditEvent } from '../services/audit-log.js'
+import { compareCodeUnits } from '../lib/strings.js'
 
 const r = Router()
 
@@ -1643,7 +1644,7 @@ r.put('/:id', async (req: any, res) => {
     })
 
     // Qué campos se mandaron, no sus valores.
-    auditStudent(req, AuditAction.STUDENT_UPDATED, updated.id, { fields: Object.keys(body).sort() })
+    auditStudent(req, AuditAction.STUDENT_UPDATED, updated.id, { fields: Object.keys(body).sort(compareCodeUnits) })
 
     const updatedAny = updated as any
     const accountChanged =

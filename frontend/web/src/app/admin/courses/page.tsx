@@ -19,6 +19,7 @@ import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import ModuleHeader from '@/components/common/ModuleHeader'
+import { focusOnMount } from '@/lib/forms/focus-on-mount'
 
 type CourseDraft = {
   name: string
@@ -447,7 +448,7 @@ function CoursesContent() {
             <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
               <label className="space-y-1 text-sm font-medium text-gray-700">
                 <span>Nombre del curso</span>
-                <input autoFocus required className="input-field" placeholder="Ej. Primero" value={courseDraft.name} onChange={(e) => setCourseDraft({ ...courseDraft, name: e.target.value })} />
+                <input ref={focusOnMount} required className="input-field" placeholder="Ej. Primero" value={courseDraft.name} onChange={(e) => setCourseDraft({ ...courseDraft, name: e.target.value })} />
               </label>
               <label className="space-y-1 text-sm font-medium text-gray-700">
                 <span>Orden en el listado</span>
@@ -602,7 +603,7 @@ function CoursesContent() {
                                 <form onSubmit={(event) => { event.preventDefault(); void updateOrientation(row) }} className="space-y-2">
                                   <label className="block space-y-1 text-sm text-gray-700">
                                     <span>Nombre de la orientación</span>
-                                    <input autoFocus required className="input-field" value={editingOrientationName} onChange={(e) => setEditingOrientationName(e.target.value)} />
+                                    <input ref={focusOnMount} required className="input-field" value={editingOrientationName} onChange={(e) => setEditingOrientationName(e.target.value)} />
                                   </label>
                                   <div className="flex flex-wrap gap-2">
                                     <button type="submit" className="min-h-9 rounded-lg bg-emerald-600 px-3 py-2 text-xs text-white">Guardar</button>

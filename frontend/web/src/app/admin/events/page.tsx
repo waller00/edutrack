@@ -735,8 +735,8 @@ function AdminEventsContent() {
   const selectedDayEvents = selectedDate === null ? [] : getEventsForYmd(events, selectedDate)
 
   useEffect(() => {
-    loadEvents()
-    loadUsers()
+    void loadEvents()
+    void loadUsers()
     void loadSubstitutionFlags()
   }, [page, filters, syCtx?.allYears, syCtx?.schoolYearQuery])
 
@@ -2017,8 +2017,9 @@ function AdminEventsContent() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Título</label>
+                  <label htmlFor="new-event-titulo" className="block text-sm font-medium text-gray-700 mb-1">Título</label>
                   <input
+                    id="new-event-titulo"
                     type="text"
                     value={newEvent.title}
                     onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
@@ -2028,8 +2029,9 @@ function AdminEventsContent() {
                 </div>
                 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
+                  <label htmlFor="new-event-descripcion" className="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
                   <textarea
+                    id="new-event-descripcion"
                     value={newEvent.description}
                     onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -2039,8 +2041,9 @@ function AdminEventsContent() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Perfil de la persona</label>
+                  <label htmlFor="new-event-perfil-de-la-persona" className="block text-sm font-medium text-gray-700 mb-1">Perfil de la persona</label>
                   <select
+                    id="new-event-perfil-de-la-persona"
                     value={selectedRole}
                     onChange={(e) => {
                       const role = e.target.value as RoleOption
@@ -2061,8 +2064,9 @@ function AdminEventsContent() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
+                  <label htmlFor="new-event-tipo" className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
                   <select
+                    id="new-event-tipo"
                     value={newEvent.type}
                     onChange={(e) => setNewEvent({ ...newEvent, type: e.target.value as EventTypeOption })}
                     disabled={!selectedRole}
@@ -2079,8 +2083,9 @@ function AdminEventsContent() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Asignado a</label>
+                  <label htmlFor="new-event-asignado-a" className="block text-sm font-medium text-gray-700 mb-1">Asignado a</label>
                   <select
+                    id="new-event-asignado-a"
                     value={newEvent.assignedUserId}
                     onChange={(e) => setNewEvent({ ...newEvent, assignedUserId: e.target.value })}
                     disabled={!selectedRole}
@@ -2096,8 +2101,9 @@ function AdminEventsContent() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Curso (opcional)</label>
+                  <label htmlFor="new-event-curso-opcional" className="block text-sm font-medium text-gray-700 mb-1">Curso (opcional)</label>
                   <select
+                    id="new-event-curso-opcional"
                     value={newEvent.courseId}
                     onChange={(e) => {
                       const v = e.target.value
@@ -2121,8 +2127,9 @@ function AdminEventsContent() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Orientación (opcional)</label>
+                  <label htmlFor="new-event-orientacion-opcional" className="block text-sm font-medium text-gray-700 mb-1">Orientación (opcional)</label>
                   <select
+                    id="new-event-orientacion-opcional"
                     value={newEvent.courseOrientationId}
                     onChange={(e) => {
                       const row = createOrientations.find((o) => o.id === e.target.value)
@@ -2152,8 +2159,9 @@ function AdminEventsContent() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Asignatura (opcional)</label>
+                  <label htmlFor="new-event-asignatura-opcional" className="block text-sm font-medium text-gray-700 mb-1">Asignatura (opcional)</label>
                   <select
+                    id="new-event-asignatura-opcional"
                     value={newEvent.subjectId}
                     onChange={(e) => setNewEvent({ ...newEvent, subjectId: e.target.value })}
                     disabled={!newEvent.courseId}
@@ -2188,7 +2196,7 @@ function AdminEventsContent() {
                     <div>
                       <span className="block text-sm font-medium text-gray-800 mb-2">Vigencia de la repetición</span>
                       <div className="space-y-2">
-                        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
+                        <label className="grid cursor-pointer grid-cols-[auto_1fr] items-start gap-x-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
                           <input
                             type="radio"
                             name="recurrenceRangeMode"
@@ -2199,16 +2207,14 @@ function AdminEventsContent() {
                             }}
                             className="mt-0.5"
                           />
-                          <span>
-                            <span className="font-medium text-gray-900">Hasta cierre manual del año lectivo</span>
-                            <span className="mt-0.5 block text-xs text-gray-600">
-                              {activeSchoolYear && activeSchoolYear.status !== 'CLOSED'
-                                ? `Sigue disponible en ${schoolYearRangeLabel(activeSchoolYear)} hasta que el ciclo se cierre.`
-                                : 'Elegí un ciclo lectivo abierto en la barra superior para usar esta opción.'}
-                            </span>
+                          <span className="font-medium text-gray-900">Hasta cierre manual del año lectivo</span>
+                          <span className="col-start-2 mt-0.5 block text-xs text-gray-600">
+                            {activeSchoolYear && activeSchoolYear.status !== 'CLOSED'
+                              ? `Sigue disponible en ${schoolYearRangeLabel(activeSchoolYear)} hasta que el ciclo se cierre.`
+                              : 'Elegí un ciclo lectivo abierto en la barra superior para usar esta opción.'}
                           </span>
                         </label>
-                        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
+                        <label className="grid cursor-pointer grid-cols-[auto_1fr] items-start gap-x-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
                           <input
                             type="radio"
                             name="recurrenceRangeMode"
@@ -2216,19 +2222,18 @@ function AdminEventsContent() {
                             onChange={() => setRecurrenceRangeMode('custom')}
                             className="mt-0.5"
                           />
-                          <span>
-                            <span className="font-medium text-gray-900">Rango personalizado</span>
-                            <span className="mt-0.5 block text-xs text-gray-600">
-                              Elegí manualmente la fecha de inicio y la fecha de fin de la repetición.
-                            </span>
+                          <span className="font-medium text-gray-900">Rango personalizado</span>
+                          <span className="col-start-2 mt-0.5 block text-xs text-gray-600">
+                            Elegí manualmente la fecha de inicio y la fecha de fin de la repetición.
                           </span>
                         </label>
                       </div>
                     </div>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de inicio</label>
+                        <label htmlFor="new-event-fecha-de-inicio" className="block text-sm font-medium text-gray-700 mb-1">Fecha de inicio</label>
                         <DateField
+                          id="new-event-fecha-de-inicio"
                           value={newEvent.startDate}
                           min={createMinStartDateYmd}
                           onChange={(v) => setNewEvent({ ...newEvent, startDate: v })}
@@ -2238,8 +2243,9 @@ function AdminEventsContent() {
                       </div>
                       {recurrenceRangeMode === 'custom' ? (
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de fin</label>
+                          <label htmlFor="new-event-fecha-de-fin" className="block text-sm font-medium text-gray-700 mb-1">Fecha de fin</label>
                           <DateField
+                            id="new-event-fecha-de-fin"
                             value={newEvent.recurrenceEnd}
                             min={newEvent.startDate || createMinStartDateYmd}
                             onChange={(v) => setNewEvent({ ...newEvent, recurrenceEnd: v })}
@@ -2261,8 +2267,9 @@ function AdminEventsContent() {
                   </div>
                 ) : (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
+                    <label htmlFor="new-event-fecha" className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
                     <DateField
+                      id="new-event-fecha"
                       value={newEvent.startDate}
                       min={createMinStartDateYmd}
                       onChange={(v) => setNewEvent({ ...newEvent, startDate: v })}
@@ -2273,8 +2280,8 @@ function AdminEventsContent() {
                 
                 {/* Días de la semana solo para eventos repetitivos */}
                 {newEvent.isRecurring && (
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Días de la Semana</label>
+                  <fieldset className="md:col-span-2">
+                    <legend className="block text-sm font-medium text-gray-700 mb-2">Días de la Semana</legend>
                     <div className="grid grid-cols-7 gap-2">
                       {WEEKDAY_OPTIONS.map(day => (
                         <label key={day.value} className="flex flex-col items-center">
@@ -2297,10 +2304,10 @@ function AdminEventsContent() {
                       <span className="font-medium">Queda asignado:</span>{' '}
                       {formatEventScheduleSummary(newEvent)}
                     </div>
-                  </div>
+                  </fieldset>
                 )}
               </div>
-              
+
               <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                 <button
                   type="button"
@@ -2353,8 +2360,9 @@ function AdminEventsContent() {
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Título</label>
+                  <label htmlFor="edit-event-titulo" className="block text-sm font-medium text-gray-700 mb-1">Título</label>
                   <input
+                    id="edit-event-titulo"
                     type="text"
                     value={editingEvent.title}
                     onChange={(e) => setEditingEvent({ ...editingEvent, title: e.target.value })}
@@ -2363,8 +2371,9 @@ function AdminEventsContent() {
                 </div>
                 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
+                  <label htmlFor="edit-event-descripcion" className="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
                   <textarea
+                    id="edit-event-descripcion"
                     value={editingEvent.description || ''}
                     onChange={(e) => setEditingEvent({ ...editingEvent, description: e.target.value })}
                     rows={3}
@@ -2373,8 +2382,9 @@ function AdminEventsContent() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
+                  <label htmlFor="edit-event-tipo" className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
                   <select
+                    id="edit-event-tipo"
                     value={editingEvent.type}
                     onChange={(e) => setEditingEvent({ ...editingEvent, type: e.target.value as EventTypeOption })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -2388,8 +2398,9 @@ function AdminEventsContent() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+                  <label htmlFor="edit-event-estado" className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
                   <select
+                    id="edit-event-estado"
                     value={editingEvent.status}
                     onChange={(e) => setEditingEvent({ ...editingEvent, status: e.target.value as EventStatusOption })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -2403,8 +2414,9 @@ function AdminEventsContent() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
+                  <label htmlFor="edit-event-fecha" className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
                   <DateField
+                    id="edit-event-fecha"
                     value={getEventDateInputValue(editingEvent.startDate)}
                     min={editMinStartDateYmd}
                     onChange={(v) => setEditingEvent({ ...editingEvent, startDate: v })}
@@ -2413,8 +2425,9 @@ function AdminEventsContent() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
+                  <label htmlFor="edit-event-fecha-fin" className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
                   <DateField
+                    id="edit-event-fecha-fin"
                     value={getEventEndDateInputValue(editingEvent)}
                     onChange={(v) => setEditingEvent({ ...editingEvent, endDate: v })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -2439,8 +2452,9 @@ function AdminEventsContent() {
                 />
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Asignado a</label>
+                  <label htmlFor="edit-event-asignado-a" className="block text-sm font-medium text-gray-700 mb-1">Asignado a</label>
                   <select
+                    id="edit-event-asignado-a"
                     value={editingEvent.assignedUserId || ''}
                     onChange={(e) => setEditingEvent({ ...editingEvent, assignedUserId: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -2457,8 +2471,9 @@ function AdminEventsContent() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Curso (opcional)</label>
+                  <label htmlFor="edit-event-curso-opcional" className="block text-sm font-medium text-gray-700 mb-1">Curso (opcional)</label>
                   <select
+                    id="edit-event-curso-opcional"
                     value={editingEvent.courseId ?? ''}
                     onChange={(e) => {
                       const v = e.target.value || null
@@ -2487,8 +2502,9 @@ function AdminEventsContent() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Orientación (opcional)</label>
+                  <label htmlFor="edit-event-orientacion-opcional" className="block text-sm font-medium text-gray-700 mb-1">Orientación (opcional)</label>
                   <select
+                    id="edit-event-orientacion-opcional"
                     value={editingEvent.courseOrientationId ?? ''}
                     onChange={(e) => {
                       const row = editOrientations.find((o) => o.id === e.target.value)
@@ -2518,8 +2534,9 @@ function AdminEventsContent() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Asignatura (opcional)</label>
+                  <label htmlFor="edit-event-asignatura-opcional" className="block text-sm font-medium text-gray-700 mb-1">Asignatura (opcional)</label>
                   <select
+                    id="edit-event-asignatura-opcional"
                     value={editingEvent.subjectId ?? ''}
                     onChange={(e) =>
                       setEditingEvent({

@@ -1,5 +1,6 @@
 import http from "node:http";
 import https from "node:https";
+import { trimEndChars } from "../../lib/strings.js";
 
 /**
  * Cliente REST de bajo nivel para los servicios web de Moodle.
@@ -47,7 +48,7 @@ export function moodleStudentRoleId(): number {
  */
 export function moodleSubstituteTeacherRoleId(): number {
   const raw = process.env.MOODLE_ROLE_SUBSTITUTE_TEACHER_ID?.trim();
-  const n = raw ? Number(raw) : NaN;
+  const n = raw ? Number(raw) : Number.NaN;
   return Number.isFinite(n) && n > 0 ? n : moodleTeacherRoleId();
 }
 
@@ -90,7 +91,7 @@ export function moodleUserLangParam(prefix: string): Record<string, string> {
  */
 export function moodlePublicUrl(): string | null {
   const raw = process.env.MOODLE_PUBLIC_URL?.trim();
-  return raw ? raw.replace(/\/+$/, "") : null;
+  return raw ? trimEndChars(raw, "/") : null;
 }
 
 /** POST application/x-www-form-urlencoded; opcionalmente fuerza Host. */

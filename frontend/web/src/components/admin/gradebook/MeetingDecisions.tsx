@@ -7,6 +7,7 @@ import { hasPermission } from '@/lib/auth/permissions'
 import { formatHundredths } from '@/lib/academic-config/grade-value'
 import type { MeetingDecision as Decision } from '@/lib/gradebook/meeting-records'
 import type { MeetingRecords } from './meeting/useMeetingRecords'
+import { focusOnMount } from '@/lib/forms/focus-on-mount'
 
 type StudentOption = {
   studentId: string
@@ -91,7 +92,7 @@ export function JudgementEditor({
           className="input-field min-h-[64px] w-full text-sm"
           value={draft}
           maxLength={2000}
-          autoFocus
+          ref={focusOnMount}
           onChange={(e) => setDraft(e.target.value)}
         />
         <div className="flex gap-2">

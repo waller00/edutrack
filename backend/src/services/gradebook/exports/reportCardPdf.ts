@@ -330,9 +330,12 @@ function openLogo(doc: Doc, bytes: Buffer | null): OpenedImage | null {
  * Varios boletines en un solo PDF, cada uno desde una hoja nueva: es como se imprimen los de un
  * grupo para la entrega a las familias.
  */
+/** Sin nombre ni logo cargados en Configuración → Institución. */
+const NO_BRANDING: InstitutionBranding = Object.freeze({ name: null, logo: null })
+
 export function generateReportCardsPdf(
   cards: readonly ReportCard[],
-  institution: InstitutionBranding = { name: null, logo: null },
+  institution: InstitutionBranding = NO_BRANDING,
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 0 })

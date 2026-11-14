@@ -74,6 +74,8 @@ export default function SidePanel({
 
   return createPortal(
     <div
+      // El fondo oscuro: un clic afuera cierra, y con teclado se cierra con Escape (arriba).
+      role="presentation"
       className="fixed inset-0 z-50 flex justify-end bg-slate-950/40"
       onMouseDown={(e) => e.target === e.currentTarget && closeRef.current()}
     >

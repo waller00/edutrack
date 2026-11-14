@@ -233,7 +233,8 @@ describe('Indicadores de estudiantes', () => {
     render(<StudentIndicators />)
     fireEvent.click(screen.getByRole('tab', { name: 'Trayectoria' }))
     expect(routerMock.replace).toHaveBeenCalledWith('/admin/student-indicators?seccion=trayectoria&boletin=e2', { scroll: false })
-    fireEvent.keyDown(screen.getByRole('tablist', { name: 'Indicadores de estudiantes' }), { key: 'End' })
+    // La tecla la recibe la pestaña con foco, como en el navegador.
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Trayectoria' }), { key: 'End' })
     expect(routerMock.replace).toHaveBeenLastCalledWith('/admin/student-indicators?seccion=riesgo&boletin=e2', { scroll: false })
   })
 

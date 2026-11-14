@@ -10,6 +10,7 @@
  */
 
 import { isValidUruguayanCI } from '@/lib/forms/uruguay-forms'
+import { isValidRegisterEmail } from '@/lib/auth/register-form-validation'
 
 export type StudentTabId = 'datos' | 'contacto' | 'trayectoria' | 'adecuaciones' | 'moodle' | 'historial'
 
@@ -33,7 +34,6 @@ export type ValidatableStudent = {
 }
 
 const USERNAME_RE = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function text(value: string | null | undefined): string {
   return (value ?? '').trim()
@@ -72,7 +72,7 @@ export function validateStudent(student: ValidatableStudent): StudentFormError |
 
   // Email y usuario son opcionales: hacen falta recién para crear la cuenta de Moodle.
   const email = text(student.email)
-  if (email !== '' && !EMAIL_RE.test(email)) {
+  if (email !== '' && !isValidRegisterEmail(email)) {
     return { field: 'email', tab: 'contacto', message: 'El email no tiene un formato válido.' }
   }
   if (tooLong(student.email, 200)) {

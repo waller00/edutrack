@@ -1118,8 +1118,9 @@ export default function AdminSchoolYearsPage() {
                 </div>
                 {startPlan && startPlan.sourceYears.length > 0 && (
                   <div className="mt-3 max-w-sm">
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Ciclo origen</label>
+                    <label htmlFor="school-year-ciclo-origen" className="mb-1 block text-xs font-medium text-gray-600">Ciclo origen</label>
                     <select
+                      id="school-year-ciclo-origen"
                       className="select-field w-full text-sm"
                       value={startSourceId}
                       disabled={startLoading || starting}
@@ -1194,18 +1195,16 @@ export default function AdminSchoolYearsPage() {
                       </div>
                     </div>
                     {startSourceId && (
-                      <label className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                      <label className="grid grid-cols-[auto_1fr] items-start gap-x-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
                         <input
                           type="checkbox"
                           className="mt-0.5 h-4 w-4"
                           checked={copyStartSubjects}
                           onChange={(e) => setCopyStartSubjects(e.target.checked)}
                         />
-                        <span>
-                          <span className="font-medium text-gray-900">Copiar asignaturas del ciclo origen</span>
-                          <span className="block text-xs text-gray-500">
-                            Trae la configuración de asignaturas de los cursos al nuevo ciclo (no hace falta recrearlas). No duplica las que ya existan.
-                          </span>
+                        <span className="font-medium text-gray-900">Copiar asignaturas del ciclo origen</span>
+                        <span className="col-start-2 block text-xs text-gray-500">
+                          Trae la configuración de asignaturas de los cursos al nuevo ciclo (no hace falta recrearlas). No duplica las que ya existan.
                         </span>
                       </label>
                     )}

@@ -58,7 +58,7 @@ export function validatePhoneUpdate(phone?: string) {
 export function validateBirthdateUpdate(birthdate?: string) {
   if (!birthdate) return undefined;
   const parsedBirthdate = parseBirthdateInput(birthdate);
-  if (isNaN(parsedBirthdate.getTime()) || parsedBirthdate > new Date())
+  if (Number.isNaN(parsedBirthdate.getTime()) || parsedBirthdate > new Date())
     throw new Error("INVALID_BIRTHDATE");
   return parsedBirthdate;
 }
@@ -67,7 +67,7 @@ export function validateBirthdateUpdate(birthdate?: string) {
 export function validateNationalIdDocumentExpiresAtUpdate(input?: string) {
   if (!input || !String(input).trim()) return undefined;
   const parsed = parseBirthdateInput(String(input).trim());
-  if (isNaN(parsed.getTime())) throw new Error("INVALID_NATIONAL_ID_DOCUMENT_EXPIRES_AT");
+  if (Number.isNaN(parsed.getTime())) throw new Error("INVALID_NATIONAL_ID_DOCUMENT_EXPIRES_AT");
   const y = parsed.getFullYear();
   if (y < 1950 || y > 2100) throw new Error("INVALID_NATIONAL_ID_DOCUMENT_EXPIRES_AT");
   return parsed;

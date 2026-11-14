@@ -784,7 +784,7 @@ function AdminAttendanceContent() {
   useEffect(() => {
     if (filters.userId) {
       setUserEvents([])
-      loadUserEvents(filters.userId)
+      void loadUserEvents(filters.userId)
     } else {
       eventsRequest.current += 1
       setUserEvents([])
@@ -1329,8 +1329,9 @@ function AdminAttendanceContent() {
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+                  <label htmlFor="edit-attendance-estado" className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
                   <select
+                    id="edit-attendance-estado"
                     value={editing.status}
                     onChange={(e) => setEditing({ ...editing, status: e.target.value as AttendanceStatusOption })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -1354,8 +1355,9 @@ function AdminAttendanceContent() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+                  <label htmlFor="edit-attendance-notas" className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
                   <textarea
+                    id="edit-attendance-notas"
                     value={editing.notes || ''}
                     onChange={(e) => setEditing({ ...editing, notes: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"

@@ -51,8 +51,9 @@ export default function AttendanceJustifyModal({ attendanceId, teacherLabel, onC
         {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
         <div className="mt-4 space-y-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Tipo</label>
+            <label htmlFor="justify-tipo" className="mb-1 block text-xs font-medium text-slate-600">Tipo</label>
             <select
+              id="justify-tipo"
               value={type}
               onChange={(e) => setType(e.target.value as typeof type)}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
@@ -64,8 +65,9 @@ export default function AttendanceJustifyModal({ attendanceId, teacherLabel, onC
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Motivo</label>
+            <label htmlFor="justify-motivo" className="mb-1 block text-xs font-medium text-slate-600">Motivo</label>
             <input
+              id="justify-motivo"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               required
@@ -73,8 +75,9 @@ export default function AttendanceJustifyModal({ attendanceId, teacherLabel, onC
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Notas</label>
+            <label htmlFor="justify-notas" className="mb-1 block text-xs font-medium text-slate-600">Notas</label>
             <textarea
+              id="justify-notas"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}

@@ -53,7 +53,7 @@ export const REGISTER_REQUIRED_FIELDS: RegisterFieldName[] = [
 
 export const REGISTER_FIELD_LABELS: Record<RegisterFieldName, string> = {
   email: 'Correo',
-  password: 'Contraseña',
+  password: 'Contraseña', // NOSONAR: es el rótulo del campo, no una contraseña (S2068)
   confirm: 'Confirmar contraseña',
   nationalId: 'Cédula',
   firstName: 'Nombres',

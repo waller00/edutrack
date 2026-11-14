@@ -148,7 +148,7 @@ function SectionTabs({
   onChange,
 }: Readonly<{ sections: readonly IndicatorSection[]; active: IndicatorSection; onChange: (id: IndicatorSectionId) => void }>) {
   const baseId = useId()
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     const current = sections.findIndex((s) => s.id === active.id)
     const moves: Record<string, number> = { ArrowRight: current + 1, ArrowLeft: current - 1, Home: 0, End: sections.length - 1 }
     if (!(event.key in moves)) return
@@ -163,7 +163,6 @@ function SectionTabs({
       role="tablist"
       aria-label="Indicadores de estudiantes"
       data-tour="student-indicators.sections"
-      onKeyDown={onKeyDown}
       className="flex flex-wrap gap-1 border-b border-slate-200"
     >
       {sections.map((s) => (
@@ -176,6 +175,7 @@ function SectionTabs({
           aria-controls="student-indicators-panel"
           tabIndex={s.id === active.id ? 0 : -1}
           onClick={() => onChange(s.id)}
+          onKeyDown={onKeyDown}
           className={`-mb-px min-h-11 border-b-2 px-3 text-sm font-medium ${
             s.id === active.id ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}

@@ -1,4 +1,5 @@
 import { absenceCounts, countsByDay } from '../student-attendance/absence-weight.js'
+import { compareCodeUnits } from '../../lib/strings.js'
 
 /**
  * Asistencia de los estudiantes en el tiempo: por mes y por curso.
@@ -86,7 +87,7 @@ export function attendanceTrend(marks: readonly TrendMark[], courses: readonly T
     totalByMonth.set(month, totalMonth)
   }
 
-  const months = [...totalByMonth.keys()].sort()
+  const months = [...totalByMonth.keys()].sort(compareCodeUnits)
   const byCourse = courses.map((course) => {
     const byMonth = perCourseMonth.get(course.courseOfferingId) ?? new Map<string, DayCounts>()
     const total = emptyCounts()

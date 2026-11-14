@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { trimEndChars } from "../lib/strings.js";
 
 /**
  * Generación de usernames con formato `nombre.apellido`, compartida entre las
@@ -20,7 +21,7 @@ export function usernamePart(input: string) {
 
 export function fitUsername(base: string, suffix = "") {
   const maxBase = Math.max(3, 30 - suffix.length);
-  return `${base.slice(0, maxBase).replace(/[.-]+$/g, "")}${suffix}`;
+  return `${trimEndChars(base.slice(0, maxBase), ".-")}${suffix}`;
 }
 
 export async function generateUniqueUsername(
@@ -31,7 +32,7 @@ export async function generateUniqueUsername(
   const first = usernamePart(firstName)[0] || "usuario";
   const lastParts = usernamePart(lastName);
   const firstLast = lastParts[0] || "sinapellido";
-  const base = `${first}.${firstLast}`.slice(0, 30).replace(/[.-]+$/g, "");
+  const base = trimEndChars(`${first}.${firstLast}`.slice(0, 30), ".-");
 
   const restLetters = lastParts.slice(1).join("");
 

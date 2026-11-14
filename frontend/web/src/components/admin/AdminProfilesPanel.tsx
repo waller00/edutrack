@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ModuleHeader from '@/components/common/ModuleHeader'
+import { focusOnMount } from '@/lib/forms/focus-on-mount'
 
 type PermissionScope = 'own' | 'all'
 type PermissionSource = 'system' | 'custom'
@@ -692,7 +693,7 @@ export default function AdminProfilesPanel({
             <label className="block text-sm font-medium text-slate-700">
               Nombre
               <input
-                autoFocus
+                ref={focusOnMount}
                 required
                 minLength={2}
                 maxLength={80}

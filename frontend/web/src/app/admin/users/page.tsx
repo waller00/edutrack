@@ -796,8 +796,9 @@ function AdminUsersPageContent() {
               <p className="mt-1 text-xs text-slate-500">{edit.email}</p>
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Usuario (login)</label>
+                  <label htmlFor="edit-user-usuario-login" className="mb-1 block text-xs font-medium text-slate-600">Usuario (login)</label>
                   <input
+                    id="edit-user-usuario-login"
                     value={edit.username ?? ''}
                     onChange={(e) => setEdit({ ...edit, username: e.target.value })}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -807,27 +808,30 @@ function AdminUsersPageContent() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Nombre</label>
+                  <label htmlFor="edit-user-nombre" className="mb-1 block text-xs font-medium text-slate-600">Nombre</label>
                   <input
+                    id="edit-user-nombre"
                     value={edit.firstName ?? ''}
                     onChange={(e) => setEdit({ ...edit, firstName: e.target.value })}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Apellido</label>
+                  <label htmlFor="edit-user-apellido" className="mb-1 block text-xs font-medium text-slate-600">Apellido</label>
                   <input
+                    id="edit-user-apellido"
                     value={edit.lastName ?? ''}
                     onChange={(e) => setEdit({ ...edit, lastName: e.target.value })}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Rol</label>
+                  <label htmlFor="edit-user-rol" className="mb-1 block text-xs font-medium text-slate-600">Rol</label>
                   {edit.role === 'ADMIN' ? (
-                    <input value={getRoleLabel('ADMIN')} disabled className="w-full rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-500" />
+                    <input id="edit-user-rol" value={getRoleLabel('ADMIN')} disabled className="w-full rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-500" />
                   ) : (
                     <select
+                      id="edit-user-rol"
                       value={edit.role}
                       onChange={(e) => setEdit({ ...edit, role: e.target.value })}
                       className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -844,8 +848,9 @@ function AdminUsersPageContent() {
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Cédula</label>
+                  <label htmlFor="edit-user-cedula" className="mb-1 block text-xs font-medium text-slate-600">Cédula</label>
                   <input
+                    id="edit-user-cedula"
                     value={edit.nationalId ?? ''}
                     onChange={(e) => setEdit({ ...edit, nationalId: e.target.value })}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -854,8 +859,9 @@ function AdminUsersPageContent() {
                 {editOrig?.isApproved && (
                   <>
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">Aprobación</label>
+                      <label htmlFor="edit-user-aprobacion" className="mb-1 block text-xs font-medium text-slate-600">Aprobación</label>
                       <select
+                        id="edit-user-aprobacion"
                         value={edit.isApproved ? 'true' : 'false'}
                         onChange={(e) => setEdit({ ...edit, isApproved: e.target.value === 'true' })}
                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
@@ -865,8 +871,9 @@ function AdminUsersPageContent() {
                       </select>
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">Estado cuenta</label>
+                      <label htmlFor="edit-user-estado-cuenta" className="mb-1 block text-xs font-medium text-slate-600">Estado cuenta</label>
                       <select
+                        id="edit-user-estado-cuenta"
                         value={edit.isActive ? 'true' : 'false'}
                         onChange={(e) => setEdit({ ...edit, isActive: e.target.value === 'true' })}
                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
@@ -878,8 +885,9 @@ function AdminUsersPageContent() {
                   </>
                 )}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Verificación email</label>
+                  <label htmlFor="edit-user-verificacion-email" className="mb-1 block text-xs font-medium text-slate-600">Verificación email</label>
                   <select
+                    id="edit-user-verificacion-email"
                     value={edit.emailVerifiedAt ? 'true' : 'false'}
                     onChange={(e) =>
                       setEdit({
