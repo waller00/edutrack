@@ -713,7 +713,7 @@ function AdminUsersPageContent() {
                 'Sin resultados con los filtros actuales.'
               ) : (
                 <>
-                  Mostrando <strong className="font-semibold text-slate-900">{rangeStart}</strong> –
+                  Mostrando <strong className="font-semibold text-slate-900">{rangeStart}</strong> –{' '}
                   <strong className="font-semibold text-slate-900">{rangeEnd}</strong> de{' '}
                   <strong className="font-semibold text-slate-900">{data.total}</strong>
                 </>

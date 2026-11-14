@@ -62,7 +62,7 @@ function NotificationListItem({
             {unread ? (
               <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" aria-hidden />
-                Sin leer
+                {' '}Sin leer
               </span>
             ) : null}
           </span>
@@ -174,7 +174,7 @@ export default function NotificationsPage() {
   async function open(item: InAppNotification) {
     markLocallyRead(item.id)
     if (notifications) {
-      await notifications.open(item)
+      notifications.open(item)
       return
     }
     if (!item.readAt) await api(`/notifications/in-app/${item.id}/read`, { method: 'PATCH' }).catch(() => undefined)

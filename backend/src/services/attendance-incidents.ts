@@ -25,7 +25,7 @@ async function notifyAdminsAttendanceIncident(title: string, body: string, actio
   );
 }
 
-export async function findAssignedEventForAttendanceInstant(tx: any, userId: string, at: Date) {
+export function findAssignedEventForAttendanceInstant(tx: any, userId: string, at: Date) {
   return tx.event.findFirst({
     where: {
       assignedUserId: userId,
@@ -80,13 +80,13 @@ export async function findAssignedEventNearAttendanceInstant(
   return active[0] ?? rows[0] ?? null;
 }
 
-export async function findOpenNoShowIncidentForEvents(
+export function findOpenNoShowIncidentForEvents(
   tx: any,
   userId: string,
   eventIds: (string | null | undefined)[],
 ) {
   const ids = Array.from(new Set(eventIds.filter((id): id is string => Boolean(id))));
-  if (ids.length === 0) return null;
+  if (ids.length === 0) return Promise.resolve(null);
   return tx.attendanceIncident.findFirst({
     where: {
       userId,

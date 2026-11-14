@@ -203,7 +203,7 @@ export default function RegisterPage() {
     try {
       const payload: Record<string, unknown> = {
         email,
-        nationalId: onlyDigits(nationalId).length ? formatUruguayanCI(nationalId).replace(/\./g, '').replace('-', '') : undefined,
+        nationalId: onlyDigits(nationalId).length ? formatUruguayanCI(nationalId).replaceAll('.', '').replace('-', '') : undefined,
         firstName,
         lastName,
         phone: phoneLocal ? `+598${normalizeLocalPhoneUY(phoneLocal)}` : undefined,

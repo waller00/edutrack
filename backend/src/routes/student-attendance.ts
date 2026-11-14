@@ -81,7 +81,7 @@ function cohortOf(event: any) {
 }
 
 /** Suplencia del día, con quién cubre: la planilla lo muestra y decide quién es responsable. */
-async function findDaySubstitution(eventId: string, occurrenceYmd: string) {
+function findDaySubstitution(eventId: string, occurrenceYmd: string) {
   return (prisma as any).substitution.findUnique({
     where: { eventId_date: { eventId, date: occurrenceDateOf(occurrenceYmd) } },
     select: { substituteUserId: true, substitute: { select: PERSON_SELECT } },

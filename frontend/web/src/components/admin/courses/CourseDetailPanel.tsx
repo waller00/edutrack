@@ -180,7 +180,7 @@ export default function CourseDetailPanel({
               checked={showHistoricalSubjects}
               onChange={(e) => setShowHistoricalSubjects(e.target.checked)}
             />
-            Ver histórico
+            {' '}Ver histórico
           </label>
         </div>
       </header>

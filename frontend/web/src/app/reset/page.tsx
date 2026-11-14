@@ -127,7 +127,7 @@ export default function ResetPage() {
               </div>
               <label className="flex items-center gap-2 text-sm text-gray-600">
                 <input type="checkbox" checked={showPasswords} onChange={(e) => setShowPasswords(e.target.checked)} />
-                Mostrar contraseñas
+                {' '}Mostrar contraseñas
               </label>
               {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
               <button type="submit" disabled={busy} className="btn-primary w-full justify-center disabled:opacity-60">

@@ -126,7 +126,7 @@ export default function TuitionStudentPanel({ student, year, initialMonth, regis
               <div><h3 className="text-lg font-bold text-slate-900">{MONTH_NAMES[month - 1]} {year}</h3><p className="text-xs text-slate-500">{row ? `Importe registrado: ${formatTuitionAmount(row.amountCents)}` : 'Este mes todavía no tiene una cuota registrada.'}</p></div>
               <TuitionStatusBadge status={tuitionStatus(row)} />
             </div>
-            <label className="block text-sm font-medium text-slate-700">Mes
+            <label className="block text-sm font-medium text-slate-700">Mes{' '}
               <select aria-label="Mes de mensualidad" value={month} disabled={saving} onChange={(event) => {
                 const next = Number(event.target.value)
                 if (next === month) return
@@ -147,7 +147,7 @@ export default function TuitionStudentPanel({ student, year, initialMonth, regis
               </div>
               {draft.status === 'none' ? <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">{row ? 'Al guardar se quitarán el estado, el importe, la fecha y las notas de este mes.' : 'Sin registrar significa que no se cargó una cuota. No se cuenta como deuda pendiente.'}</p> : <>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block text-sm font-medium text-slate-700">Importe (UYU)
+                  <label className="block text-sm font-medium text-slate-700">Importe (UYU){' '}
                     <input type="text" inputMode="decimal" className="input-field mt-1.5 w-full" placeholder="Ej. 3500,00" value={draft.amount} onChange={(event) => patch({ amount: event.target.value })} />
                     <span className="mt-1 block text-xs font-normal text-slate-500">Opcional. Dejalo vacío si no tenés el importe.</span>
                   </label>
@@ -158,7 +158,7 @@ export default function TuitionStudentPanel({ student, year, initialMonth, regis
                 </div>
                 <details key={month} className="rounded-lg border border-slate-200">
                   <summary className="cursor-pointer p-3 text-sm font-medium text-slate-600">Notas (opcional){draft.notes ? ' · Con notas' : ''}</summary>
-                  <label className="block border-t border-slate-100 p-3 text-sm font-medium text-slate-700">Notas del pago
+                  <label className="block border-t border-slate-100 p-3 text-sm font-medium text-slate-700">Notas del pago{' '}
                     <textarea rows={3} maxLength={2000} className="input-field mt-1.5 w-full" placeholder="Referencia del pago o una aclaración…" value={draft.notes} onChange={(event) => patch({ notes: event.target.value })} />
                   </label>
                 </details>

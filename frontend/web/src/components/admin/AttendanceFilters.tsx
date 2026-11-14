@@ -73,6 +73,7 @@ function SearchSelect({ label, placeholder, options, value, onChange, disabled =
           {choices.map((option, index) => (
             <div key={option.id} id={`${id}-${index}`} role="option" tabIndex={-1} aria-label={`${option.label}${option.detail ? ` ${option.detail}` : ''}`} aria-selected={option.id === value}
               onMouseDown={event => event.preventDefault()} onClick={() => choose(option.id)}
+              onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); choose(option.id) } }}
               className={`cursor-pointer rounded-lg px-3 py-2 text-sm ${active === index ? 'bg-emerald-50 text-emerald-900' : 'text-slate-700 hover:bg-slate-50'}`}>
               <span className="block font-medium">{option.label}</span>
               {option.detail && <span className="block text-xs text-slate-500">{option.detail}</span>}

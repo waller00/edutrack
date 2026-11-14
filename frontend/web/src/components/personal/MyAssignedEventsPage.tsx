@@ -186,7 +186,7 @@ function EventsContent() {
             }}
           />
           <label className="space-y-1 text-sm font-medium text-slate-700">
-            Buscar actividad
+            Buscar actividad{' '}
             <input
               type="search"
               value={search}

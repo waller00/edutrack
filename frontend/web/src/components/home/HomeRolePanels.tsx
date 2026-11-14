@@ -629,7 +629,7 @@ function HomeTimelineFilters({ data, filters, setFilters, showFreeBlocks, setSho
           onChange={(e) => setShowFreeBlocks(e.target.checked)}
           className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
         />
-        Ver bloques libres
+        {' '}Ver bloques libres
       </label>
       <button
         type="button"
@@ -856,7 +856,7 @@ export function HomeAdminTimeline() {
                     <p className="text-sm text-slate-500">Podés consultar las clases o la actividad del día.</p>
                   </div>
                 ) : (
-                  <ul className="divide-y divide-slate-100" role="list">
+                  <ul className="divide-y divide-slate-100">
                     {preview(incidentItems).map((item) => (
                       <li key={item.id} className="flex gap-3 px-4 py-3.5">
                         <div
@@ -912,7 +912,7 @@ export function HomeAdminTimeline() {
                 {classItems.length === 0 ? (
                   <div className="px-4 py-8 text-sm text-slate-500">No hay clases para mostrar con estos filtros.</div>
                 ) : (
-                  <ul className="divide-y divide-slate-100" role="list">
+                  <ul className="divide-y divide-slate-100">
                     {preview(classItems).map((item) => (
                       <li key={item.id} className="px-4 py-3.5">
                         <div className="flex items-start justify-between gap-3">
@@ -963,7 +963,7 @@ export function HomeAdminTimeline() {
             {activityItems.length === 0 ? (
               <div className="px-4 py-8 text-sm text-slate-500">No hay actividad relevante para mostrar con esos filtros.</div>
             ) : (
-              <ol className="divide-y divide-slate-100" role="list">
+              <ol className="divide-y divide-slate-100">
                 {preview(activityItems).map((item) => (
                   <li key={item.id} className="flex gap-3 px-4 py-3.5">
                     <div
@@ -1081,7 +1081,7 @@ export function HomeAdminAttendanceFeed() {
           <EmptyState message="No hay marcaciones en los últimos días. Cuando el equipo registre asistencias, aparecerán aquí." />
         )}
         {!loading && !error && rows.length > 0 && (
-          <ul className="space-y-2" role="list">
+          <ul className="space-y-2">
             {rows.map((r) => (
               <li
                 key={r.id}
@@ -1216,7 +1216,7 @@ export function HomeAdminUpcomingEvents() {
           <EmptyState message="No hay actividades próximas en los próximos días. Cuando se programe actividad, aparecerá aquí." />
         )}
         {!loading && !error && visible.length > 0 && (
-          <ul className="grid gap-2 2xl:grid-cols-2" role="list">
+          <ul className="grid gap-2 2xl:grid-cols-2">
             {visible.map((event) => (
               <li
                 key={event.id}
@@ -1348,7 +1348,7 @@ export function HomeUpcomingSchedule({ role, userId }: { role: string; userId?: 
           <EmptyState message="No tenés actividades programadas para las próximas dos semanas." />
         )}
         {!loading && !error && visible.length > 0 && (
-          <ul className="space-y-3" role="list">
+          <ul className="space-y-3">
             {visible.map((event) => (
               <li key={event.id}>
                 <div className="min-w-0 flex-1">

@@ -255,8 +255,8 @@ async function createStudentMoodleUser(s: StudentAccountInput, hasReal: boolean)
   const idnumber = studentIdnumber(s.id);
   const real = realAccountData(s);
   const { firstname, lastname } = moodleNames(s);
-  const username = real?.username ?? `ets${s.id.replace(/-/g, "")}`.slice(0, 100);
-  const email = real?.email ?? `student-${s.id.replace(/-/g, "")}@students.edutrack.local`;
+  const username = real?.username ?? `ets${s.id.replaceAll("-", "")}`.slice(0, 100);
+  const email = real?.email ?? `student-${s.id.replaceAll("-", "")}@students.edutrack.local`;
   const password = hasReal ? randomStudentPassword() : `EtS-${s.id.slice(0, 8)}-a1!`;
 
   let created: unknown;

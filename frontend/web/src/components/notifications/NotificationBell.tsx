@@ -153,7 +153,7 @@ export default function NotificationBell() {
               <ul className="divide-y divide-slate-100">
                 {items.map((item) => (
                   <li key={item.id}>
-                    <NotificationRow item={item} onOpen={(it) => void open(it)} />
+                    <NotificationRow item={item} onOpen={open} />
                   </li>
                 ))}
               </ul>

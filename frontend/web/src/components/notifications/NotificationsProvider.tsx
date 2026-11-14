@@ -25,7 +25,7 @@ export type NotificationsContextValue = {
   markRead: (item: Pick<InAppNotification, 'id' | 'readAt'>) => Promise<void>
   markAllRead: () => Promise<void>
   /** Marca leído y lleva a la pantalla del aviso, sin recargar la página. */
-  open: (item: InAppNotification) => Promise<void>
+  open: (item: InAppNotification) => void
   panelOpen: boolean
   setPanelOpen: (open: boolean) => void
   /** Avisos que llegaron mientras se usaba la app (el cartelito). */
@@ -136,7 +136,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, [refresh])
 
   const open = useCallback(
-    async (item: InAppNotification) => {
+    (item: InAppNotification) => {
       setPanelOpen(false)
       setToast(null)
       void markRead(item)

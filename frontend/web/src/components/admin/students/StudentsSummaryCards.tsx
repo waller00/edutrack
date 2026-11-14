@@ -23,7 +23,7 @@ export default function StudentsSummaryCards({
     <details className="group rounded-xl border border-gray-200 bg-white shadow-sm">
       <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-2 p-4 text-sm font-medium text-gray-700 [&::-webkit-details-marker]:hidden">
         <span aria-hidden className="text-gray-400 transition-transform group-open:rotate-90">▸</span>
-        Resumen de matrícula
+        {' '}Resumen de matrícula
         <span className="ml-auto text-xs font-normal text-gray-500">{summary.total} {summary.total === 1 ? 'registro' : 'registros'}</span>
       </summary>
       <div className="grid grid-cols-2 gap-3 border-t border-gray-100 p-4 sm:grid-cols-3 lg:grid-cols-5">

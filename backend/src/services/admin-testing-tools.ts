@@ -139,7 +139,7 @@ export async function resetDatabaseToSingleAdmin(opts?: {
 }
 
 function testDeviceUserIdForUser(userId: string) {
-  const compact = userId.replace(/-/g, '').slice(0, 8)
+  const compact = userId.replaceAll('-', '').slice(0, 8)
   return `T${compact}`.slice(0, 20)
 }
 

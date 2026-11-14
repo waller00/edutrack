@@ -230,7 +230,7 @@ export default function GradeSheet({
                         aria-label={`Marcar ausente a ${studentFullName(student)}`}
                         onChange={() => setDraft(toggleAbsent(draft, student.studentId))}
                       />
-                      Ausente
+                      {' '}Ausente
                     </label>
                   </td>
                 </tr>

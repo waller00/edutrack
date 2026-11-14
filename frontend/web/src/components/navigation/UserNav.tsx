@@ -302,7 +302,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     })
   }, [me, pathname])
 
-  async function logout() {
+  function logout() {
     clearObservabilityUser()
     globalThis.location.href = logoutUrl()
   }

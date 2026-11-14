@@ -287,7 +287,7 @@ export default function CompletenessPanel({ periodId, group, stage, rows, loadin
             onChange={(e) => setOnlyIncomplete(e.target.checked)}
             className="h-4 w-4 rounded border-gray-300"
           />
-          Sólo las que faltan
+          {' '}Sólo las que faltan
         </label>
         {periodId && !loading && (
           <div className="ml-auto flex flex-wrap items-center gap-3">

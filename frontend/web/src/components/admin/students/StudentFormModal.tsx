@@ -428,7 +428,7 @@ export default function StudentFormModal({
           className="mt-0.5 h-4 w-4 rounded border-gray-300"
         />
         <label htmlFor="st-apeReferred" className="text-sm text-gray-700">
-          Derivado a APE
+          Derivado a APE{' '}
           <span className="block text-[11px] text-gray-500">
             Los 15 días extra de diciembre y, si no salva, los de febrero.
           </span>

@@ -138,7 +138,7 @@ export function auditMetadataDisplay(action: string, metadata: unknown): AuditDe
   switch (action) {
     case 'AUTH_LOGIN_FAILURE': {
       const reason = String(r.reason ?? '')
-      const line = LOGIN_FAILURE_REASONS[reason] ?? `Intento rechazado (${reason.replace(/_/g, ' ').toLowerCase()}).`
+      const line = LOGIN_FAILURE_REASONS[reason] ?? `Intento rechazado (${reason.replaceAll('_', ' ').toLowerCase()}).`
       return { lines: [line], technicalJson }
     }
     case 'AUTH_GOOGLE_LOGIN_SUCCESS': {
@@ -222,7 +222,7 @@ export function auditMetadataDisplay(action: string, metadata: unknown): AuditDe
     case 'EVENT_CREATED': {
       const title = r.title != null ? String(r.title) : ''
       const typeKey = r.type != null ? String(r.type) : ''
-      const typeLabel = EVENT_TYPE_LABELS[typeKey] ?? typeKey.replace(/_/g, ' ').toLowerCase()
+      const typeLabel = EVENT_TYPE_LABELS[typeKey] ?? typeKey.replaceAll('_', ' ').toLowerCase()
       const assigned = r.assignedUserId != null && String(r.assignedUserId).trim() !== ''
       const lines: string[] = []
       if (title) lines.push(`Título: «${title.length > 120 ? `${title.slice(0, 117)}…` : title}».`)
@@ -301,7 +301,7 @@ export function auditMetadataDisplay(action: string, metadata: unknown): AuditDe
           ? 'Correo'
           : k === 'type'
             ? 'Tipo'
-            : k.replace(/_/g, ' ')
+            : k.replaceAll('_', ' ')
     return { lines: [`${keyLabel}: ${val}.`], technicalJson }
   }
 

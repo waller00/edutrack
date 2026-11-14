@@ -192,7 +192,7 @@ function getApiErrorDetail(error: unknown): string {
 }
 
 function csvCell(value: string): string {
-  if (/[;"\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`
+  if (/[;"\n\r]/.test(value)) return `"${value.replaceAll('"', '""')}"`
   return value
 }
 
@@ -248,7 +248,7 @@ function buildEventImportTemplate(): string {
 }
 
 function parseCsvRows(text: string): Record<string, string>[] {
-  const cleaned = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const cleaned = text.replace(/^\uFEFF/, '').replaceAll('\r\n', '\n').replaceAll('\r', '\n')
   const firstLine = cleaned.split('\n')[0] ?? ''
   const delimiter = (firstLine.match(/;/g)?.length ?? 0) >= (firstLine.match(/,/g)?.length ?? 0) ? ';' : ','
   const rows: string[][] = []
@@ -535,11 +535,11 @@ function OccurrenceActionModal({
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-sm font-medium text-gray-700">
-                Inicio
+                Inicio{' '}
                 <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="input-field mt-1" />
               </label>
               <label className="block text-sm font-medium text-gray-700">
-                Fin
+                Fin{' '}
                 <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="input-field mt-1" />
               </label>
             </div>

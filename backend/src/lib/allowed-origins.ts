@@ -7,7 +7,7 @@
 export function normalizeOrigin(url: string): string {
   return url
     .trim()
-    .replace(/\r/g, "")
+    .replaceAll("\r", "")
     .replace(/\/$/, "");
 }
 

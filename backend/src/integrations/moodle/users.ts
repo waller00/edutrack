@@ -17,7 +17,7 @@ export type MoodleSyncUserInput = {
 };
 
 function moodleUsernameForEduTrackUser(userId: string): string {
-  const hex = userId.replace(/-/g, "");
+  const hex = userId.replaceAll("-", "");
   const u = `et${hex}`;
   return u.length > 100 ? u.slice(0, 100) : u;
 }

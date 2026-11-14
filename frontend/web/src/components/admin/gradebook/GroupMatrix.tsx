@@ -160,7 +160,7 @@ function MatrixLegend({ matrix }: Readonly<{ matrix: Matrix }>) {
         ))}
         <span className="inline-flex items-center gap-1">
           <span className="rounded border border-dashed border-gray-300 px-1 text-gray-500">Prop.</span>
-          propuesta del docente, todavía sin R
+          {' '}propuesta del docente, todavía sin R
         </span>
         <span>· — sin nota</span>
       </p>

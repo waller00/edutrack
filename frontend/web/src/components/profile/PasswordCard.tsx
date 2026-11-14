@@ -135,7 +135,7 @@ export default function PasswordCard({ username, openCreate = false, onCreated }
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <input type="checkbox" checked={showPasswords} onChange={(e) => setShowPasswords(e.target.checked)} />
-            Mostrar contraseñas
+            {' '}Mostrar contraseñas
           </label>
           {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">

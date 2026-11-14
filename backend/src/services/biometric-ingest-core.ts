@@ -58,7 +58,7 @@ function endOfUtcDay(startOfDay: Date) {
   return end;
 }
 
-async function createDuplicatePunch(
+function createDuplicatePunch(
   tx: any,
   params: {
     deviceDbId: string;

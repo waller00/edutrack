@@ -843,7 +843,7 @@ r.get('/attendance-timeline', authGuard, requirePermission('analytics.read', 'al
 })
 
 // Fase 1: endpoints con retorno vacío para mantener contrato en UI (se completan en Fase 2).
-r.get('/metrics', authGuard, requirePermission('analytics.read', 'all'), async (req, res) => {
+r.get('/metrics', authGuard, requirePermission('analytics.read', 'all'), (req, res) => {
   return res.json({ ok: true, message: 'metrics endpoint (Fase 2: expandir agregaciones)' })
 })
 r.get('/rankings', authGuard, requirePermission('analytics.read', 'all'), async (req, res) => {
@@ -857,10 +857,10 @@ r.get('/rankings', authGuard, requirePermission('analytics.read', 'all'), async 
     return res.status(500).json({ message: 'Error interno del servidor', error: error?.message || String(error) })
   }
 })
-r.get('/alerts/critical', authGuard, requirePermission('analytics.read', 'all'), async (_req, res) => {
+r.get('/alerts/critical', authGuard, requirePermission('analytics.read', 'all'), (_req, res) => {
   return res.json({ alerts: [] })
 })
-r.get('/anomalies', authGuard, requirePermission('analytics.read', 'all'), async (_req, res) => {
+r.get('/anomalies', authGuard, requirePermission('analytics.read', 'all'), (_req, res) => {
   return res.json({ anomalies: [] })
 })
 

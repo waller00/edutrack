@@ -28,7 +28,7 @@ export default function NotificationToast() {
   const kind = notificationKind(first.type)
 
   function activate() {
-    if (single) void open(single)
+    if (single) open(single)
     else setPanelOpen(true)
     dismissToast()
   }

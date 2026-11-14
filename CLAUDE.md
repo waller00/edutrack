@@ -664,9 +664,14 @@ SonarCloud analiza `backend/src` + `frontend/web/src`. Quality Gate: cobertura n
 > `compareCodeUnits`; `Number.parseInt`/`Number.isNaN`; una promesa que no se espera, con `void`.
 > Todo `<label>` con su `htmlFor` y el `id` en el campo (si se repite en pantalla, `useId`); un
 > rótulo de un dato que no se edita es un `<span>`, y un grupo de casillas, `fieldset` + `legend`.
-> Enfocar el campo que aparece por un clic es `ref={focusOnMount}`, no `autoFocus`. Un falso
+> Enfocar el campo que aparece por un clic es `ref={focusOnMount}`, no `autoFocus`. Un reemplazo
+> de un texto fijo es `replaceAll('-', '')`, no `replace(/-/g, '')`. Texto y elemento en línea en
+> renglones distintos llevan `{' '}` explícito (React no pone el espacio: "1 –20 de 30").
+> `async` sólo si la función espera algo. Un modal: el fondo es `role="presentation"` (el clic
+> afuera cierra) y `role="dialog"` va en el panel. Nada de `role="list"` en `ul`/`ol`. Un falso
 > positivo no se "acepta" en SonarCloud: va con `// NOSONAR` y el motivo en esa línea, o en
 > `sonar.issue.ignore.multicriteria` de `sonar-project.properties` si es todo un archivo.
+> SonarCloud usa el perfil «Sonar way» completo (el «extended» de un SonarQube local, no el «core»).
 
 ---
 

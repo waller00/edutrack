@@ -118,17 +118,17 @@ export default function CorrectionForm({
         <>
           <label className="flex items-center gap-2 text-xs text-gray-700">
             <input type="checkbox" checked={values.isAbsent} onChange={(e) => set({ isAbsent: e.target.checked })} />
-            No rindió
+            {' '}No rindió
           </label>
           <label className="block text-xs text-gray-700">
-            Comentario
+            Comentario{' '}
             <input className={`${FIELD} mt-1`} value={values.comment} maxLength={2000} onChange={(e) => set({ comment: e.target.value })} />
           </label>
         </>
       )}
       {target.kind === 'judgement' && (
         <label className="block text-xs text-gray-700">
-          Juicio del docente
+          Juicio del docente{' '}
           <textarea className={`${FIELD} mt-1 min-h-[72px]`} value={values.text} maxLength={2000} onChange={(e) => set({ text: e.target.value })} />
         </label>
       )}

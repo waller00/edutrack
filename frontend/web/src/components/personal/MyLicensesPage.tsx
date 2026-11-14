@@ -149,7 +149,7 @@ function LicensesContent() {
             }}
           />
           <label className="space-y-1 text-sm font-medium text-slate-700">
-            Buscar licencia
+            Buscar licencia{' '}
             <input
               type="search"
               value={search}

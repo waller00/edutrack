@@ -51,7 +51,7 @@ export default function ForgotPage() {
           ) : (
             <form onSubmit={submit} className="space-y-4">
               <label className="block text-sm font-medium text-gray-700">
-                Correo
+                Correo{' '}
                 <input
                   type="email"
                   required

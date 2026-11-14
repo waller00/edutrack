@@ -129,7 +129,7 @@ function AbsentCheck({
         onChange={(e) => onChange(e.target.checked)}
         className="h-4 w-4 rounded border-gray-300"
       />
-      No rindió
+      {' '}No rindió
     </label>
   )
 }
@@ -294,15 +294,19 @@ function AddGradeForm({
   return createPortal(
     <div
       className="responsive-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="add-grade-title"
+      role="presentation"
       onMouseDown={(e) => {
         // Clic en el fondo cierra, salvo mientras guarda: no se pierde una nota a medio mandar.
         if (e.target === e.currentTarget && !saving) onCancel()
       }}
     >
-      <form className="responsive-modal-panel max-w-lg space-y-4" onSubmit={(e) => void handleSubmit(e)}>
+      <form
+        className="responsive-modal-panel max-w-lg space-y-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-grade-title"
+        onSubmit={(e) => void handleSubmit(e)}
+      >
         <header className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 id="add-grade-title" className="text-lg font-semibold text-gray-900">
@@ -537,14 +541,18 @@ function GroupGradeForm({
   return createPortal(
     <div
       className="responsive-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="group-grade-title"
+      role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !saving) onCancel()
       }}
     >
-      <form className="responsive-modal-panel max-w-2xl space-y-4" onSubmit={(e) => void handleSubmit(e)}>
+      <form
+        className="responsive-modal-panel max-w-2xl space-y-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="group-grade-title"
+        onSubmit={(e) => void handleSubmit(e)}
+      >
         <header className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 id="group-grade-title" className="text-lg font-semibold text-gray-900">
@@ -1132,7 +1140,7 @@ function StudentCard({
   )
   const photoUrl = useStudentPhoto(gradeBookId, student.studentId, student.hasPhoto)
 
-  async function handlePrint() {
+  function handlePrint() {
     setExportBusy('print')
     setExportError(null)
     try {
@@ -1236,7 +1244,7 @@ function StudentCard({
               <button
                 type="button"
                 disabled={exportBusy !== null}
-                onClick={() => void handlePrint()}
+                onClick={handlePrint}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
                 aria-label="Imprimir evaluaciones del alumno"
                 title="Imprimir"

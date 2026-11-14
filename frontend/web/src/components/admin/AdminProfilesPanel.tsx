@@ -691,7 +691,7 @@ export default function AdminProfilesPanel({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-sm font-medium text-slate-700">
-              Nombre
+              Nombre{' '}
               <input
                 ref={focusOnMount}
                 required
@@ -710,7 +710,7 @@ export default function AdminProfilesPanel({
               />
             </label>
             <label className="block text-sm font-medium text-slate-700">
-              Código
+              Código{' '}
               <input
                 required
                 minLength={2}
@@ -1134,7 +1134,7 @@ export default function AdminProfilesPanel({
                                       className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
                                       aria-label={`Activar todo el módulo ${module}`}
                                     />
-                                    Activar todo el módulo
+                                    {' '}Activar todo el módulo
                                   </label>
                                 )}
                                 <div className="divide-y divide-slate-100">
@@ -1174,7 +1174,7 @@ export default function AdminProfilesPanel({
                             }
                             className="h-4 w-4 rounded border-gray-300 text-emerald-600"
                           />
-                          Editar nombres visibles
+                          {' '}Editar nombres visibles
                         </label>
                       </SettingsDetails>
                     </div>

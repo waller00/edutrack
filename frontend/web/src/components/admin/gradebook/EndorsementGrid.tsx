@@ -98,12 +98,12 @@ export default function EndorsementGrid({
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-sm text-gray-700">
           <input type="checkbox" checked={pendingOnly} onChange={(e) => onPendingOnlyChange(e.target.checked)} />
-          Sólo pendientes de visar
+          {' '}Sólo pendientes de visar
         </label>
         {/* Lo que quedó sin visar de reuniones anteriores, con su antigüedad para priorizar. */}
         <label className="flex items-center gap-2 text-sm text-gray-700">
           <input type="checkbox" checked={allMeetings} onChange={(e) => onAllMeetingsChange(e.target.checked)} />
-          Todas las reuniones
+          {' '}Todas las reuniones
         </label>
       </div>
 

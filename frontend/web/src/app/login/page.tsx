@@ -197,7 +197,7 @@ export default function LoginPage() {
       <main className="min-h-screen gradient-light flex items-center justify-center p-4">
         <div className="flex items-center gap-3 text-sm font-medium text-gray-600">
           <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-600" aria-hidden />
-          Conectando con EduTrack
+          {' '}Conectando con EduTrack
         </div>
       </main>
     )

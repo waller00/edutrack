@@ -222,7 +222,7 @@ export async function ensureCourseOffering(
  * `visibleInFilters` y curso activo. Criterio único compartido por eventos y matrícula
  * de estudiantes (un curso no ofertado ese ciclo no admite eventos ni inscripciones).
  */
-export async function assertCourseOfferedInSchoolYear(
+export function assertCourseOfferedInSchoolYear(
   prisma: PrismaClient,
   courseId: string,
   schoolYearId: string,
@@ -233,7 +233,7 @@ export async function assertCourseOfferedInSchoolYear(
   })
 }
 
-export async function findActiveCourseOffering(
+export function findActiveCourseOffering(
   prisma: PrismaClient,
   courseId: string,
   schoolYearId: string,

@@ -68,6 +68,18 @@ export type SheetResponse = {
 /** Más allá de un día no vale la pena esperar la apertura con un temporizador. */
 const MAX_OPEN_WAIT_MS = 24 * 60 * 60 * 1000
 
+/** Cierra el menú «Opciones de lista» (un `<details>`) y devuelve el foco al botón que lo abre. */
+function closeOptionsMenu(from: HTMLElement) {
+  const details = from.closest('details')
+  if (!details) return
+  details.open = false
+  details.querySelector('summary')?.focus()
+}
+
+function closeOptionsOnEscape(event: { key: string; currentTarget: HTMLElement }) {
+  if (event.key === 'Escape') closeOptionsMenu(event.currentTarget)
+}
+
 export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: string }) {
   const router = useRouter()
   const me = useOptionalAuth()?.me ?? null
@@ -309,19 +321,11 @@ export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: 
               <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar nombre o documento" className="min-h-12 w-full rounded-xl border border-slate-200 bg-white py-3 pl-9 pr-3 text-base focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
             </label>
             {canEdit && (
-              <details data-tour="roll-call.options" className="relative shrink-0" onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.currentTarget.open = false
-                  event.currentTarget.querySelector('summary')?.focus()
-                }
-              }}>
-                <summary aria-label="Opciones de lista" className="flex min-h-12 min-w-12 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+              <details data-tour="roll-call.options" className="relative shrink-0">
+                <summary aria-label="Opciones de lista" onKeyDown={closeOptionsOnEscape} className="flex min-h-12 min-w-12 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
                   <MoreHorizontal className="h-5 w-5" aria-hidden /><span className="sr-only sm:not-sr-only">Opciones de lista</span>
                 </summary>
-                <div role="presentation" className="absolute right-0 top-full z-30 mt-2 w-60 space-y-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg" onClick={(event) => {
-                  const details = event.currentTarget.closest('details')
-                  if (details) { details.open = false; details.querySelector('summary')?.focus() }
-                }}>
+                <div role="presentation" className="absolute right-0 top-full z-30 mt-2 w-60 space-y-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg" onKeyDown={closeOptionsOnEscape} onClick={(event) => closeOptionsMenu(event.currentTarget)}>
                 <button type="button" disabled={saving} onClick={() => { setDraft((d) => applyBulk(d, students, 'PRESENT')); setMsg(null) }} className="inline-flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-slate-600 hover:bg-slate-50 hover:text-emerald-700 disabled:opacity-50">
                   <Users className="h-4 w-4" aria-hidden />Todos presentes
                 </button>

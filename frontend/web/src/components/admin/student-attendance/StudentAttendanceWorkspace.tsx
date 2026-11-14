@@ -66,7 +66,7 @@ export default function StudentAttendanceWorkspace() {
         {canJustify && <Link href="/admin/student-attendance?tab=justificaciones" className="btn-primary inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" aria-hidden /> Agregar licencia o justificativo</Link>}
       </div>
       <label className="block max-w-xl text-sm font-medium text-slate-700">
-        Buscar estudiante o curso
+        Buscar estudiante o curso{' '}
         <span className="relative mt-1 block">
           <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" aria-hidden />
           <input className="input-field w-full pl-9" value={q} maxLength={80} onChange={(event) => setQ(event.target.value)} placeholder="Nombre, apellido, documento o curso" />
